@@ -60,7 +60,7 @@ export function LLMChatPanel({ projectId, onClose, onCreateTasks }: Props) {
   }
 
   return (
-    <div className="flex flex-col h-full dark:bg-gray-800">
+    <div className="flex flex-col h-full min-w-0 dark:bg-gray-800">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b dark:border-gray-700">
         <h3 className="font-semibold text-sm dark:text-gray-100">LLM 助手</h3>
@@ -70,7 +70,7 @@ export function LLMChatPanel({ projectId, onClose, onCreateTasks }: Props) {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
         {messages.map((msg, i) => (
           <div
             key={i}
@@ -81,7 +81,7 @@ export function LLMChatPanel({ projectId, onClose, onCreateTasks }: Props) {
                 msg.role === 'user'
                   ? 'bg-primary-500 text-white'
                   : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200'
-              }`}
+              } break-words`}
             >
               {msg.content}
             </div>
@@ -118,7 +118,7 @@ export function LLMChatPanel({ projectId, onClose, onCreateTasks }: Props) {
       <div className="p-3 border-t dark:border-gray-700">
         <div className="flex gap-2">
           <input
-            className="input-field flex-1 text-sm"
+            className="input-field flex-1 min-w-0 text-sm"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}

@@ -16,7 +16,7 @@ interface Props {
     status_id: number
     priority: number
     assignee_id?: number | null
-  }) => void
+  }) => Promise<void> | void
 }
 
 export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose, onCreate }: Props) {
@@ -32,16 +32,25 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose
   const [generatedTasks, setGeneratedTasks] = useState<GeneratedTask[]>([])
   const [selectedTasks, setSelectedTasks] = useState<Set<number>>(new Set())
   const [creating, setCreating] = useState(false)
+  const [manualSubmitting, setManualSubmitting] = useState(false)
 
   useEffect(() => {
     api.get(`/projects/${projectId}/members`).then((res) => setMembers(res.data)).catch(() => {})
   }, [projectId])
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!title.trim()) return
-    onCreate({ title: title.trim(), description, status_id: statusId, priority, assignee_id: assigneeId })
-    onClose()
+    if (!title.trim() || manualSubmitting) return
+    setManualSubmitting(true)
+    try {
+      await onCreate({ title: title.trim(), description, status_id: statusId, priority, assignee_id: assigneeId })
+      toast.success('任务已创建')
+      onClose()
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || '创建任务失败')
+    } finally {
+      setManualSubmitting(false)
+    }
   }
 
   const handleLLMGenerate = async () => {
@@ -72,10 +81,11 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose
     if (selectedTasks.size === 0) return
     setCreating(true)
     let created = 0
+    const failedIndexes: number[] = []
     for (const i of selectedTasks) {
       try {
         const task = generatedTasks[i]
-        await api.post(`/projects/${projectId}/tasks`, {
+        await onCreate({
           title: task.title,
           description: task.description || '',
           status_id: statusId,
@@ -83,13 +93,16 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose
         })
         created++
       } catch {
-        // continue with remaining tasks
+        failedIndexes.push(i)
       }
     }
     setCreating(false)
-    if (created > 0) {
+    if (failedIndexes.length === 0 && created > 0) {
       toast.success(`已创建 ${created} 个任务`)
       onClose()
+    } else if (created > 0) {
+      setSelectedTasks(new Set(failedIndexes))
+      toast.error(`已创建 ${created} 个任务，${failedIndexes.length} 个失败`)
     } else {
       toast.error('创建任务失败')
     }
@@ -113,10 +126,10 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose
   }
 
   return (
-    <AnimatedDialog open onClose={onClose} className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 w-full max-w-lg max-h-[85vh] flex flex-col">
+    <AnimatedDialog open onClose={creating || manualSubmitting ? undefined : onClose} className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 w-full max-w-lg max-h-[85vh] flex flex-col">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold dark:text-gray-100">新建任务</h3>
-          <button onClick={onClose} className="btn-ghost p-1">
+          <button onClick={onClose} className="btn-ghost p-1" disabled={creating || manualSubmitting}>
             <X size={18} />
           </button>
         </div>
@@ -222,6 +235,7 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose
                 placeholder="输入任务标题"
                 required
                 autoFocus
+                disabled={manualSubmitting}
               />
             </div>
             <div>
@@ -232,6 +246,7 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="可选的任务描述"
+                disabled={manualSubmitting}
               />
             </div>
             <div className="flex gap-3">
@@ -241,6 +256,7 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose
                   className="input-field"
                   value={statusId}
                   onChange={(e) => setStatusId(parseInt(e.target.value))}
+                  disabled={manualSubmitting}
                 >
                   {statuses.map((s) => (
                     <option key={s.id} value={s.id}>{s.name}</option>
@@ -253,6 +269,7 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose
                   className="input-field"
                   value={priority}
                   onChange={(e) => setPriority(parseInt(e.target.value))}
+                  disabled={manualSubmitting}
                 >
                   <option value={0}>无</option>
                   <option value={1}>低</option>
@@ -268,6 +285,7 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose
                 className="input-field"
                 value={assigneeId || ''}
                 onChange={(e) => setAssigneeId(e.target.value ? parseInt(e.target.value) : null)}
+                disabled={manualSubmitting}
               >
                 <option value="">不指定</option>
                 {members.map((m) => (
@@ -278,11 +296,12 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose
               </select>
             </div>
             <div className="flex justify-end gap-2 pt-2">
-              <button type="button" className="btn-secondary" onClick={onClose}>
+              <button type="button" className="btn-secondary" onClick={onClose} disabled={manualSubmitting}>
                 取消
               </button>
-              <button type="submit" className="btn-primary">
-                创建
+              <button type="submit" className="btn-primary flex items-center gap-1.5" disabled={manualSubmitting || !title.trim()}>
+                {manualSubmitting && <Loader2 size={14} className="animate-spin" />}
+                {manualSubmitting ? '创建中...' : '创建'}
               </button>
             </div>
           </form>

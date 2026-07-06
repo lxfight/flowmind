@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { X, Calendar, User, AlertCircle, MessageSquare, ChevronDown, Check, ListTodo, Plus, Loader2 } from 'lucide-react'
 import api from '../../utils/api'
 import toast from 'react-hot-toast'
@@ -16,37 +16,78 @@ export function TaskDetailDialog({ taskId, projectId, onClose, onUpdated }: Prop
   const [task, setTask] = useState<TaskDetail | null>(null)
   const [newComment, setNewComment] = useState('')
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [members, setMembers] = useState<MemberOption[]>([])
+  const [membersError, setMembersError] = useState(false)
   const [showAssigneePicker, setShowAssigneePicker] = useState(false)
   const [updatingAssignee, setUpdatingAssignee] = useState(false)
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('')
   const [addingSubtask, setAddingSubtask] = useState(false)
+  const [addingComment, setAddingComment] = useState(false)
+  const [completing, setCompleting] = useState(false)
 
-  useEffect(() => {
-    // Load task detail and members in parallel
-    Promise.all([
-      api.get(`/projects/${projectId}/tasks/${taskId}`),
-      api.get(`/projects/${projectId}/members`),
-    ]).then(([taskRes, membersRes]) => {
-      setTask(taskRes.data)
-      setMembers(membersRes.data)
-      setLoading(false)
-    }).catch(() => setLoading(false))
-  }, [taskId, projectId])
-
-  const handleAddComment = async () => {
-    if (!newComment.trim() || !task) return
-    await api.post(`/projects/${projectId}/tasks/${taskId}/comments`, { content: newComment })
-    setNewComment('')
+  const refreshTask = useCallback(async () => {
     const res = await api.get(`/projects/${projectId}/tasks/${taskId}`)
     setTask(res.data)
+    return res.data as TaskDetail
+  }, [projectId, taskId])
+
+  const loadTaskDetail = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      await refreshTask()
+    } catch {
+      setError('任务详情加载失败')
+      toast.error('加载任务详情失败')
+    } finally {
+      setLoading(false)
+    }
+  }, [refreshTask])
+
+  const loadMembers = useCallback(async () => {
+    setMembersError(false)
+    try {
+      const res = await api.get(`/projects/${projectId}/members`)
+      setMembers(res.data)
+    } catch {
+      setMembers([])
+      setMembersError(true)
+      toast.error('成员列表加载失败，任务详情仍可查看')
+    }
+  }, [projectId])
+
+  useEffect(() => {
+    loadTaskDetail()
+    loadMembers()
+  }, [loadTaskDetail, loadMembers])
+
+  const handleAddComment = async () => {
+    if (!newComment.trim() || !task || addingComment) return
+    setAddingComment(true)
+    try {
+      await api.post(`/projects/${projectId}/tasks/${taskId}/comments`, { content: newComment.trim() })
+      setNewComment('')
+      await refreshTask()
+    } catch {
+      toast.error('发送评论失败')
+    } finally {
+      setAddingComment(false)
+    }
   }
 
   const handleComplete = async () => {
     if (!task) return
-    await api.put(`/projects/${projectId}/tasks/${taskId}`, { is_completed: !task.is_completed })
-    onUpdated()
-    onClose()
+    setCompleting(true)
+    try {
+      await api.put(`/projects/${projectId}/tasks/${taskId}`, { is_completed: !task.is_completed })
+      onUpdated()
+      onClose()
+    } catch {
+      toast.error('更新任务状态失败')
+    } finally {
+      setCompleting(false)
+    }
   }
 
   const handleAssigneeChange = async (userId: number | null) => {
@@ -54,14 +95,14 @@ export function TaskDetailDialog({ taskId, projectId, onClose, onUpdated }: Prop
     setUpdatingAssignee(true)
     try {
       await api.put(`/projects/${projectId}/tasks/${taskId}`, { assignee_id: userId })
-      const res = await api.get(`/projects/${projectId}/tasks/${taskId}`)
-      setTask(res.data)
+      await refreshTask()
       onUpdated()
     } catch {
       toast.error('更新指派人失败')
+    } finally {
+      setUpdatingAssignee(false)
+      setShowAssigneePicker(false)
     }
-    setUpdatingAssignee(false)
-    setShowAssigneePicker(false)
   }
 
   const handleAddSubtask = async () => {
@@ -75,27 +116,26 @@ export function TaskDetailDialog({ taskId, projectId, onClose, onUpdated }: Prop
         priority: 0,
       })
       setNewSubtaskTitle('')
-      const res = await api.get(`/projects/${projectId}/tasks/${taskId}`)
-      setTask(res.data)
+      await refreshTask()
       onUpdated()
     } catch {
       toast.error('创建子任务失败')
+    } finally {
+      setAddingSubtask(false)
     }
-    setAddingSubtask(false)
   }
 
   const handleSubtaskComplete = async (subtaskId: number, completed: boolean) => {
     try {
       await api.put(`/projects/${projectId}/tasks/${subtaskId}`, { is_completed: !completed })
-      const res = await api.get(`/projects/${projectId}/tasks/${taskId}`)
-      setTask(res.data)
+      await refreshTask()
       onUpdated()
     } catch {
       toast.error('更新子任务失败')
     }
   }
 
-  if (loading || !task) {
+  if (loading) {
     return (
       <AnimatedDialog open onClose={onClose} className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 w-full max-w-lg">
         <div className="animate-pulse space-y-4">
@@ -103,6 +143,23 @@ export function TaskDetailDialog({ taskId, projectId, onClose, onUpdated }: Prop
           <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
           <div className="h-20 bg-gray-200 dark:bg-gray-700 rounded" />
         </div>
+      </AnimatedDialog>
+    )
+  }
+
+  if (error || !task) {
+    return (
+      <AnimatedDialog open onClose={onClose} className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 w-full max-w-lg">
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <h3 className="text-lg font-semibold dark:text-gray-100">任务详情</h3>
+            <p className="text-sm text-red-500 mt-2">{error || '任务不存在或无权访问'}</p>
+          </div>
+          <button onClick={onClose} className="btn-ghost p-1"><X size={18} /></button>
+        </div>
+        <button className="btn-secondary text-sm" onClick={loadTaskDetail}>
+          重试
+        </button>
       </AnimatedDialog>
     )
   }
@@ -116,7 +173,7 @@ export function TaskDetailDialog({ taskId, projectId, onClose, onUpdated }: Prop
       <div className="flex items-start justify-between px-6 py-4 border-b dark:border-gray-700">
           <div className="flex-1">
             <div className="flex items-center gap-2 mb-1">
-              <input type="checkbox" checked={task.is_completed} onChange={handleComplete}
+              <input type="checkbox" checked={task.is_completed} onChange={handleComplete} disabled={completing}
                 className="w-4 h-4 text-primary-500 rounded" />
               <h3 className={`text-lg font-semibold dark:text-gray-100 ${task.is_completed ? 'line-through text-gray-400 dark:text-gray-500' : ''}`}>
                 {task.title}
@@ -160,6 +217,9 @@ export function TaskDetailDialog({ taskId, projectId, onClose, onUpdated }: Prop
                         </span>
                       </button>
                     ))}
+                    {membersError && (
+                      <div className="px-3 py-1.5 text-xs text-red-500">成员列表加载失败</div>
+                    )}
                   </div>
                 )}
               </div>
@@ -262,8 +322,11 @@ export function TaskDetailDialog({ taskId, projectId, onClose, onUpdated }: Prop
             <div className="flex gap-2">
               <input className="input-field flex-1 text-sm" value={newComment} onChange={e => setNewComment(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleAddComment()}
+                disabled={addingComment}
                 placeholder="输入评论..." />
-              <button className="btn-primary text-sm" onClick={handleAddComment}>发送</button>
+              <button className="btn-primary text-sm" onClick={handleAddComment} disabled={addingComment || !newComment.trim()}>
+                {addingComment ? '发送中...' : '发送'}
+              </button>
             </div>
           </div>
         </div>
