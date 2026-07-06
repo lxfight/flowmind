@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { X, Sparkles, Loader2, CheckSquare, Square } from 'lucide-react'
 import api from '../../utils/api'
 import toast from 'react-hot-toast'
+import { AnimatedDialog } from '../common/AnimatedDialog'
 import type { StatusOption, MemberOption, GeneratedTask } from '../../types'
 
 interface Props {
@@ -112,8 +113,7 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 dark:bg-black/60 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 w-full max-w-lg max-h-[85vh] flex flex-col">
+    <AnimatedDialog open onClose={onClose} className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 w-full max-w-lg max-h-[85vh] flex flex-col">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold dark:text-gray-100">新建任务</h3>
           <button onClick={onClose} className="btn-ghost p-1">
@@ -287,7 +287,6 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose
             </div>
           </form>
         </div>
-      </div>
-    </div>
+    </AnimatedDialog>
   )
 }

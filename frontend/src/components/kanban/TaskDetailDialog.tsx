@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { X, Calendar, User, AlertCircle, MessageSquare, ChevronDown, Check, ListTodo, Plus, Loader2 } from 'lucide-react'
 import api from '../../utils/api'
 import toast from 'react-hot-toast'
+import { AnimatedDialog } from '../common/AnimatedDialog'
 import type { MemberOption, TaskDetail } from '../../types'
 
 interface Props {
@@ -96,15 +97,13 @@ export function TaskDetailDialog({ taskId, projectId, onClose, onUpdated }: Prop
 
   if (loading || !task) {
     return (
-      <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-        <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-lg">
-          <div className="animate-pulse space-y-4">
-            <div className="h-6 bg-gray-200 rounded w-3/4" />
-            <div className="h-4 bg-gray-200 rounded w-1/2" />
-            <div className="h-20 bg-gray-200 rounded" />
-          </div>
+      <AnimatedDialog open onClose={onClose} className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 w-full max-w-lg">
+        <div className="animate-pulse space-y-4">
+          <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded w-3/4" />
+          <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
+          <div className="h-20 bg-gray-200 dark:bg-gray-700 rounded" />
         </div>
-      </div>
+      </AnimatedDialog>
     )
   }
 
@@ -112,10 +111,9 @@ export function TaskDetailDialog({ taskId, projectId, onClose, onUpdated }: Prop
   const priorityColors = ['', 'text-blue-500', 'text-yellow-500', 'text-orange-500', 'text-red-500']
 
   return (
-    <div className="fixed inset-0 bg-black/40 dark:bg-black/60 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col">
-        {/* Header */}
-        <div className="flex items-start justify-between px-6 py-4 border-b dark:border-gray-700">
+    <AnimatedDialog open onClose={onClose} className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+      {/* Header */}
+      <div className="flex items-start justify-between px-6 py-4 border-b dark:border-gray-700">
           <div className="flex-1">
             <div className="flex items-center gap-2 mb-1">
               <input type="checkbox" checked={task.is_completed} onChange={handleComplete}
@@ -269,7 +267,6 @@ export function TaskDetailDialog({ taskId, projectId, onClose, onUpdated }: Prop
             </div>
           </div>
         </div>
-      </div>
-    </div>
+    </AnimatedDialog>
   )
 }
