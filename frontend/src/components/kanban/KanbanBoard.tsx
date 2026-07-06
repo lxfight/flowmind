@@ -230,6 +230,7 @@ export default function KanbanBoard() {
         <CreateTaskDialog
           statuses={statuses}
           defaultStatusId={createStatusId}
+          projectId={parseInt(projectId!)}
           onClose={() => setShowCreateDialog(false)}
           onCreate={handleCreateTask}
         />
