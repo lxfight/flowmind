@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import toast from 'react-hot-toast'
+import axios from 'axios'
 
 export default function LoginPage() {
   const [username, setUsername] = useState('')
@@ -16,8 +17,22 @@ export default function LoginPage() {
     try {
       await login(username, password)
       navigate('/')
-    } catch {
-      toast.error('登录失败，请检查用户名和密码')
+    } catch (err) {
+      if (axios.isAxiosError(err)) {
+        const status = err.response?.status
+        const detail = err.response?.data?.detail || ''
+        if (status === 403) {
+          if (detail.includes('审批')) toast.error('账号尚未通过审批，请等待管理员审批')
+          else if (detail.includes('禁用')) toast.error('账号已被禁用，请联系管理员')
+          else toast.error('登录失败，账号受限')
+        } else if (status === 429) {
+          toast.error('登录尝试过于频繁，请稍后再试')
+        } else {
+          toast.error('登录失败，请检查用户名和密码')
+        }
+      } else {
+        toast.error('登录失败，请检查用户名和密码')
+      }
     }
     setLoading(false)
   }

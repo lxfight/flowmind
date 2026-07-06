@@ -33,6 +33,9 @@ class UserOut(BaseModel):
     display_name: str
     avatar_url: str
     is_active: bool
+    is_superuser: bool = False
+    is_approved: bool = False
+    can_create_project: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}

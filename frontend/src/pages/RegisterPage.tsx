@@ -16,7 +16,7 @@ export default function RegisterPage() {
     setLoading(true)
     try {
       await register(username, email, password)
-      toast.success('注册成功，请登录')
+      toast.success('注册申请已提交，请等待管理员审批后登录')
       navigate('/login')
     } catch {
       toast.error('注册失败')

@@ -7,6 +7,9 @@ interface User {
   email: string
   display_name: string
   avatar_url: string
+  is_superuser: boolean
+  is_approved: boolean
+  can_create_project: boolean
 }
 
 interface AuthState {
