@@ -46,8 +46,9 @@ export default function DashboardPage() {
       setProjects([res.data, ...projects])
       toast.success('项目创建成功')
       navigate(`/project/${res.data.id}/board`)
-    } catch {
-      toast.error('创建失败')
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || '创建失败')
+      throw err
     }
   }
 
