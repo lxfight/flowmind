@@ -16,8 +16,9 @@ import api from '../../utils/api'
 import { KanbanColumn } from './KanbanColumn'
 import { KanbanCard } from './KanbanCard'
 import { CreateTaskDialog } from './CreateTaskDialog'
+import { TaskDetailDialog } from './TaskDetailDialog'
 import { LLMChatPanel } from '../llm-chat/LLMChatPanel'
-import { Plus, Sparkles, MessageSquare } from 'lucide-react'
+import { Plus, MessageSquare } from 'lucide-react'
 
 interface Task {
   id: number
@@ -50,6 +51,7 @@ export default function KanbanBoard() {
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [showChat, setShowChat] = useState(false)
   const [createStatusId, setCreateStatusId] = useState<number | null>(null)
+  const [detailTaskId, setDetailTaskId] = useState<number | null>(null)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -178,6 +180,7 @@ export default function KanbanBoard() {
                   setCreateStatusId(status.id)
                   setShowCreateDialog(true)
                 }}
+                onTaskClick={(taskId) => setDetailTaskId(taskId)}
               />
             ))}
           </div>
@@ -210,6 +213,18 @@ export default function KanbanBoard() {
           defaultStatusId={createStatusId}
           onClose={() => setShowCreateDialog(false)}
           onCreate={handleCreateTask}
+        />
+      )}
+
+      {/* Task Detail Dialog */}
+      {detailTaskId && (
+        <TaskDetailDialog
+          taskId={detailTaskId}
+          projectId={parseInt(projectId!)}
+          onClose={() => setDetailTaskId(null)}
+          onUpdated={() => {
+            api.get(`/projects/${projectId}/tasks`).then(res => setTasks(res.data))
+          }}
         />
       )}
     </div>

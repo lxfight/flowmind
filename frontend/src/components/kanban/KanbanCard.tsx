@@ -13,6 +13,7 @@ interface Task {
 interface Props {
   task: Task
   isDragOverlay?: boolean
+  onClick?: () => void
 }
 
 const priorityConfig = {
@@ -23,7 +24,7 @@ const priorityConfig = {
   4: { color: 'text-red-500', label: '紧急' },
 }
 
-export function KanbanCard({ task, isDragOverlay }: Props) {
+export function KanbanCard({ task, isDragOverlay, onClick }: Props) {
   const {
     attributes,
     listeners,
@@ -52,6 +53,13 @@ export function KanbanCard({ task, isDragOverlay }: Props) {
       className={`card p-3 cursor-grab active:cursor-grabbing ${
         isDragging ? 'opacity-50' : ''
       } ${isDragOverlay ? 'shadow-lg rotate-2' : ''}`}
+      onClick={(e) => {
+        // Only trigger on click if not dragging
+        if (!isDragging && onClick) {
+          e.stopPropagation()
+          onClick()
+        }
+      }}
     >
       {/* Priority badge */}
       {task.priority >= 2 && (

@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import { Plus, Search, FileText, Trash2, MessageSquare } from 'lucide-react'
-import api from '../../utils/api'
-import { KnowledgeQueryDialog } from '../knowledge/KnowledgeQueryDialog'
+import api from '../utils/api'
+import { KnowledgeQueryDialog } from '../components/knowledge/KnowledgeQueryDialog'
 
 interface Doc {
   id: number
