@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, Calendar, User, AlertCircle, MessageSquare, ChevronDown, Check } from 'lucide-react'
+import { X, Calendar, User, AlertCircle, MessageSquare, ChevronDown, Check, ListTodo, Plus, Loader2 } from 'lucide-react'
 import api from '../../utils/api'
 import toast from 'react-hot-toast'
 
@@ -48,6 +48,8 @@ export function TaskDetailDialog({ taskId, projectId, onClose, onUpdated }: Prop
   const [members, setMembers] = useState<Member[]>([])
   const [showAssigneePicker, setShowAssigneePicker] = useState(false)
   const [updatingAssignee, setUpdatingAssignee] = useState(false)
+  const [newSubtaskTitle, setNewSubtaskTitle] = useState('')
+  const [addingSubtask, setAddingSubtask] = useState(false)
 
   useEffect(() => {
     // Load task detail and members in parallel
@@ -89,6 +91,37 @@ export function TaskDetailDialog({ taskId, projectId, onClose, onUpdated }: Prop
     }
     setUpdatingAssignee(false)
     setShowAssigneePicker(false)
+  }
+
+  const handleAddSubtask = async () => {
+    if (!newSubtaskTitle.trim() || !task) return
+    setAddingSubtask(true)
+    try {
+      await api.post(`/projects/${projectId}/tasks`, {
+        title: newSubtaskTitle.trim(),
+        status_id: task.status_id,
+        parent_task_id: task.id,
+        priority: 0,
+      })
+      setNewSubtaskTitle('')
+      const res = await api.get(`/projects/${projectId}/tasks/${taskId}`)
+      setTask(res.data)
+      onUpdated()
+    } catch {
+      toast.error('创建子任务失败')
+    }
+    setAddingSubtask(false)
+  }
+
+  const handleSubtaskComplete = async (subtaskId: number, completed: boolean) => {
+    try {
+      await api.put(`/projects/${projectId}/tasks/${subtaskId}`, { is_completed: !completed })
+      const res = await api.get(`/projects/${projectId}/tasks/${taskId}`)
+      setTask(res.data)
+      onUpdated()
+    } catch {
+      toast.error('更新子任务失败')
+    }
   }
 
   if (loading || !task) {
@@ -176,6 +209,66 @@ export function TaskDetailDialog({ taskId, projectId, onClose, onUpdated }: Prop
           <div className="mb-6">
             <h4 className="text-sm font-medium text-gray-500 mb-2">描述</h4>
             <p className="text-sm text-gray-800 whitespace-pre-wrap">{task.description || '无描述'}</p>
+          </div>
+
+          {/* Subtasks */}
+          <div className="mb-6">
+            <h4 className="text-sm font-medium text-gray-500 mb-2 flex items-center gap-1.5">
+              <ListTodo size={14} />
+              子任务 ({task.subtasks?.length || 0})
+              {task.subtasks && task.subtasks.length > 0 && (
+                <span className="text-xs text-gray-400">
+                  — {task.subtasks.filter(s => s.is_completed).length}/{task.subtasks.length} 完成
+                </span>
+              )}
+            </h4>
+            <div className="space-y-1.5 mb-3">
+              {(task.subtasks || []).length === 0 ? (
+                <p className="text-sm text-gray-400 py-2">暂无子任务</p>
+              ) : (
+                task.subtasks!.map((sub) => (
+                  <label
+                    key={sub.id}
+                    className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-colors ${
+                      sub.is_completed ? 'bg-gray-50' : 'hover:bg-gray-50'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={sub.is_completed}
+                      onChange={() => handleSubtaskComplete(sub.id, sub.is_completed)}
+                      className="w-3.5 h-3.5 text-primary-500 rounded flex-shrink-0"
+                    />
+                    <span className={`text-sm ${sub.is_completed ? 'line-through text-gray-400' : 'text-gray-700'}`}>
+                      {sub.title}
+                    </span>
+                  </label>
+                ))
+              )}
+            </div>
+            {/* Add subtask */}
+            <div className="flex gap-2">
+              <input
+                className="input-field flex-1 text-sm"
+                value={newSubtaskTitle}
+                onChange={(e) => setNewSubtaskTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    handleAddSubtask()
+                  }
+                }}
+                placeholder="添加子任务..."
+              />
+              <button
+                className="btn-primary text-sm flex items-center gap-1"
+                onClick={handleAddSubtask}
+                disabled={addingSubtask || !newSubtaskTitle.trim()}
+              >
+                {addingSubtask ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                添加
+              </button>
+            </div>
           </div>
 
           {/* Comments */}
