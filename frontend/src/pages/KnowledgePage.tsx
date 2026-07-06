@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
-import { Plus, Search, FileText, Trash2, MessageSquare } from 'lucide-react'
+import { Plus, Search, FileText, Trash2, MessageSquare, Upload, Loader2, X } from 'lucide-react'
 import api from '../utils/api'
 import { KnowledgeQueryDialog } from '../components/knowledge/KnowledgeQueryDialog'
+import toast from 'react-hot-toast'
 
 interface Doc {
   id: number
@@ -21,6 +22,9 @@ export default function KnowledgePage() {
   const [newTitle, setNewTitle] = useState('')
   const [newContent, setNewContent] = useState('')
   const [loading, setLoading] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [dragOver, setDragOver] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const loadDocs = async () => {
     if (!projectId) return
@@ -35,21 +39,83 @@ export default function KnowledgePage() {
   const handleCreate = async () => {
     if (!projectId || !newTitle.trim()) return
     setLoading(true)
-    await api.post(`/projects/${projectId}/knowledge`, {
-      title: newTitle,
-      content: newContent,
-    })
-    setNewTitle('')
-    setNewContent('')
-    setShowCreate(false)
+    try {
+      await api.post(`/projects/${projectId}/knowledge`, {
+        title: newTitle,
+        content: newContent,
+      })
+      setNewTitle('')
+      setNewContent('')
+      setShowCreate(false)
+      toast.success('文档已添加')
+      loadDocs()
+    } catch {
+      toast.error('保存失败')
+    }
     setLoading(false)
-    loadDocs()
   }
 
   const handleDelete = async (docId: number) => {
     if (!projectId) return
     await api.delete(`/projects/${projectId}/knowledge/${docId}`)
+    toast.success('文档已删除')
     loadDocs()
+  }
+
+  const handleFileUpload = async (file: File) => {
+    if (!projectId) return
+    setUploading(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await api.post(`/projects/${projectId}/knowledge/upload`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      // Pre-fill form with parsed result for review
+      setNewTitle(res.data.title)
+      setNewContent(res.data.content)
+      setShowCreate(true)
+      toast.success(`文件解析完成，共 ${res.data.chunk_count} 个片段`)
+      loadDocs()
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || '文件上传失败')
+    }
+    setUploading(false)
+  }
+
+  const handleDrag = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }, [])
+
+  const handleDragIn = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setDragOver(true)
+    }
+  }, [])
+
+  const handleDragOut = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragOver(false)
+  }, [])
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragOver(false)
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFileUpload(e.dataTransfer.files[0])
+    }
+  }, [projectId])
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      handleFileUpload(e.target.files[0])
+      e.target.value = ''
+    }
   }
 
   return (
@@ -74,19 +140,64 @@ export default function KnowledgePage() {
         </div>
       </div>
 
+      {/* File upload drop zone */}
+      <div
+        className={`mb-6 border-2 border-dashed rounded-xl p-6 text-center transition-colors cursor-pointer ${
+          dragOver
+            ? 'border-primary-400 bg-primary-50'
+            : 'border-gray-300 hover:border-gray-400 bg-gray-50 hover:bg-gray-100'
+        }`}
+        onDragEnter={handleDragIn}
+        onDragLeave={handleDragOut}
+        onDragOver={handleDrag}
+        onDrop={handleDrop}
+        onClick={() => fileInputRef.current?.click()}
+      >
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="hidden"
+          accept=".pdf,.docx,.pptx,.xlsx,.html,.md,.txt,.csv,.json,.xml,.jpg,.jpeg,.png,.gif,.bmp,.tiff,.wav,.mp3,.zip"
+          onChange={handleFileSelect}
+        />
+        {uploading ? (
+          <div className="flex flex-col items-center gap-2">
+            <Loader2 size={32} className="text-primary-500 animate-spin" />
+            <p className="text-sm text-gray-600">正在解析文件...</p>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-2">
+            <Upload size={32} className="text-gray-400" />
+            <p className="text-sm text-gray-600">
+              拖拽文件到此处上传，或<span className="text-primary-600">点击选择</span>
+            </p>
+            <p className="text-xs text-gray-400">
+              支持 PDF、Word、PPT、Excel、HTML、Markdown 等格式
+            </p>
+          </div>
+        )}
+      </div>
+
       {/* Create form */}
       {showCreate && (
         <div className="card p-4 mb-6">
           <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium">文档标题</label>
+              <button className="btn-ghost p-1" onClick={() => setShowCreate(false)}>
+                <X size={16} />
+              </button>
+            </div>
             <input
               className="input-field"
               value={newTitle}
               onChange={(e) => setNewTitle(e.target.value)}
               placeholder="文档标题"
             />
+            <label className="text-sm font-medium">内容（Markdown 格式）</label>
             <textarea
               className="input-field resize-none"
-              rows={6}
+              rows={10}
               value={newContent}
               onChange={(e) => setNewContent(e.target.value)}
               placeholder="文档内容（Markdown 格式）"
@@ -96,7 +207,7 @@ export default function KnowledgePage() {
                 取消
               </button>
               <button className="btn-primary" onClick={handleCreate} disabled={loading}>
-                保存
+                {loading ? '保存中...' : '保存'}
               </button>
             </div>
           </div>
@@ -123,6 +234,9 @@ export default function KnowledgePage() {
                 <div className="flex items-center gap-2">
                   <FileText size={16} className="text-primary-500 flex-shrink-0" />
                   <h4 className="font-medium truncate">{doc.title}</h4>
+                  <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded flex-shrink-0">
+                    .{doc.file_type}
+                  </span>
                 </div>
                 <p className="text-sm text-gray-500 mt-1 line-clamp-2">{doc.content}</p>
                 <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">

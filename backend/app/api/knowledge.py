@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
@@ -148,6 +148,67 @@ async def delete_doc(
 
     await db.delete(doc)
     return {"message": "文档已删除"}
+
+
+@router.post("/upload", response_model=KnowledgeDocOut, status_code=201)
+async def upload_file(
+    project_id: int,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload a file and parse it to markdown using markitdown, then create a knowledge doc."""
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="文件名不能为空")
+
+    # Read file content
+    file_bytes = await file.read()
+    if len(file_bytes) == 0:
+        raise HTTPException(status_code=400, detail="文件为空")
+
+    # Parse file to markdown using markitdown
+    try:
+        from io import BytesIO
+        from markitdown import MarkItDown
+        md = MarkItDown()
+        ext = file.filename.rsplit(".", 1)[-1] if "." in file.filename else ""
+        result = md.convert_stream(BytesIO(file_bytes), file_extension=ext)
+        content = result.text_content
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"文件解析失败: {str(e)}")
+
+    if not content.strip():
+        raise HTTPException(status_code=400, detail="文件解析结果为空，请检查文件内容")
+
+    # Determine file type from extension
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "txt"
+
+    # Strip extension from filename for title
+    title = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename
+
+    doc = KnowledgeDoc(
+        project_id=project_id,
+        title=title,
+        content=content,
+        file_type=ext,
+        created_by=current_user.id,
+    )
+    db.add(doc)
+    await db.flush()
+    await db.refresh(doc)
+
+    # Generate chunks and embeddings
+    try:
+        await rag_service.chunk_document(title, content, doc.id, db)
+    except Exception:
+        pass
+
+    count_result = await db.execute(
+        select(func.count(DocChunk.id)).where(DocChunk.doc_id == doc.id)
+    )
+    out = KnowledgeDocOut.model_validate(doc)
+    out.chunk_count = count_result.scalar() or 0
+    return out
 
 
 @router.post("/query", response_model=KnowledgeAnswer)
