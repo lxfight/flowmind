@@ -19,6 +19,7 @@ async def list_tasks(
     project_id: int,
     status_id: int | None = None,
     assignee_id: int | None = None,
+    search: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     query = select(Task).where(Task.project_id == project_id)
@@ -26,6 +27,10 @@ async def list_tasks(
         query = query.where(Task.status_id == status_id)
     if assignee_id is not None:
         query = query.where(Task.assignee_id == assignee_id)
+    if search:
+        query = query.where(
+            Task.title.ilike(f"%{search}%") | Task.description.ilike(f"%{search}%")
+        )
     query = query.order_by(Task.order, Task.created_at.desc())
 
     result = await db.execute(query)

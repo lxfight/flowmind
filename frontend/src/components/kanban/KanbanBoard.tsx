@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -18,9 +18,9 @@ import { KanbanCard } from './KanbanCard'
 import { CreateTaskDialog } from './CreateTaskDialog'
 import { TaskDetailDialog } from './TaskDetailDialog'
 import { LLMChatPanel } from '../llm-chat/LLMChatPanel'
-import { Plus, MessageSquare } from 'lucide-react'
+import { Plus, MessageSquare, Search, X, Filter } from 'lucide-react'
 import toast from 'react-hot-toast'
-import type { TaskSummary, TaskStatus } from '../../types'
+import type { TaskSummary, TaskStatus, MemberOption } from '../../types'
 
 export default function KanbanBoard() {
   const { projectId } = useParams()
@@ -32,17 +32,54 @@ export default function KanbanBoard() {
   const [createStatusId, setCreateStatusId] = useState<number | null>(null)
   const [detailTaskId, setDetailTaskId] = useState<number | null>(null)
 
+  // Search & filter
+  const [searchQuery, setSearchQuery] = useState('')
+  const [assigneeFilter, setAssigneeFilter] = useState<number | null>(null)
+  const [members, setMembers] = useState<MemberOption[]>([])
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
     useSensor(KeyboardSensor)
   )
 
+  const loadTasks = useCallback(async (search?: string, assigneeId?: number | null) => {
+    if (!projectId) return
+    const params: Record<string, string> = {}
+    if (search) params.search = search
+    if (assigneeId) params.assignee_id = String(assigneeId)
+    const res = await api.get(`/projects/${projectId}/tasks`, { params })
+    setTasks(res.data)
+  }, [projectId])
+
   useEffect(() => {
     if (!projectId) return
     api.get(`/projects/${projectId}/statuses`).then((res) => setStatuses(res.data))
-    api.get(`/projects/${projectId}/tasks`).then((res) => setTasks(res.data))
+    api.get(`/projects/${projectId}/members`).then((res) => setMembers(res.data)).catch(() => {})
+    loadTasks()
   }, [projectId])
+
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => {
+      loadTasks(value, assigneeFilter)
+    }, 300)
+  }
+
+  const handleAssigneeFilter = (id: number | null) => {
+    setAssigneeFilter(id)
+    loadTasks(searchQuery, id)
+  }
+
+  const clearFilters = () => {
+    setSearchQuery('')
+    setAssigneeFilter(null)
+    loadTasks()
+  }
+
+  const hasActiveFilters = searchQuery || assigneeFilter !== null
 
   const getTasksByStatus = (statusId: number) =>
     tasks.filter((t) => t.status_id === statusId).sort((a, b) => a.order - b.order)
@@ -54,66 +91,49 @@ export default function KanbanBoard() {
 
   const getNewOrder = (statusId: number, overTaskId?: number): [number, number, number] => {
     const statusTasks = tasks.filter((t) => t.status_id === statusId).sort((a, b) => a.order - b.order)
-
     if (!overTaskId) {
-      // Dropped at the end of column
       return [statusId, statusTasks.length > 0 ? statusTasks[statusTasks.length - 1].order + 1000 : 0, 0]
     }
-
     const overIndex = statusTasks.findIndex((t) => t.id === overTaskId)
     if (overIndex === -1) return [statusId, 0, 0]
-
     const prevOrder = overIndex > 0 ? statusTasks[overIndex - 1].order : -1000
     const nextOrder = overIndex < statusTasks.length - 1 ? statusTasks[overIndex + 1].order : statusTasks[statusTasks.length - 1].order + 1000
-    const mid = (prevOrder + nextOrder) / 2
-
-    return [statusId, mid, 1]
+    return [statusId, (prevOrder + nextOrder) / 2, 1]
   }
 
   const handleDragEnd = async (event: DragEndEvent) => {
     setActiveTask(null)
     const { active, over } = event
     if (!over || !projectId) return
-
     const taskId = active.id as number
     const task = tasks.find((t) => t.id === taskId)
     if (!task) return
-
     let newStatusId: number
     let newOrder: number
-
     if (over.id.toString().startsWith('status-')) {
-      // Dropped on column body - append to end
       newStatusId = parseInt(over.id.toString().replace('status-', ''))
       newOrder = getNewOrder(newStatusId)[1]
     } else {
-      // Dropped on or near another task
       const overTask = tasks.find((t) => t.id === over.id)
       if (!overTask) return
       newStatusId = overTask.status_id
       newOrder = getNewOrder(newStatusId, overTask.id)[1]
     }
-
     if (task.status_id === newStatusId && task.order === newOrder) return
-
-    // Optimistic update
     setTasks((prev) =>
       prev.map((t) =>
         t.id === taskId ? { ...t, status_id: newStatusId, order: newOrder } : t
       )
     )
-
     try {
       await api.patch(`/projects/${projectId}/tasks/${taskId}/move`, {
         status_id: newStatusId,
         order: newOrder,
       })
-      const res = await api.get(`/projects/${projectId}/tasks`)
-      setTasks(res.data)
+      loadTasks(searchQuery, assigneeFilter)
     } catch {
       toast.error('移动失败，已还原')
-      const res = await api.get(`/projects/${projectId}/tasks`)
-      setTasks(res.data)
+      loadTasks(searchQuery, assigneeFilter)
     }
   }
 
@@ -122,17 +142,11 @@ export default function KanbanBoard() {
     description?: string
     status_id: number
     priority?: number
+    assignee_id?: number | null
   }) => {
     if (!projectId) return
     const res = await api.post(`/projects/${projectId}/tasks`, data)
     setTasks((prev) => [...prev, res.data])
-  }
-
-  const handleLLMCreate = async (instruction: string) => {
-    if (!projectId) return
-    // In a production app, this would call the LLM generate-tasks endpoint
-    // and then create the tasks. For now, use the simple create.
-    alert(`LLM 任务创建功能: "${instruction}" — 需要配置 LLM_API_KEY`)
   }
 
   return (
@@ -161,13 +175,58 @@ export default function KanbanBoard() {
           </div>
         </div>
 
+        {/* Search & Filter bar */}
+        <div className="flex items-center gap-2 mb-4">
+          <div className="relative flex-1 max-w-xs">
+            <Search size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              className="input-field pl-8 text-sm"
+              value={searchQuery}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              placeholder="搜索任务标题或描述..."
+            />
+            {searchQuery && (
+              <button
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                onClick={() => handleSearchChange('')}
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+          <select
+            className="input-field w-auto text-sm py-2"
+            value={assigneeFilter || ''}
+            onChange={(e) => handleAssigneeFilter(e.target.value ? parseInt(e.target.value) : null)}
+          >
+            <option value="">全部指派人</option>
+            {members.map((m) => (
+              <option key={m.user_id} value={m.user_id}>
+                {m.display_name || m.username}
+              </option>
+            ))}
+          </select>
+          {hasActiveFilters && (
+            <button
+              className="btn-ghost text-xs flex items-center gap-1 text-gray-500"
+              onClick={clearFilters}
+            >
+              <Filter size={13} />
+              清除过滤
+            </button>
+          )}
+          <span className="text-xs text-gray-400 ml-auto">
+            {tasks.length} 个任务
+          </span>
+        </div>
+
         <DndContext
           sensors={sensors}
           collisionDetection={closestCorners}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
-          <div className="flex gap-4 overflow-x-auto pb-4" style={{ minHeight: 'calc(100vh - 200px)' }}>
+          <div className="flex gap-4 overflow-x-auto pb-4" style={{ minHeight: 'calc(100vh - 260px)' }}>
             {statuses.map((status) => (
               <KanbanColumn
                 key={status.id}
@@ -198,7 +257,7 @@ export default function KanbanBoard() {
           <LLMChatPanel
             projectId={parseInt(projectId!)}
             onClose={() => setShowChat(false)}
-            onCreateTasks={handleLLMCreate}
+            onCreateTasks={() => {}}
           />
         </div>
       )}
@@ -221,7 +280,7 @@ export default function KanbanBoard() {
           projectId={parseInt(projectId!)}
           onClose={() => setDetailTaskId(null)}
           onUpdated={() => {
-            api.get(`/projects/${projectId}/tasks`).then(res => setTasks(res.data))
+            loadTasks(searchQuery, assigneeFilter)
           }}
         />
       )}
