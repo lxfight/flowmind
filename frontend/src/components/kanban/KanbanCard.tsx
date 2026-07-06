@@ -1,17 +1,10 @@
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { AlertCircle, Clock, User } from 'lucide-react'
-
-interface Task {
-  id: number
-  title: string
-  priority: number
-  assignee?: { display_name: string } | null
-  due_date: string | null
-}
+import type { TaskCard } from '../../types'
 
 interface Props {
-  task: Task
+  task: TaskCard
   isDragOverlay?: boolean
   onClick?: () => void
 }

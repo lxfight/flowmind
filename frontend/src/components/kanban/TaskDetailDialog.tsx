@@ -2,37 +2,7 @@ import { useState, useEffect } from 'react'
 import { X, Calendar, User, AlertCircle, MessageSquare, ChevronDown, Check, ListTodo, Plus, Loader2 } from 'lucide-react'
 import api from '../../utils/api'
 import toast from 'react-hot-toast'
-
-interface Member {
-  id: number
-  user_id: number
-  display_name: string
-  username: string
-}
-
-interface TaskDetail {
-  id: number
-  title: string
-  description: string
-  status_id: number
-  priority: number
-  assignee: { id: number; display_name: string } | null
-  due_date: string | null
-  is_completed: boolean
-  created_at: string
-  updated_at: string
-  subtasks?: Array<{
-    id: number
-    title: string
-    is_completed: boolean
-  }>
-  comments: Array<{
-    id: number
-    content: string
-    created_at: string
-    user: { id: number; display_name: string }
-  }>
-}
+import type { MemberOption, TaskDetail } from '../../types'
 
 interface Props {
   taskId: number
@@ -45,7 +15,7 @@ export function TaskDetailDialog({ taskId, projectId, onClose, onUpdated }: Prop
   const [task, setTask] = useState<TaskDetail | null>(null)
   const [newComment, setNewComment] = useState('')
   const [loading, setLoading] = useState(true)
-  const [members, setMembers] = useState<Member[]>([])
+  const [members, setMembers] = useState<MemberOption[]>([])
   const [showAssigneePicker, setShowAssigneePicker] = useState(false)
   const [updatingAssignee, setUpdatingAssignee] = useState(false)
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('')

@@ -44,3 +44,7 @@ alembic/versions/*.pyc
 
 # Docker
 docker-data/
+
+# Docs (evaluation reports, internal docs)
+docs/
+tsconfig.tsbuildinfo

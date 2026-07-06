@@ -20,35 +20,13 @@ import { TaskDetailDialog } from './TaskDetailDialog'
 import { LLMChatPanel } from '../llm-chat/LLMChatPanel'
 import { Plus, MessageSquare } from 'lucide-react'
 import toast from 'react-hot-toast'
-
-interface Task {
-  id: number
-  title: string
-  description: string
-  status_id: number
-  priority: number
-  order: number
-  assignee_id: number | null
-  due_date: string | null
-  is_completed: boolean
-  assignee?: { id: number; display_name: string } | null
-}
-
-interface Status {
-  id: number
-  project_id: number
-  name: string
-  order: number
-  color: string
-  is_done: boolean
-  task_count: number
-}
+import type { TaskSummary, TaskStatus } from '../../types'
 
 export default function KanbanBoard() {
   const { projectId } = useParams()
-  const [statuses, setStatuses] = useState<Status[]>([])
-  const [tasks, setTasks] = useState<Task[]>([])
-  const [activeTask, setActiveTask] = useState<Task | null>(null)
+  const [statuses, setStatuses] = useState<TaskStatus[]>([])
+  const [tasks, setTasks] = useState<TaskSummary[]>([])
+  const [activeTask, setActiveTask] = useState<TaskSummary | null>(null)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [showChat, setShowChat] = useState(false)
   const [createStatusId, setCreateStatusId] = useState<number | null>(null)

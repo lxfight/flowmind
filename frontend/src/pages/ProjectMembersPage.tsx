@@ -4,25 +4,12 @@ import { Search, UserPlus, X, Trash2, Users } from 'lucide-react'
 import api from '../utils/api'
 import { useAuthStore } from '../stores/authStore'
 import toast from 'react-hot-toast'
-
-interface Member {
-  id: number
-  user_id: number
-  role: string
-  username: string
-  display_name: string
-}
-
-interface UserInfo {
-  id: number
-  username: string
-  display_name: string
-}
+import type { ProjectMember, UserInfo } from '../types'
 
 export default function ProjectMembersPage() {
   const { projectId } = useParams()
   const currentUser = useAuthStore((s) => s.user)
-  const [members, setMembers] = useState<Member[]>([])
+  const [members, setMembers] = useState<ProjectMember[]>([])
   const [showAdd, setShowAdd] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<UserInfo[]>([])

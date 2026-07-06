@@ -2,27 +2,10 @@ import { useState, useEffect } from 'react'
 import { X, Sparkles, Loader2, CheckSquare, Square } from 'lucide-react'
 import api from '../../utils/api'
 import toast from 'react-hot-toast'
-
-interface Status {
-  id: number
-  name: string
-}
-
-interface Member {
-  id: number
-  user_id: number
-  display_name: string
-  username: string
-}
-
-interface GeneratedTask {
-  title: string
-  description: string
-  priority: number
-}
+import type { StatusOption, MemberOption, GeneratedTask } from '../../types'
 
 interface Props {
-  statuses: Status[]
+  statuses: StatusOption[]
   defaultStatusId: number | null
   projectId: number
   onClose: () => void
@@ -41,7 +24,7 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose
   const [statusId, setStatusId] = useState(defaultStatusId || statuses[0]?.id || 0)
   const [priority, setPriority] = useState(0)
   const [assigneeId, setAssigneeId] = useState<number | null>(null)
-  const [members, setMembers] = useState<Member[]>([])
+  const [members, setMembers] = useState<MemberOption[]>([])
   const [llmOpen, setLlmOpen] = useState(false)
   const [llmInstruction, setLlmInstruction] = useState('')
   const [llmLoading, setLlmLoading] = useState(false)
