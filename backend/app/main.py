@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text, select
 
-from app.api import auth, projects, tasks, statuses, knowledge, llm
+from app.api import auth, admin, projects, tasks, statuses, knowledge, llm
 from app.core.database import engine, Base, async_session_factory
 
 
@@ -69,6 +69,7 @@ app.add_middleware(
 
 # Register routers
 app.include_router(auth.router)
+app.include_router(admin.router)
 app.include_router(projects.router)
 app.include_router(tasks.router)
 app.include_router(statuses.router)

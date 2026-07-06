@@ -11,6 +11,7 @@ import {
   Plus,
   Sun,
   Moon,
+  Shield,
 } from 'lucide-react'
 
 export default function Layout() {
@@ -101,6 +102,19 @@ export default function Layout() {
             ))}
           </nav>
         </div>
+
+        {/* Admin link */}
+        {user?.is_superuser && (
+          <div className="px-3 pb-2">
+            <Link
+              to="/admin/users"
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            >
+              <Shield size={15} />
+              用户管理
+            </Link>
+          </div>
+        )}
 
         {/* User */}
         <div className="p-3 border-t dark:border-gray-700">
