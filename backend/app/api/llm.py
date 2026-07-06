@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.api.permissions import ensure_project_member
 from app.models.user import User
 from app.models.task import Task, TaskStatus
 from app.models.project import Project
@@ -21,6 +22,7 @@ async def llm_chat(
     db: AsyncSession = Depends(get_db),
 ):
     """Chat with LLM with project context from knowledge base."""
+    await ensure_project_member(request.project_id, current_user, db)
     messages = [{"role": m.role, "content": m.content} for m in request.messages]
 
     # Try to enhance with knowledge base context
@@ -65,6 +67,7 @@ async def llm_generate_tasks(
     db: AsyncSession = Depends(get_db),
 ):
     """Generate tasks from natural language instructions using LLM."""
+    await ensure_project_member(request.project_id, current_user, db)
     # Build project context
     result = await db.execute(
         select(TaskStatus)
@@ -95,9 +98,11 @@ async def llm_suggest_status(
     project_id: int,
     task_title: str,
     task_description: str = "",
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Suggest which status a newly created task should go to."""
+    await ensure_project_member(project_id, current_user, db)
     result = await db.execute(
         select(TaskStatus)
         .where(TaskStatus.project_id == project_id)
@@ -133,6 +138,7 @@ async def llm_report(
     db: AsyncSession = Depends(get_db),
 ):
     """Generate a project progress report using LLM."""
+    await ensure_project_member(project_id, current_user, db)
     # Get project
     result = await db.execute(select(Project).where(Project.id == project_id))
     project = result.scalar_one_or_none()

@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, delete
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.api.permissions import ensure_project_admin, ensure_project_member
 from app.models.user import User
 from app.models.task import TaskStatus
 from app.schemas import TaskStatusCreate, TaskStatusUpdate, TaskStatusOut
@@ -13,8 +14,10 @@ router = APIRouter(prefix="/api/projects/{project_id}/statuses", tags=["task-sta
 @router.get("", response_model=list[TaskStatusOut])
 async def list_statuses(
     project_id: int,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    await ensure_project_member(project_id, current_user, db)
     result = await db.execute(
         select(TaskStatus)
         .where(TaskStatus.project_id == project_id)
@@ -43,8 +46,10 @@ async def list_statuses(
 async def create_status(
     project_id: int,
     data: TaskStatusCreate,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    await ensure_project_admin(project_id, current_user, db)
     # Get max order
     result = await db.execute(
         select(TaskStatus).where(TaskStatus.project_id == project_id).order_by(TaskStatus.order.desc()).limit(1)
@@ -70,8 +75,10 @@ async def update_status(
     project_id: int,
     status_id: int,
     data: TaskStatusUpdate,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    await ensure_project_admin(project_id, current_user, db)
     result = await db.execute(
         select(TaskStatus).where(
             TaskStatus.id == status_id,
@@ -94,8 +101,10 @@ async def update_status(
 async def delete_status(
     project_id: int,
     status_id: int,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    await ensure_project_admin(project_id, current_user, db)
     result = await db.execute(
         select(TaskStatus).where(
             TaskStatus.id == status_id,

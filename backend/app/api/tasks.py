@@ -1,9 +1,15 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, delete, func
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.api.permissions import (
+    ensure_project_admin,
+    ensure_project_member,
+    ensure_status_in_project,
+    ensure_task_in_project,
+)
 from app.models.user import User
 from app.models.task import Task, TaskComment
 from app.schemas import (
@@ -20,8 +26,13 @@ async def list_tasks(
     status_id: int | None = None,
     assignee_id: int | None = None,
     search: str | None = None,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    await ensure_project_member(project_id, current_user, db)
+    if status_id is not None:
+        await ensure_status_in_project(project_id, status_id, db)
+
     query = select(Task).where(Task.project_id == project_id)
     if status_id is not None:
         query = query.where(Task.status_id == status_id)
@@ -52,6 +63,11 @@ async def create_task(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    await ensure_project_member(project_id, current_user, db)
+    await ensure_status_in_project(project_id, data.status_id, db)
+    if data.parent_task_id is not None:
+        await ensure_task_in_project(project_id, data.parent_task_id, db)
+
     # Get max order in the target status
     result = await db.execute(
         select(func.max(Task.order))
@@ -93,9 +109,11 @@ async def create_task(
 async def get_task(
     project_id: int,
     task_id: int,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     from sqlalchemy.orm import selectinload
+    await ensure_project_member(project_id, current_user, db)
 
     result = await db.execute(
         select(Task)
@@ -117,12 +135,10 @@ async def update_task(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Task).where(Task.id == task_id, Task.project_id == project_id)
-    )
-    task = result.scalar_one_or_none()
-    if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+    await ensure_project_member(project_id, current_user, db)
+    task = await ensure_task_in_project(project_id, task_id, db)
+    if data.status_id is not None:
+        await ensure_status_in_project(project_id, data.status_id, db)
 
     is_completing = data.is_completed is True and not task.is_completed
     for field, value in data.model_dump(exclude_unset=True).items():
@@ -156,25 +172,8 @@ async def delete_task(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # Check project role: only owner/admin can delete tasks
-    from app.models.project import ProjectMember
-    if not current_user.is_superuser:
-        member_result = await db.execute(
-            select(ProjectMember).where(
-                ProjectMember.project_id == project_id,
-                ProjectMember.user_id == current_user.id,
-            )
-        )
-        member = member_result.scalar_one_or_none()
-        if not member or member.role not in ("owner", "admin"):
-            raise HTTPException(status_code=403, detail="无权删除任务，需要管理员或所有者权限")
-
-    result = await db.execute(
-        select(Task).where(Task.id == task_id, Task.project_id == project_id)
-    )
-    task = result.scalar_one_or_none()
-    if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+    await ensure_project_admin(project_id, current_user, db)
+    task = await ensure_task_in_project(project_id, task_id, db)
 
     await db.delete(task)
     return {"message": "任务已删除"}
@@ -188,12 +187,9 @@ async def move_task(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Task).where(Task.id == task_id, Task.project_id == project_id)
-    )
-    task = result.scalar_one_or_none()
-    if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+    await ensure_project_member(project_id, current_user, db)
+    task = await ensure_task_in_project(project_id, task_id, db)
+    await ensure_status_in_project(project_id, data.status_id, db)
 
     task.status_id = data.status_id
     task.order = data.order
@@ -227,7 +223,14 @@ async def move_task(
 
 # Task comments
 @router.get("/{task_id}/comments", response_model=list[TaskCommentOut])
-async def list_comments(project_id: int, task_id: int, db: AsyncSession = Depends(get_db)):
+async def list_comments(
+    project_id: int,
+    task_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await ensure_project_member(project_id, current_user, db)
+    await ensure_task_in_project(project_id, task_id, db)
     result = await db.execute(
         select(TaskComment)
         .where(TaskComment.task_id == task_id)
@@ -251,6 +254,8 @@ async def create_comment(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    await ensure_project_member(project_id, current_user, db)
+    await ensure_task_in_project(project_id, task_id, db)
     comment = TaskComment(
         task_id=task_id,
         user_id=current_user.id,

@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
 from datetime import datetime, timezone
-from sqlalchemy import select, func, delete
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.api.permissions import ensure_project_admin, ensure_project_member
 from app.models.user import User
 from app.models.project import Project, ProjectMember
 from app.models.task import Task, TaskStatus
@@ -226,7 +227,12 @@ async def update_project(
 
 
 @router.get("/{project_id}/members", response_model=list[ProjectMemberOut])
-async def list_members(project_id: int, db: AsyncSession = Depends(get_db)):
+async def list_members(
+    project_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await ensure_project_member(project_id, current_user, db)
     result = await db.execute(
         select(ProjectMember)
         .where(ProjectMember.project_id == project_id)
@@ -250,16 +256,18 @@ async def add_member(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # Verify current user has permission
-    result = await db.execute(
+    current_member = await ensure_project_admin(project_id, current_user, db)
+    if data.role == "admin" and current_member and current_member.role != "owner":
+        raise HTTPException(status_code=403, detail="只有项目所有者才能添加管理员")
+
+    existing_result = await db.execute(
         select(ProjectMember).where(
             ProjectMember.project_id == project_id,
-            ProjectMember.user_id == current_user.id,
-            ProjectMember.role.in_(["owner", "admin"]),
+            ProjectMember.user_id == data.user_id,
         )
     )
-    if not result.scalar_one_or_none():
-        raise HTTPException(status_code=403, detail="无权添加成员")
+    if existing_result.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="用户已是项目成员")
 
     member = ProjectMember(
         project_id=project_id,
@@ -272,13 +280,26 @@ async def add_member(
 
 
 @router.delete("/{project_id}/members/{user_id}")
-async def remove_member(project_id: int, user_id: int, db: AsyncSession = Depends(get_db)):
-    await db.execute(
-        delete(ProjectMember).where(
+async def remove_member(
+    project_id: int,
+    user_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await ensure_project_admin(project_id, current_user, db)
+    result = await db.execute(
+        select(ProjectMember).where(
             ProjectMember.project_id == project_id,
             ProjectMember.user_id == user_id,
         )
     )
+    member = result.scalar_one_or_none()
+    if not member:
+        raise HTTPException(status_code=404, detail="成员不存在")
+    if member.role == "owner":
+        raise HTTPException(status_code=400, detail="不能移除项目所有者")
+
+    await db.delete(member)
     return {"message": "成员已移除"}
 
 
@@ -286,9 +307,11 @@ async def remove_member(project_id: int, user_id: int, db: AsyncSession = Depend
 async def list_activities(
     project_id: int,
     limit: int = 30,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Get recent activity logs for a project."""
+    await ensure_project_member(project_id, current_user, db)
     from app.models.activity import ActivityLog
     result = await db.execute(
         select(ActivityLog)

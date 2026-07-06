@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, EmailStr
 
 
@@ -92,7 +92,7 @@ class ProjectMemberOut(BaseModel):
 
 class ProjectMemberAdd(BaseModel):
     user_id: int
-    role: str = "member"
+    role: Literal["admin", "member", "viewer"] = "member"
 
 
 # Task

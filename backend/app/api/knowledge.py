@@ -3,6 +3,7 @@ from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.api.permissions import ensure_project_member
 from app.models.user import User
 from app.models.knowledge import KnowledgeDoc, DocChunk
 from app.schemas import (
@@ -18,8 +19,10 @@ router = APIRouter(prefix="/api/projects/{project_id}/knowledge", tags=["knowled
 @router.get("", response_model=list[KnowledgeDocOut])
 async def list_docs(
     project_id: int,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    await ensure_project_member(project_id, current_user, db)
     result = await db.execute(
         select(KnowledgeDoc)
         .where(KnowledgeDoc.project_id == project_id)
@@ -45,6 +48,7 @@ async def create_doc(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    await ensure_project_member(project_id, current_user, db)
     doc = KnowledgeDoc(
         project_id=project_id,
         title=data.title,
@@ -75,8 +79,10 @@ async def create_doc(
 async def get_doc(
     project_id: int,
     doc_id: int,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    await ensure_project_member(project_id, current_user, db)
     result = await db.execute(
         select(KnowledgeDoc).where(
             KnowledgeDoc.id == doc_id,
@@ -100,8 +106,10 @@ async def update_doc(
     project_id: int,
     doc_id: int,
     data: KnowledgeDocUpdate,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    await ensure_project_member(project_id, current_user, db)
     result = await db.execute(
         select(KnowledgeDoc).where(
             KnowledgeDoc.id == doc_id,
@@ -134,8 +142,10 @@ async def update_doc(
 async def delete_doc(
     project_id: int,
     doc_id: int,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    await ensure_project_member(project_id, current_user, db)
     result = await db.execute(
         select(KnowledgeDoc).where(
             KnowledgeDoc.id == doc_id,
@@ -158,6 +168,7 @@ async def upload_file(
     db: AsyncSession = Depends(get_db),
 ):
     """Upload a file and parse it to markdown using markitdown, then create a knowledge doc."""
+    await ensure_project_member(project_id, current_user, db)
     if not file.filename:
         raise HTTPException(status_code=400, detail="文件名不能为空")
 
@@ -215,9 +226,11 @@ async def upload_file(
 async def query_knowledge(
     project_id: int,
     data: KnowledgeQuery,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Query the knowledge base using RAG."""
+    await ensure_project_member(project_id, current_user, db)
     try:
         result = await rag_service.query_with_context(
             query=data.question,
