@@ -11,6 +11,24 @@ from app.schemas import ProjectCreate, ProjectUpdate, ProjectOut, ProjectMemberO
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 
+@router.get("/users/search", response_model=list["UserOut"])
+async def search_users(
+    q: str = "",
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Search users by username or display_name."""
+    from app.schemas import UserOut
+    if not q:
+        return []
+    result = await db.execute(
+        select(User).where(
+            (User.username.ilike(f"%{q}%")) | (User.display_name.ilike(f"%{q}%"))
+        ).limit(10)
+    )
+    return [UserOut.model_validate(u) for u in result.scalars().all()]
+
+
 @router.get("", response_model=list[ProjectOut])
 async def list_projects(
     current_user: User = Depends(get_current_user),

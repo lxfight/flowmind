@@ -7,7 +7,10 @@ class Settings(BaseSettings):
     debug: bool = False
 
     # Database
-    database_url: str = "sqlite+aiosqlite:///./flowmind.db"
+    # 默认使用 PostgreSQL + pgvector（需要 Docker），可随时通过环境变量切换为 SQLite
+    database_url: str = "postgresql+asyncpg://flowmind:flowmind_secret@localhost:5432/flowmind"
+    # 本地开发无 Docker 时，注释上面这行，取消下面这行的注释：
+    # database_url: str = "sqlite+aiosqlite:///./flowmind.db"
 
     # JWT
     jwt_secret: str = "dev-secret-change-in-production"

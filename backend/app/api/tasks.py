@@ -179,10 +179,20 @@ async def move_task(
 
     task.status_id = data.status_id
     task.order = data.order
+
+    # Renumber tasks in this status to prevent floating-point drift
+    result = await db.execute(
+        select(Task)
+        .where(Task.status_id == data.status_id, Task.project_id == project_id)
+        .order_by(Task.order, Task.id)
+    )
+    all_tasks = result.scalars().all()
+    for i, t in enumerate(all_tasks):
+        t.order = float(i * 1000)
+
     await db.flush()
     await db.refresh(task)
 
-    # Log activity
     from app.models.activity import ActivityLog
     log = ActivityLog(
         project_id=project_id,

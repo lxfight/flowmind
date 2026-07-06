@@ -6,17 +6,20 @@ import toast from 'react-hot-toast'
 export default function LoginPage() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [loading, setLoading] = useState(false)
   const { login } = useAuthStore()
   const navigate = useNavigate()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setLoading(true)
     try {
       await login(username, password)
       navigate('/')
     } catch {
       toast.error('登录失败，请检查用户名和密码')
     }
+    setLoading(false)
   }
 
   return (
@@ -46,8 +49,8 @@ export default function LoginPage() {
               required
             />
           </div>
-          <button type="submit" className="btn-primary w-full">
-            登录
+          <button type="submit" className="btn-primary w-full" disabled={loading}>
+            {loading ? '登录中...' : '登录'}
           </button>
         </form>
         <p className="text-center text-sm text-gray-500 mt-6">

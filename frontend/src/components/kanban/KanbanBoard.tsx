@@ -5,12 +5,12 @@ import {
   closestCorners,
   KeyboardSensor,
   PointerSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   type DragStartEvent,
   type DragEndEvent,
 } from '@dnd-kit/core'
-import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useParams } from 'react-router-dom'
 import api from '../../utils/api'
 import { KanbanColumn } from './KanbanColumn'
@@ -19,6 +19,7 @@ import { CreateTaskDialog } from './CreateTaskDialog'
 import { TaskDetailDialog } from './TaskDetailDialog'
 import { LLMChatPanel } from '../llm-chat/LLMChatPanel'
 import { Plus, MessageSquare } from 'lucide-react'
+import toast from 'react-hot-toast'
 
 interface Task {
   id: number
@@ -55,6 +56,7 @@ export default function KanbanBoard() {
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
     useSensor(KeyboardSensor)
   )
 
@@ -72,6 +74,24 @@ export default function KanbanBoard() {
     if (task) setActiveTask(task)
   }
 
+  const getNewOrder = (statusId: number, overTaskId?: number): [number, number, number] => {
+    const statusTasks = tasks.filter((t) => t.status_id === statusId).sort((a, b) => a.order - b.order)
+
+    if (!overTaskId) {
+      // Dropped at the end of column
+      return [statusId, statusTasks.length > 0 ? statusTasks[statusTasks.length - 1].order + 1000 : 0, 0]
+    }
+
+    const overIndex = statusTasks.findIndex((t) => t.id === overTaskId)
+    if (overIndex === -1) return [statusId, 0, 0]
+
+    const prevOrder = overIndex > 0 ? statusTasks[overIndex - 1].order : -1000
+    const nextOrder = overIndex < statusTasks.length - 1 ? statusTasks[overIndex + 1].order : statusTasks[statusTasks.length - 1].order + 1000
+    const mid = (prevOrder + nextOrder) / 2
+
+    return [statusId, mid, 1]
+  }
+
   const handleDragEnd = async (event: DragEndEvent) => {
     setActiveTask(null)
     const { active, over } = event
@@ -81,22 +101,22 @@ export default function KanbanBoard() {
     const task = tasks.find((t) => t.id === taskId)
     if (!task) return
 
-    // Determine new status and order
     let newStatusId: number
     let newOrder: number
 
     if (over.id.toString().startsWith('status-')) {
-      // Dropped on column
+      // Dropped on column body - append to end
       newStatusId = parseInt(over.id.toString().replace('status-', ''))
-      const statusTasks = getTasksByStatus(newStatusId)
-      newOrder = statusTasks.length > 0 ? statusTasks[statusTasks.length - 1].order + 1 : 0
+      newOrder = getNewOrder(newStatusId)[1]
     } else {
       // Dropped on or near another task
       const overTask = tasks.find((t) => t.id === over.id)
       if (!overTask) return
       newStatusId = overTask.status_id
-      newOrder = overTask.order + 0.5
+      newOrder = getNewOrder(newStatusId, overTask.id)[1]
     }
+
+    if (task.status_id === newStatusId && task.order === newOrder) return
 
     // Optimistic update
     setTasks((prev) =>
@@ -110,11 +130,10 @@ export default function KanbanBoard() {
         status_id: newStatusId,
         order: newOrder,
       })
-      // Refresh to get canonical order
       const res = await api.get(`/projects/${projectId}/tasks`)
       setTasks(res.data)
     } catch {
-      // Revert
+      toast.error('移动失败，已还原')
       const res = await api.get(`/projects/${projectId}/tasks`)
       setTasks(res.data)
     }

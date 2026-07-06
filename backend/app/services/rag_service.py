@@ -1,9 +1,13 @@
 from typing import Optional
-from sqlalchemy import select, text
+from sqlalchemy import select, text, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 from app.core.config import get_settings
+from app.models.knowledge import KnowledgeDoc, DocChunk, DocChunkEmbedding
 
 settings = get_settings()
+
+_is_sqlite = "sqlite" in settings.database_url
 
 
 class RAGService:
@@ -29,34 +33,29 @@ class RAGService:
         chunks = self._split_text(content)
 
         for i, chunk_text in enumerate(chunks):
+            doc_chunk = DocChunk(
+                doc_id=doc_id,
+                content=chunk_text,
+                chunk_index=i,
+            )
+            db.add(doc_chunk)
+            await db.flush()
+
             embedding = await self.embed_text(chunk_text)
 
-            # Store chunk
-            result = await db.execute(
-                text("""
-                    INSERT INTO doc_chunks (doc_id, content, chunk_index)
-                    VALUES (:doc_id, :content, :chunk_index)
-                    RETURNING id
-                """),
-                {
-                    "doc_id": doc_id,
-                    "content": chunk_text,
-                    "chunk_index": i,
-                },
-            )
-            chunk_id = result.scalar()
-
-            # Store embedding vector
-            await db.execute(
-                text("""
-                    INSERT INTO doc_chunk_embeddings (chunk_id, embedding)
-                    VALUES (:chunk_id, :embedding::vector)
-                """),
-                {
-                    "chunk_id": chunk_id,
-                    "embedding": embedding,
-                },
-            )
+            if _is_sqlite:
+                # SQLite: store embedding as JSON string for dev/testing
+                import json
+                doc_embedding = DocChunkEmbedding(
+                    chunk_id=doc_chunk.id,
+                    embedding=json.dumps(embedding),
+                )
+            else:
+                doc_embedding = DocChunkEmbedding(
+                    chunk_id=doc_chunk.id,
+                    embedding=embedding,
+                )
+            db.add(doc_embedding)
 
     async def retrieve_context(
         self, query: str, project_id: int, db: AsyncSession
@@ -64,6 +63,27 @@ class RAGService:
         """Retrieve relevant document chunks for a query."""
         query_embedding = await self.embed_text(query)
 
+        if _is_sqlite:
+            # SQLite fallback: return random chunks (no vector search)
+            result = await db.execute(
+                select(DocChunk)
+                .join(KnowledgeDoc)
+                .where(KnowledgeDoc.project_id == project_id)
+                .order_by(func.random())
+                .limit(settings.top_k_retrieval)
+            )
+            rows = result.scalars().all()
+            return [
+                {
+                    "content": r.content,
+                    "doc_title": r.doc.title,
+                    "similarity": 0.0,
+                }
+                for r in rows
+            ]
+
+        # PostgreSQL: cosine distance via pgvector
+        query_embedding_str = str(query_embedding)
         result = await db.execute(
             text("""
                 SELECT

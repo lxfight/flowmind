@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from app.api import auth, projects, tasks, statuses, knowledge, llm
 from app.core.database import engine, Base
@@ -8,8 +9,12 @@ from app.core.database import engine, Base
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: create tables
+    # Startup: enable pgvector extension, then create tables
     async with engine.begin() as conn:
+        try:
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        except Exception:
+            pass  # ignore if not PostgreSQL (e.g. SQLite dev mode)
         await conn.run_sync(Base.metadata.create_all)
     yield
     # Shutdown

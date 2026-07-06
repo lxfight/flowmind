@@ -7,11 +7,13 @@ export default function RegisterPage() {
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [loading, setLoading] = useState(false)
   const { register } = useAuthStore()
   const navigate = useNavigate()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setLoading(true)
     try {
       await register(username, email, password)
       toast.success('注册成功，请登录')
@@ -19,6 +21,7 @@ export default function RegisterPage() {
     } catch {
       toast.error('注册失败')
     }
+    setLoading(false)
   }
 
   return (
@@ -41,7 +44,7 @@ export default function RegisterPage() {
             <label className="block text-sm font-medium mb-1">密码</label>
             <input type="password" className="input-field" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} />
           </div>
-          <button type="submit" className="btn-primary w-full">注册</button>
+          <button type="submit" className="btn-primary w-full" disabled={loading}>{loading ? '注册中...' : '注册'}</button>
         </form>
         <p className="text-center text-sm text-gray-500 mt-6">
           已有账号？<Link to="/login" className="text-primary-600 hover:underline">登录</Link>

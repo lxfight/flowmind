@@ -1,3 +1,4 @@
+from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -5,6 +6,7 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
 from app.models.task import Task, TaskStatus
+from app.models.project import Project
 from app.schemas import LLMChatRequest, LLMChatResponse, LLMTaskGenerate
 from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
@@ -122,3 +124,61 @@ async def llm_suggest_status(
             return {"suggested_status": s.id, "suggested_name": s.name}
 
     return {"suggested_status": statuses[0].id, "suggested_name": statuses[0].name}
+
+
+@router.post("/report")
+async def llm_report(
+    project_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate a project progress report using LLM."""
+    # Get project
+    result = await db.execute(select(Project).where(Project.id == project_id))
+    project = result.scalar_one_or_none()
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+    # Get all tasks with status names
+    result = await db.execute(
+        select(Task, TaskStatus.name)
+        .join(TaskStatus, Task.status_id == TaskStatus.id)
+        .where(Task.project_id == project_id)
+        .order_by(TaskStatus.order, Task.order)
+    )
+    rows = result.all()
+
+    # Get activity logs from the past 7 days
+    from app.models.activity import ActivityLog
+    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    result = await db.execute(
+        select(ActivityLog)
+        .where(
+            ActivityLog.project_id == project_id,
+            ActivityLog.created_at >= week_ago,
+        )
+        .order_by(ActivityLog.created_at.desc())
+    )
+    logs = result.scalars().all()
+
+    # Build task summary
+    status_counts: dict[str, int] = {}
+    task_details: list[str] = []
+    for t, sname in rows:
+        status_counts[sname] = status_counts.get(sname, 0) + 1
+        task_details.append(f"- [{sname}] {t.title} (优先级:{t.priority})")
+
+    tasks_data = f"总计 {len(rows)} 个任务\n"
+    for sname, count in status_counts.items():
+        tasks_data += f"  {sname}: {count} 个\n"
+    tasks_data += "\n任务列表:\n" + "\n".join(task_details) if task_details else "暂无任务"
+
+    log_data = ""
+    if logs:
+        log_data = "\n近7天动态:\n" + "\n".join(f"- {l.summary}" for l in logs[:20])
+
+    report = await llm_service.generate_report(
+        tasks_data + log_data, project.name
+    )
+
+    return {"report": report, "generated_at": datetime.now(timezone.utc).isoformat()}

@@ -2,7 +2,7 @@ import { useParams, Link, Outlet, useLocation } from 'react-router-dom'
 import { useProjectStore } from '../stores/projectStore'
 import { useEffect } from 'react'
 import api from '../utils/api'
-import { KanbanSquare, BookOpen, Settings, MessageSquare } from 'lucide-react'
+import { KanbanSquare, BookOpen, Users, FileText } from 'lucide-react'
 
 export default function ProjectPage() {
   const { projectId } = useParams()
@@ -21,6 +21,8 @@ export default function ProjectPage() {
   const navItems = [
     { path: `/project/${projectId}/board`, label: '看板', icon: KanbanSquare },
     { path: `/project/${projectId}/knowledge`, label: '知识库', icon: BookOpen },
+    { path: `/project/${projectId}/members`, label: '成员', icon: Users },
+    { path: `/project/${projectId}/report`, label: '报告', icon: FileText },
   ]
 
   return (

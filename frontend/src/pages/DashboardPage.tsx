@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useProjectStore } from '../stores/projectStore'
 import { Link, useNavigate } from 'react-router-dom'
-import { Plus, KanbanSquare } from 'lucide-react'
+import { Plus, KanbanSquare, RefreshCw } from 'lucide-react'
 import { CreateProjectDialog } from '../components/project/CreateProjectDialog'
 import api from '../utils/api'
 import toast from 'react-hot-toast'
@@ -9,7 +9,18 @@ import toast from 'react-hot-toast'
 export default function DashboardPage() {
   const { projects, setProjects, setCurrentProject } = useProjectStore()
   const [showCreate, setShowCreate] = useState(false)
+  const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+
+  useEffect(() => {
+    if (projects.length === 0) {
+      setLoading(true)
+      api.get('/projects')
+        .then((res) => setProjects(res.data))
+        .catch(() => toast.error('加载项目列表失败'))
+        .finally(() => setLoading(false))
+    }
+  }, [])
 
   const handleCreateProject = async (data: { name: string; description: string; color: string }) => {
     try {
@@ -32,7 +43,12 @@ export default function DashboardPage() {
         </button>
       </div>
 
-      {projects.length === 0 ? (
+      {loading ? (
+        <div className="card p-12 text-center">
+          <RefreshCw size={32} className="mx-auto text-primary-500 animate-spin mb-4" />
+          <p className="text-gray-500">加载项目列表...</p>
+        </div>
+      ) : projects.length === 0 ? (
         <div className="card p-12 text-center">
           <KanbanSquare size={48} className="mx-auto text-gray-300 mb-4" />
           <h3 className="text-lg font-medium text-gray-600 mb-2">还没有项目</h3>

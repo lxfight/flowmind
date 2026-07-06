@@ -58,7 +58,13 @@ export function TaskDetailDialog({ taskId, projectId, onClose, onUpdated }: Prop
   if (loading || !task) {
     return (
       <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-        <div className="bg-white rounded-xl p-8 animate-pulse">加载中...</div>
+        <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-lg">
+          <div className="animate-pulse space-y-4">
+            <div className="h-6 bg-gray-200 rounded w-3/4" />
+            <div className="h-4 bg-gray-200 rounded w-1/2" />
+            <div className="h-20 bg-gray-200 rounded" />
+          </div>
+        </div>
       </div>
     )
   }
@@ -110,15 +116,19 @@ export function TaskDetailDialog({ taskId, projectId, onClose, onUpdated }: Prop
               <MessageSquare size={14} /> 评论 ({task.comments?.length || 0})
             </h4>
             <div className="space-y-3 mb-4">
-              {(task.comments || []).map(c => (
-                <div key={c.id} className="bg-gray-50 rounded-lg p-3">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs font-medium">{c.user?.display_name}</span>
-                    <span className="text-xs text-gray-400">{new Date(c.created_at).toLocaleString('zh-CN')}</span>
+              {(task.comments || []).length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-4">暂无评论</p>
+              ) : (
+                (task.comments || []).map(c => (
+                  <div key={c.id} className="bg-gray-50 rounded-lg p-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-medium">{c.user?.display_name}</span>
+                      <span className="text-xs text-gray-400">{new Date(c.created_at).toLocaleString('zh-CN')}</span>
+                    </div>
+                    <p className="text-sm text-gray-700">{c.content}</p>
                   </div>
-                  <p className="text-sm text-gray-700">{c.content}</p>
-                </div>
-              ))}
+                ))
+              )}
             </div>
             <div className="flex gap-2">
               <input className="input-field flex-1 text-sm" value={newComment} onChange={e => setNewComment(e.target.value)}
