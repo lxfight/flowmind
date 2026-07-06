@@ -23,6 +23,7 @@ export function KnowledgeQueryDialog({ projectId, onClose }: Props) {
     if (!question.trim() || loading) return
     setLoading(true)
     setAnswer(null)
+    setSources([])
 
     try {
       const res = await api.post(`/projects/${projectId}/knowledge/query`, {
@@ -32,6 +33,7 @@ export function KnowledgeQueryDialog({ projectId, onClose }: Props) {
       setSources(res.data.sources || [])
     } catch {
       setAnswer('查询失败，请重试。')
+      setSources([])
     } finally {
       setLoading(false)
     }

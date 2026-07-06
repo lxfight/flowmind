@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
-import { Plus, Search, FileText, Trash2, MessageSquare, Upload, Loader2, X } from 'lucide-react'
+import { AlertCircle, FileText, Loader2, MessageSquare, Plus, RefreshCw, Trash2, Upload, X } from 'lucide-react'
 import api from '../utils/api'
 import { KnowledgeQueryDialog } from '../components/knowledge/KnowledgeQueryDialog'
 import toast from 'react-hot-toast'
@@ -22,19 +22,31 @@ export default function KnowledgePage() {
   const [newTitle, setNewTitle] = useState('')
   const [newContent, setNewContent] = useState('')
   const [loading, setLoading] = useState(false)
+  const [docsLoading, setDocsLoading] = useState(true)
+  const [docsError, setDocsError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const loadDocs = async () => {
+  const loadDocs = useCallback(async () => {
     if (!projectId) return
-    const res = await api.get(`/projects/${projectId}/knowledge`)
-    setDocs(res.data)
-  }
+    setDocsLoading(true)
+    setDocsError(null)
+    try {
+      const res = await api.get(`/projects/${projectId}/knowledge`)
+      setDocs(res.data)
+    } catch (err: any) {
+      setDocsError('知识库加载失败')
+      toast.error(err.response?.data?.detail || '加载知识库失败')
+    } finally {
+      setDocsLoading(false)
+    }
+  }, [projectId])
 
   useEffect(() => {
     loadDocs()
-  }, [projectId])
+  }, [loadDocs])
 
   const handleCreate = async () => {
     if (!projectId || !newTitle.trim()) return
@@ -48,18 +60,27 @@ export default function KnowledgePage() {
       setNewContent('')
       setShowCreate(false)
       toast.success('文档已添加')
-      loadDocs()
-    } catch {
-      toast.error('保存失败')
+      await loadDocs()
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || '保存失败')
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
-  const handleDelete = async (docId: number) => {
+  const handleDelete = async (doc: Doc) => {
     if (!projectId) return
-    await api.delete(`/projects/${projectId}/knowledge/${docId}`)
-    toast.success('文档已删除')
-    loadDocs()
+    if (!confirm(`确定删除文档「${doc.title}」？`)) return
+    setDeletingId(doc.id)
+    try {
+      await api.delete(`/projects/${projectId}/knowledge/${doc.id}`)
+      toast.success('文档已删除')
+      await loadDocs()
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || '删除失败')
+    } finally {
+      setDeletingId(null)
+    }
   }
 
   const handleFileUpload = async (file: File) => {
@@ -68,19 +89,15 @@ export default function KnowledgePage() {
     try {
       const formData = new FormData()
       formData.append('file', file)
-      const res = await api.post(`/projects/${projectId}/knowledge/upload`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
-      // Pre-fill form with parsed result for review
-      setNewTitle(res.data.title)
-      setNewContent(res.data.content)
-      setShowCreate(true)
-      toast.success(`文件解析完成，共 ${res.data.chunk_count} 个片段`)
-      loadDocs()
+      const res = await api.post(`/projects/${projectId}/knowledge/upload`, formData)
+      const chunkCount = res.data?.chunk_count
+      toast.success(chunkCount ? `文件已上传并入库，共 ${chunkCount} 个片段` : '文件已上传并入库')
+      await loadDocs()
     } catch (err: any) {
       toast.error(err.response?.data?.detail || '文件上传失败')
+    } finally {
+      setUploading(false)
     }
-    setUploading(false)
   }
 
   const handleDrag = useCallback((e: React.DragEvent) => {
@@ -215,7 +232,21 @@ export default function KnowledgePage() {
       )}
 
       {/* Document list */}
-      {docs.length === 0 ? (
+      {docsLoading ? (
+        <div className="card p-12 text-center">
+          <Loader2 size={32} className="mx-auto text-primary-500 animate-spin mb-4" />
+          <p className="text-sm text-gray-500">正在加载知识库...</p>
+        </div>
+      ) : docsError ? (
+        <div className="card p-12 text-center">
+          <AlertCircle size={40} className="mx-auto text-red-500 mb-4" />
+          <p className="text-sm text-gray-600 mb-4">{docsError}</p>
+          <button className="btn-secondary inline-flex items-center gap-1.5" onClick={loadDocs}>
+            <RefreshCw size={15} />
+            重试
+          </button>
+        </div>
+      ) : docs.length === 0 ? (
         <div className="card p-12 text-center">
           <FileText size={48} className="mx-auto text-gray-300 mb-4" />
           <h3 className="text-lg font-medium text-gray-600 mb-2">知识库为空</h3>
@@ -246,9 +277,10 @@ export default function KnowledgePage() {
               </div>
               <button
                 className="btn-ghost p-2 text-gray-400 hover:text-red-500"
-                onClick={() => handleDelete(doc.id)}
+                onClick={() => handleDelete(doc)}
+                disabled={deletingId === doc.id}
               >
-                <Trash2 size={16} />
+                {deletingId === doc.id ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
               </button>
             </div>
           ))}
