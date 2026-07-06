@@ -227,6 +227,19 @@ class LLMChatResponse(BaseModel):
     actions: list[dict] = []
 
 
+# Stats
+class ProjectStats(BaseModel):
+    project_id: int
+    project_name: str
+    color: str
+    total_tasks: int = 0
+    completed_tasks: int = 0
+    overdue_tasks: int = 0
+    member_count: int = 0
+
+
+class DashboardStats(BaseModel):
+    projects: list[ProjectStats]
 class LLMTaskGenerate(BaseModel):
     project_id: int
     instruction: str  # e.g. "Create tasks for user login module"

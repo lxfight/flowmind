@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime, timezone
 from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
 from app.models.project import Project, ProjectMember
-from app.models.task import TaskStatus
-from app.schemas import ProjectCreate, ProjectUpdate, ProjectOut, ProjectMemberOut, ProjectMemberAdd
+from app.models.task import Task, TaskStatus
+from app.schemas import ProjectCreate, ProjectUpdate, ProjectOut, ProjectMemberOut, ProjectMemberAdd, ProjectStats, DashboardStats
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -95,6 +96,68 @@ async def create_project(
     out = ProjectOut.model_validate(project)
     out.member_count = 1
     return out
+
+
+@router.get("/stats", response_model=DashboardStats)
+async def get_dashboard_stats(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get dashboard statistics for all user projects."""
+    # Get user's projects
+    result = await db.execute(
+        select(Project)
+        .join(ProjectMember)
+        .where(ProjectMember.user_id == current_user.id)
+        .where(Project.is_archived == False)
+    )
+    projects = result.scalars().all()
+
+    stats = []
+    for p in projects:
+        # Total tasks
+        total_result = await db.execute(
+            select(func.count(Task.id)).where(Task.project_id == p.id)
+        )
+        total_tasks = total_result.scalar() or 0
+
+        # Completed tasks
+        completed_result = await db.execute(
+            select(func.count(Task.id)).where(
+                Task.project_id == p.id,
+                Task.is_completed == True,
+            )
+        )
+        completed_tasks = completed_result.scalar() or 0
+
+        # Overdue tasks (due_date in the past and not completed)
+        overdue_result = await db.execute(
+            select(func.count(Task.id)).where(
+                Task.project_id == p.id,
+                Task.is_completed == False,
+                Task.due_date.isnot(None),
+                Task.due_date < datetime.now(timezone.utc),
+            )
+        )
+        overdue_tasks = overdue_result.scalar() or 0
+
+        # Member count
+        member_result = await db.execute(
+            select(func.count(ProjectMember.id)).where(ProjectMember.project_id == p.id)
+        )
+        member_count = member_result.scalar() or 0
+
+        stats.append(ProjectStats(
+            project_id=p.id,
+            project_name=p.name,
+            color=p.color,
+            total_tasks=total_tasks,
+            completed_tasks=completed_tasks,
+            overdue_tasks=overdue_tasks,
+            member_count=member_count,
+        ))
+
+    return DashboardStats(projects=stats)
 
 
 @router.get("/{project_id}", response_model=ProjectOut)
