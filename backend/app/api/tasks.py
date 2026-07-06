@@ -156,6 +156,19 @@ async def delete_task(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    # Check project role: only owner/admin can delete tasks
+    from app.models.project import ProjectMember
+    if not current_user.is_superuser:
+        member_result = await db.execute(
+            select(ProjectMember).where(
+                ProjectMember.project_id == project_id,
+                ProjectMember.user_id == current_user.id,
+            )
+        )
+        member = member_result.scalar_one_or_none()
+        if not member or member.role not in ("owner", "admin"):
+            raise HTTPException(status_code=403, detail="无权删除任务，需要管理员或所有者权限")
+
     result = await db.execute(
         select(Task).where(Task.id == task_id, Task.project_id == project_id)
     )
