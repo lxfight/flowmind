@@ -7,7 +7,7 @@ from app.core.security import get_current_user
 from app.models.user import User
 from app.models.project import Project, ProjectMember
 from app.models.task import Task, TaskStatus
-from app.schemas import ProjectCreate, ProjectUpdate, ProjectOut, ProjectMemberOut, ProjectMemberAdd, ProjectStats, DashboardStats
+from app.schemas import ProjectCreate, ProjectUpdate, ProjectOut, ProjectMemberOut, ProjectMemberAdd, ProjectStats, DashboardStats, ActivityLogOut
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -268,3 +268,28 @@ async def remove_member(project_id: int, user_id: int, db: AsyncSession = Depend
         )
     )
     return {"message": "成员已移除"}
+
+
+@router.get("/{project_id}/activities", response_model=list[ActivityLogOut])
+async def list_activities(
+    project_id: int,
+    limit: int = 30,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get recent activity logs for a project."""
+    from app.models.activity import ActivityLog
+    result = await db.execute(
+        select(ActivityLog)
+        .where(ActivityLog.project_id == project_id)
+        .order_by(ActivityLog.created_at.desc())
+        .limit(limit)
+    )
+    logs = result.scalars().all()
+    output = []
+    for log in logs:
+        out = ActivityLogOut.model_validate(log)
+        # Attach user name
+        if log.user:
+            out.user_name = log.user.display_name or log.user.username
+        output.append(out)
+    return output

@@ -240,6 +240,21 @@ class ProjectStats(BaseModel):
 
 class DashboardStats(BaseModel):
     projects: list[ProjectStats]
+
+
+# Activity Log
+class ActivityLogOut(BaseModel):
+    id: int
+    project_id: int
+    user_id: int
+    action: str
+    target_type: str
+    target_id: int
+    summary: str
+    created_at: datetime
+    user_name: str = ""
+
+    model_config = {"from_attributes": True}
 class LLMTaskGenerate(BaseModel):
     project_id: int
     instruction: str  # e.g. "Create tasks for user login module"

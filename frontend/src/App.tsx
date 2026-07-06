@@ -10,6 +10,7 @@ import KanbanView from './pages/KanbanView'
 import KnowledgePage from './pages/KnowledgePage'
 import ProjectMembersPage from './pages/ProjectMembersPage'
 import ProjectReportPage from './pages/ProjectReportPage'
+import ActivityPage from './pages/ActivityPage'
 import Layout from './components/common/Layout'
 
 const queryClient = new QueryClient()
@@ -41,6 +42,7 @@ export default function App() {
             <Route path="project/:projectId/knowledge" element={<KnowledgePage />} />
             <Route path="project/:projectId/members" element={<ProjectMembersPage />} />
             <Route path="project/:projectId/report" element={<ProjectReportPage />} />
+            <Route path="project/:projectId/activities" element={<ActivityPage />} />
           </Route>
         </Routes>
       </BrowserRouter>
