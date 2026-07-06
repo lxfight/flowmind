@@ -1,5 +1,7 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+import secrets
+import os
 
 
 class Settings(BaseSettings):
@@ -7,15 +9,16 @@ class Settings(BaseSettings):
     debug: bool = False
 
     # Database
-    # 默认使用 PostgreSQL + pgvector（需要 Docker），可随时通过环境变量切换为 SQLite
     database_url: str = "postgresql+asyncpg://flowmind:flowmind_secret@localhost:5432/flowmind"
-    # 本地开发无 Docker 时，注释上面这行，取消下面这行的注释：
-    # database_url: str = "sqlite+aiosqlite:///./flowmind.db"
 
     # JWT
-    jwt_secret: str = "dev-secret-change-in-production"
+    jwt_secret: str = ""
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24  # 24 hours
+
+    # Rate limiting
+    rate_limit_login_max: int = 5
+    rate_limit_window: int = 60
 
     # LLM
     llm_api_key: str = ""
@@ -34,6 +37,16 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if not self.jwt_secret:
+            self.jwt_secret = secrets.token_urlsafe(32)
+            if not os.environ.get("JWT_SECRET") and not kwargs.get("jwt_secret"):
+                import sys
+                print(f"\n⚠️  JWT_SECRET 未设置，已自动生成随机密钥。"
+                      f"生产环境请通过环境变量设置 JWT_SECRET。\n",
+                      file=sys.stderr)
 
 
 @lru_cache()

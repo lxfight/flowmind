@@ -1,10 +1,12 @@
+import os
+import secrets
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
+from sqlalchemy import text, select
 
 from app.api import auth, projects, tasks, statuses, knowledge, llm
-from app.core.database import engine, Base
+from app.core.database import engine, Base, async_session_factory
 
 
 @asynccontextmanager
@@ -16,6 +18,35 @@ async def lifespan(app: FastAPI):
         except Exception:
             pass  # ignore if not PostgreSQL (e.g. SQLite dev mode)
         await conn.run_sync(Base.metadata.create_all)
+
+    # Auto-create default superuser if no users exist
+    async with async_session_factory() as db:
+        from app.models.user import User
+        from app.core.security import hash_password
+        result = await db.execute(select(User).limit(1))
+        if not result.scalar_one_or_none():
+            admin_password = os.environ.get(
+                "FLOWMIND_ADMIN_PASSWORD",
+                secrets.token_urlsafe(12),
+            )
+            admin = User(
+                username="admin",
+                email="admin@flowmind.local",
+                hashed_password=hash_password(admin_password),
+                display_name="超级管理员",
+                is_superuser=True,
+                is_approved=True,
+                can_create_project=True,
+            )
+            db.add(admin)
+            await db.commit()
+            print(f"\n{'='*60}")
+            print(f"  默认超级管理员已创建")
+            print(f"  用户名: admin")
+            print(f"  密码:   {admin_password}")
+            print(f"  请登录后立即修改密码!")
+            print(f"{'='*60}\n")
+
     yield
     # Shutdown
     await engine.dispose()
