@@ -64,6 +64,9 @@ async def create_project(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new project with default task statuses."""
+    if not current_user.can_create_project and not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="无权创建项目，请联系管理员开通权限")
+
     project = Project(
         name=data.name,
         description=data.description,
