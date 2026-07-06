@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from datetime import datetime, timezone
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.api.permissions import ensure_project_admin, ensure_project_member
@@ -315,6 +316,7 @@ async def list_activities(
     from app.models.activity import ActivityLog
     result = await db.execute(
         select(ActivityLog)
+        .options(selectinload(ActivityLog.user))
         .where(ActivityLog.project_id == project_id)
         .order_by(ActivityLog.created_at.desc())
         .limit(limit)

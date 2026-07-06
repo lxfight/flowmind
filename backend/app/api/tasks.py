@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.api.permissions import (
@@ -33,7 +34,7 @@ async def list_tasks(
     if status_id is not None:
         await ensure_status_in_project(project_id, status_id, db)
 
-    query = select(Task).where(Task.project_id == project_id)
+    query = select(Task).options(selectinload(Task.assignee)).where(Task.project_id == project_id)
     if status_id is not None:
         query = query.where(Task.status_id == status_id)
     if assignee_id is not None:
@@ -89,6 +90,8 @@ async def create_task(
     db.add(task)
     await db.flush()
     await db.refresh(task)
+    if task.assignee_id is not None:
+        await db.refresh(task, ["assignee"])
 
     # Log activity
     from app.models.activity import ActivityLog
@@ -112,12 +115,15 @@ async def get_task(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    from sqlalchemy.orm import selectinload
     await ensure_project_member(project_id, current_user, db)
 
     result = await db.execute(
         select(Task)
-        .options(selectinload(Task.assignee), selectinload(Task.subtasks), selectinload(Task.comments))
+        .options(
+            selectinload(Task.assignee),
+            selectinload(Task.subtasks).selectinload(Task.assignee),
+            selectinload(Task.comments).selectinload(TaskComment.user),
+        )
         .where(Task.id == task_id, Task.project_id == project_id)
     )
     task = result.scalar_one_or_none()
@@ -149,6 +155,8 @@ async def update_task(
 
     await db.flush()
     await db.refresh(task)
+    if task.assignee_id is not None:
+        await db.refresh(task, ["assignee"])
 
     # Log activity
     from app.models.activity import ActivityLog
@@ -233,6 +241,7 @@ async def list_comments(
     await ensure_task_in_project(project_id, task_id, db)
     result = await db.execute(
         select(TaskComment)
+        .options(selectinload(TaskComment.user))
         .where(TaskComment.task_id == task_id)
         .order_by(TaskComment.created_at)
     )
@@ -264,4 +273,5 @@ async def create_comment(
     db.add(comment)
     await db.flush()
     await db.refresh(comment)
+    await db.refresh(comment, ["user"])
     return TaskCommentOut.model_validate(comment)
