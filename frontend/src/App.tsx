@@ -12,6 +12,7 @@ import ProjectMembersPage from './pages/ProjectMembersPage'
 import ProjectReportPage from './pages/ProjectReportPage'
 import ActivityPage from './pages/ActivityPage'
 import AdminUsersPage from './pages/AdminUsersPage'
+import ProfilePage from './pages/ProfilePage'
 import Layout from './components/common/Layout'
 
 const queryClient = new QueryClient()
@@ -44,6 +45,7 @@ export default function App() {
             <Route path="project/:projectId/members" element={<ProjectMembersPage />} />
             <Route path="project/:projectId/report" element={<ProjectReportPage />} />
             <Route path="project/:projectId/activities" element={<ActivityPage />} />
+            <Route path="profile" element={<ProfilePage />} />
           </Route>
           <Route
             path="/admin/users"

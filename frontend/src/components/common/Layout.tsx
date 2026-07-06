@@ -12,6 +12,7 @@ import {
   Sun,
   Moon,
   Shield,
+  Settings,
 } from 'lucide-react'
 
 export default function Layout() {
@@ -127,6 +128,13 @@ export default function Layout() {
               <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{user?.email}</p>
             </div>
           </div>
+          <Link
+            to="/profile"
+            className="flex items-center gap-2 w-full px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+          >
+            <Settings size={16} />
+            个人设置
+          </Link>
           <button
             onClick={handleLogout}
             className="flex items-center gap-2 w-full px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
