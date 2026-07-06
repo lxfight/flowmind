@@ -137,26 +137,26 @@ export default function KanbanBoard() {
 
   return (
     <div className="flex h-full">
-      <div className="flex-1 p-6 overflow-auto dark:bg-gray-900">
+      <div className="flex-1 p-4 lg:p-6 overflow-auto dark:bg-gray-900">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold dark:text-gray-100">任务看板</h3>
           <div className="flex items-center gap-2">
             <button
-              className="btn-secondary flex items-center gap-1.5"
+              className="btn-secondary flex items-center gap-1.5 text-sm"
               onClick={() => setShowChat(!showChat)}
             >
               <MessageSquare size={16} />
-              LLM 助手
+              <span className="hidden sm:inline">LLM 助手</span>
             </button>
             <button
-              className="btn-primary flex items-center gap-1.5"
+              className="btn-primary flex items-center gap-1.5 text-sm"
               onClick={() => {
                 setCreateStatusId(statuses[0]?.id || null)
                 setShowCreateDialog(true)
               }}
             >
               <Plus size={16} />
-              新建任务
+              <span className="hidden sm:inline">新建任务</span>
             </button>
           </div>
         </div>

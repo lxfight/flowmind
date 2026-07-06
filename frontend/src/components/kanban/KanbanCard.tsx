@@ -1,6 +1,7 @@
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { AlertCircle, Clock, User } from 'lucide-react'
+import { AlertCircle, Clock, User, ListTodo } from 'lucide-react'
+import { cn } from '../../utils/cn'
 import type { TaskCard } from '../../types'
 
 interface Props {
@@ -10,12 +11,12 @@ interface Props {
 }
 
 const priorityConfig = {
-  0: { color: 'text-gray-400', label: '' },
-  1: { color: 'text-blue-500', label: '低' },
-  2: { color: 'text-yellow-500', label: '中' },
-  3: { color: 'text-orange-500', label: '高' },
-  4: { color: 'text-red-500', label: '紧急' },
-}
+  0: { color: 'text-gray-400', bg: 'bg-gray-400' },
+  1: { color: 'text-blue-500', bg: 'bg-blue-500' },
+  2: { color: 'text-yellow-500', bg: 'bg-yellow-500' },
+  3: { color: 'text-orange-500', bg: 'bg-orange-500' },
+  4: { color: 'text-red-500', bg: 'bg-red-500' },
+} as const
 
 export function KanbanCard({ task, isDragOverlay, onClick }: Props) {
   const {
@@ -43,9 +44,12 @@ export function KanbanCard({ task, isDragOverlay, onClick }: Props) {
       style={style}
       {...attributes}
       {...listeners}
-      className={`card p-3 cursor-grab active:cursor-grabbing ${
-        isDragging ? 'opacity-50' : ''
-      } ${isDragOverlay ? 'shadow-lg rotate-2' : ''}`}
+      className={cn(
+        'card p-3 cursor-grab active:cursor-grabbing border-l-4 relative overflow-hidden',
+        isDragging && 'opacity-50',
+        isDragOverlay && 'shadow-lg rotate-2',
+        task.priority >= 3 ? 'border-l-red-400' : task.priority === 2 ? 'border-l-yellow-400' : 'border-l-transparent',
+      )}
       onClick={(e) => {
         if (!isDragging && onClick) {
           e.stopPropagation()
@@ -59,7 +63,7 @@ export function KanbanCard({ task, isDragOverlay, onClick }: Props) {
           <AlertCircle size={12} className={priority.color} />
           {task.priority >= 3 && (
             <span className={`text-xs font-medium ${priority.color}`}>
-              {priority.label}
+              {['', '低', '中', '高', '紧急'][task.priority]}
             </span>
           )}
         </div>
@@ -69,6 +73,24 @@ export function KanbanCard({ task, isDragOverlay, onClick }: Props) {
       <p className="text-sm font-medium text-gray-900 dark:text-gray-100 leading-snug">
         {task.title}
       </p>
+
+      {/* Subtask progress bar */}
+      {task.subtask_count !== undefined && task.subtask_count > 0 && (
+        <div className="mt-2">
+          <div className="flex items-center gap-1.5 mb-1">
+            <ListTodo size={11} className="text-gray-400" />
+            <span className="text-xs text-gray-400">
+              {task.subtask_done || 0}/{task.subtask_count}
+            </span>
+          </div>
+          <div className="w-full h-1 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-primary-400 rounded-full transition-all duration-300"
+              style={{ width: `${((task.subtask_done || 0) / task.subtask_count) * 100}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Meta */}
       <div className="flex items-center justify-between mt-2 text-xs text-gray-400 dark:text-gray-500">
@@ -80,7 +102,7 @@ export function KanbanCard({ task, isDragOverlay, onClick }: Props) {
             </span>
           )}
           {task.due_date && (
-            <span className={`flex items-center gap-1 ${isOverdue ? 'text-red-500' : ''}`}>
+            <span className={cn('flex items-center gap-1', isOverdue && 'text-red-500')}>
               <Clock size={11} />
               {new Date(task.due_date).toLocaleDateString('zh-CN', {
                 month: 'short',

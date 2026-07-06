@@ -2,12 +2,11 @@ import { Outlet, Link, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../stores/authStore'
 import { useProjectStore } from '../../stores/projectStore'
 import { useThemeStore } from '../../stores/themeStore'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import api from '../../utils/api'
 import {
-  LayoutDashboard,
-  KanbanSquare,
-  BookOpen,
+  Menu,
+  X,
   LogOut,
   Plus,
   Sun,
@@ -19,6 +18,7 @@ export default function Layout() {
   const { projects, setProjects, currentProject, setCurrentProject } = useProjectStore()
   const { theme, toggle } = useThemeStore()
   const navigate = useNavigate()
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   useEffect(() => {
     if (token && !user) loadUser()
@@ -33,23 +33,42 @@ export default function Layout() {
     navigate('/login')
   }
 
+  const closeSidebar = () => setSidebarOpen(false)
+
   return (
     <div className="flex h-screen dark:bg-gray-900">
+      {/* Mobile overlay */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 z-20 lg:hidden"
+          onClick={closeSidebar}
+        />
+      )}
+
       {/* Sidebar */}
-      <aside className="w-64 bg-white border-r border-gray-200 dark:bg-gray-800 dark:border-gray-700 flex flex-col">
+      <aside
+        className={`fixed lg:static z-30 h-full w-64 bg-white border-r border-gray-200 dark:bg-gray-800 dark:border-gray-700 flex flex-col transition-transform duration-200 ${
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+        }`}
+      >
         <div className="p-4 border-b dark:border-gray-700">
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-xl font-bold text-primary-600">FlowMind</h1>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">智能任务管理</p>
             </div>
-            <button
-              onClick={toggle}
-              className="btn-ghost p-1.5 rounded-lg"
-              title={theme === 'light' ? '切换暗色模式' : '切换亮色模式'}
-            >
-              {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={toggle}
+                className="btn-ghost p-1.5 rounded-lg"
+                title={theme === 'light' ? '切换暗色模式' : '切换亮色模式'}
+              >
+                {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
+              </button>
+              <button className="btn-ghost p-1.5 lg:hidden" onClick={closeSidebar}>
+                <X size={16} />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -71,7 +90,7 @@ export default function Layout() {
                     ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300 font-medium'
                     : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
                 }`}
-                onClick={() => setCurrentProject(p)}
+                onClick={() => { setCurrentProject(p); closeSidebar() }}
               >
                 <span
                   className="w-3 h-3 rounded-full flex-shrink-0"
@@ -106,6 +125,13 @@ export default function Layout() {
 
       {/* Main content */}
       <main className="flex-1 overflow-auto bg-gray-50 dark:bg-gray-900">
+        {/* Mobile header */}
+        <div className="lg:hidden flex items-center gap-3 px-4 py-2 border-b dark:border-gray-700 bg-white dark:bg-gray-800">
+          <button className="btn-ghost p-1.5" onClick={() => setSidebarOpen(true)}>
+            <Menu size={20} />
+          </button>
+          <h1 className="font-bold text-primary-600">FlowMind</h1>
+        </div>
         <Outlet />
       </main>
     </div>

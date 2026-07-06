@@ -22,6 +22,8 @@ export interface TaskCard {
   assignee?: { display_name: string } | null
   due_date: string | null
   is_completed?: boolean
+  subtask_count?: number
+  subtask_done?: number
 }
 
 // ===== 状态列 =====
