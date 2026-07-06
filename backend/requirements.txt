@@ -1,0 +1,3 @@
+# Managed by pyproject.toml — use `pip install -e .` instead
+# This file is for Docker build caching
+-e .
