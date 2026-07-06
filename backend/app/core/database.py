@@ -1,15 +1,18 @@
 from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import NullPool
 from app.core.config import get_settings
 
 settings = get_settings()
 
+_is_sqlite = "sqlite" in settings.database_url
+
 engine = create_async_engine(
     settings.database_url,
     echo=settings.debug,
-    pool_size=10,
-    max_overflow=20,
+    poolclass=NullPool if _is_sqlite else None,
+    connect_args={"check_same_thread": False} if _is_sqlite else {},
 )
 
 async_session_factory = async_sessionmaker(

@@ -4,10 +4,10 @@ from functools import lru_cache
 
 class Settings(BaseSettings):
     app_name: str = "FlowMind"
-    debug: bool = True
+    debug: bool = False
 
     # Database
-    database_url: str = "postgresql+asyncpg://flowmind:flowmind_secret@localhost:5432/flowmind"
+    database_url: str = "sqlite+aiosqlite:///./flowmind.db"
 
     # JWT
     jwt_secret: str = "dev-secret-change-in-production"

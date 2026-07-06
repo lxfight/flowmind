@@ -132,18 +132,23 @@ class TaskOut(BaseModel):
     id: int
     project_id: int
     status_id: int
-    assignee_id: int | None
-    parent_task_id: int | None
+    assignee_id: int | None = None
+    parent_task_id: int | None = None
     title: str
     description: str
     priority: int
     order: float
-    due_date: datetime | None
+    due_date: datetime | None = None
     is_completed: bool
-    completed_at: datetime | None
+    completed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
     assignee: UserOut | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class TaskDetailOut(TaskOut):
     subtasks: list["TaskOut"] = []
     comments: list["TaskCommentOut"] = []
 

@@ -7,7 +7,7 @@ from app.core.security import get_current_user
 from app.models.user import User
 from app.models.task import Task, TaskComment
 from app.schemas import (
-    TaskCreate, TaskUpdate, TaskOut, TaskMove,
+    TaskCreate, TaskUpdate, TaskOut, TaskDetailOut, TaskMove,
     TaskCommentCreate, TaskCommentOut,
 )
 
@@ -84,30 +84,24 @@ async def create_task(
     return TaskOut.model_validate(task)
 
 
-@router.get("/{task_id}", response_model=TaskOut)
+@router.get("/{task_id}", response_model=TaskDetailOut)
 async def get_task(
     project_id: int,
     task_id: int,
     db: AsyncSession = Depends(get_db),
 ):
+    from sqlalchemy.orm import selectinload
+
     result = await db.execute(
-        select(Task).where(Task.id == task_id, Task.project_id == project_id)
+        select(Task)
+        .options(selectinload(Task.assignee), selectinload(Task.subtasks), selectinload(Task.comments))
+        .where(Task.id == task_id, Task.project_id == project_id)
     )
     task = result.scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
-    out = TaskOut.model_validate(task)
-    if task.assignee:
-        out.assignee = task.assignee
-
-    # Load subtasks
-    out.subtasks = [TaskOut.model_validate(st) for st in (task.subtasks or [])]
-
-    # Load comments
-    out.comments = [TaskCommentOut.model_validate(c) for c in (task.comments or [])]
-
-    return out
+    return TaskDetailOut.model_validate(task)
 
 
 @router.put("/{task_id}", response_model=TaskOut)

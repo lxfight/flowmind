@@ -74,7 +74,9 @@ async def create_project(
 
     await db.flush()
     await db.refresh(project)
-    return ProjectOut(model_validate=project, member_count=1)
+    out = ProjectOut.model_validate(project)
+    out.member_count = 1
+    return out
 
 
 @router.get("/{project_id}", response_model=ProjectOut)
