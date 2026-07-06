@@ -7,19 +7,28 @@ from app.core.security import get_current_user
 from app.models.user import User
 from app.models.project import Project, ProjectMember
 from app.models.task import Task, TaskStatus
-from app.schemas import ProjectCreate, ProjectUpdate, ProjectOut, ProjectMemberOut, ProjectMemberAdd, ProjectStats, DashboardStats, ActivityLogOut
+from app.schemas import (
+    ActivityLogOut,
+    DashboardStats,
+    ProjectCreate,
+    ProjectMemberAdd,
+    ProjectMemberOut,
+    ProjectOut,
+    ProjectStats,
+    ProjectUpdate,
+    UserOut,
+)
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 
-@router.get("/users/search", response_model=list["UserOut"])
+@router.get("/users/search", response_model=list[UserOut])
 async def search_users(
     q: str = "",
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Search users by username or display_name."""
-    from app.schemas import UserOut
     if not q:
         return []
     result = await db.execute(

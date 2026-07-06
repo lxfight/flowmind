@@ -33,7 +33,6 @@ class KnowledgeDoc(Base):
     # Relationships
     project = relationship("Project", back_populates="knowledge_docs")
     chunks = relationship("DocChunk", back_populates="doc", cascade="all, delete-orphan")
-    embeddings = relationship("DocChunkEmbedding", back_populates="doc", cascade="all, delete-orphan")
 
 
 class DocChunk(Base):
@@ -59,4 +58,3 @@ class DocChunkEmbedding(Base):
 
     # Relationships
     chunk = relationship("DocChunk", back_populates="embedding")
-    doc = relationship("KnowledgeDoc", back_populates="embeddings", overlaps="chunks,embedding")

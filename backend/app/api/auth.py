@@ -10,7 +10,7 @@ from app.core.security import (
     get_current_user,
 )
 from app.models.user import User
-from app.schemas import UserCreate, UserOut, Token
+from app.schemas import PasswordChange, Token, UserCreate, UserOut, UserProfileUpdate
 from app.core.config import get_settings
 
 settings = get_settings()
@@ -113,7 +113,7 @@ async def get_me(current_user: User = Depends(get_current_user)):
 
 @router.put("/profile", response_model=UserOut)
 async def update_profile(
-    data: "UserProfileUpdate",
+    data: UserProfileUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -138,7 +138,7 @@ async def update_profile(
 
 @router.put("/password")
 async def change_password(
-    data: "PasswordChange",
+    data: PasswordChange,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
