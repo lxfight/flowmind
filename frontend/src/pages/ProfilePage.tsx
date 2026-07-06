@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuthStore } from '../stores/authStore'
 import { User, Mail, Lock, Save, Key } from 'lucide-react'
 import api from '../utils/api'
@@ -16,6 +16,12 @@ export default function ProfilePage() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [changingPassword, setChangingPassword] = useState(false)
 
+  useEffect(() => {
+    if (!user) return
+    setDisplayName(user.display_name || '')
+    setEmail(user.email || '')
+  }, [user?.id, user?.display_name, user?.email])
+
   const handleSaveProfile = async () => {
     if (!displayName.trim()) return
     setSavingProfile(true)
@@ -25,8 +31,9 @@ export default function ProfilePage() {
       toast.success('资料已更新')
     } catch (err: any) {
       toast.error(err.response?.data?.detail || '保存失败')
+    } finally {
+      setSavingProfile(false)
     }
-    setSavingProfile(false)
   }
 
   const handleChangePassword = async () => {
@@ -51,8 +58,9 @@ export default function ProfilePage() {
       toast.success('密码修改成功，请牢记新密码')
     } catch (err: any) {
       toast.error(err.response?.data?.detail || '密码修改失败')
+    } finally {
+      setChangingPassword(false)
     }
-    setChangingPassword(false)
   }
 
   if (!user) return null

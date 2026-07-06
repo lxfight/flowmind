@@ -16,15 +16,11 @@ import {
 } from 'lucide-react'
 
 export default function Layout() {
-  const { user, logout, loadUser, token } = useAuthStore()
+  const { user, logout } = useAuthStore()
   const { projects, setProjects, currentProject, setCurrentProject } = useProjectStore()
   const { theme, toggle } = useThemeStore()
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(false)
-
-  useEffect(() => {
-    if (token && !user) loadUser()
-  }, [token])
 
   useEffect(() => {
     api.get('/projects').then((res) => setProjects(res.data))

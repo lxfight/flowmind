@@ -16,16 +16,20 @@ interface AuthState {
   token: string | null
   user: User | null
   loading: boolean
+  initialized: boolean
   login: (username: string, password: string) => Promise<void>
   register: (username: string, email: string, password: string) => Promise<void>
   logout: () => void
   loadUser: () => Promise<void>
 }
 
+const initialToken = localStorage.getItem('flowmind_token')
+
 export const useAuthStore = create<AuthState>((set) => ({
-  token: localStorage.getItem('flowmind_token'),
+  token: initialToken,
   user: null,
   loading: false,
+  initialized: !initialToken,
 
   login: async (username, password) => {
     const formData = new URLSearchParams({ username, password })
@@ -34,10 +38,15 @@ export const useAuthStore = create<AuthState>((set) => ({
     })
     const { access_token } = res.data
     localStorage.setItem('flowmind_token', access_token)
-    set({ token: access_token })
-    // Load user data
-    const userRes = await api.get('/auth/me')
-    set({ user: userRes.data })
+    set({ token: access_token, initialized: false })
+    try {
+      const userRes = await api.get('/auth/me')
+      set({ user: userRes.data, initialized: true })
+    } catch (err) {
+      localStorage.removeItem('flowmind_token')
+      set({ token: null, user: null, initialized: true })
+      throw err
+    }
   },
 
   register: async (username, email, password) => {
@@ -46,16 +55,16 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   logout: () => {
     localStorage.removeItem('flowmind_token')
-    set({ token: null, user: null })
+    set({ token: null, user: null, loading: false, initialized: true })
   },
 
   loadUser: async () => {
     try {
       set({ loading: true })
       const res = await api.get('/auth/me')
-      set({ user: res.data, loading: false })
+      set({ user: res.data, loading: false, initialized: true })
     } catch {
-      set({ token: null, user: null, loading: false })
+      set({ token: null, user: null, loading: false, initialized: true })
       localStorage.removeItem('flowmind_token')
     }
   },
