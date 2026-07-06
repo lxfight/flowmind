@@ -21,6 +21,17 @@ class Token(BaseModel):
     token_type: str = "bearer"
 
 
+class UserProfileUpdate(BaseModel):
+    display_name: str | None = None
+    email: str | None = None
+    avatar_url: str | None = None
+
+
+class PasswordChange(BaseModel):
+    old_password: str
+    new_password: str
+
+
 class TokenData(BaseModel):
     user_id: int | None = None
 

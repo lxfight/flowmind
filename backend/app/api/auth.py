@@ -109,3 +109,46 @@ async def login(
 @router.get("/me", response_model=UserOut)
 async def get_me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+@router.put("/profile", response_model=UserOut)
+async def update_profile(
+    data: "UserProfileUpdate",
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update current user profile (display_name, email, avatar_url). Username is immutable."""
+    if data.display_name is not None:
+        current_user.display_name = data.display_name
+    if data.email is not None:
+        # Check email uniqueness
+        result = await db.execute(
+            select(User).where(User.email == data.email, User.id != current_user.id)
+        )
+        if result.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="邮箱已被使用")
+        current_user.email = data.email
+    if data.avatar_url is not None:
+        current_user.avatar_url = data.avatar_url
+
+    await db.flush()
+    await db.refresh(current_user)
+    return current_user
+
+
+@router.put("/password")
+async def change_password(
+    data: "PasswordChange",
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Change current user password (requires old password)."""
+    if not verify_password(data.old_password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="原密码错误")
+
+    if len(data.new_password) < 6:
+        raise HTTPException(status_code=400, detail="新密码至少6位")
+
+    current_user.hashed_password = hash_password(data.new_password)
+    await db.flush()
+    return {"message": "密码修改成功"}
