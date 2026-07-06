@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { X, Sparkles, Loader2, CheckSquare, Square } from 'lucide-react'
 import api from '../../utils/api'
 import toast from 'react-hot-toast'
@@ -6,6 +6,13 @@ import toast from 'react-hot-toast'
 interface Status {
   id: number
   name: string
+}
+
+interface Member {
+  id: number
+  user_id: number
+  display_name: string
+  username: string
 }
 
 interface GeneratedTask {
@@ -33,6 +40,8 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose
   const [description, setDescription] = useState('')
   const [statusId, setStatusId] = useState(defaultStatusId || statuses[0]?.id || 0)
   const [priority, setPriority] = useState(0)
+  const [assigneeId, setAssigneeId] = useState<number | null>(null)
+  const [members, setMembers] = useState<Member[]>([])
   const [llmOpen, setLlmOpen] = useState(false)
   const [llmInstruction, setLlmInstruction] = useState('')
   const [llmLoading, setLlmLoading] = useState(false)
@@ -40,10 +49,14 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose
   const [selectedTasks, setSelectedTasks] = useState<Set<number>>(new Set())
   const [creating, setCreating] = useState(false)
 
+  useEffect(() => {
+    api.get(`/projects/${projectId}/members`).then((res) => setMembers(res.data)).catch(() => {})
+  }, [projectId])
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!title.trim()) return
-    onCreate({ title: title.trim(), description, status_id: statusId, priority })
+    onCreate({ title: title.trim(), description, status_id: statusId, priority, assignee_id: assigneeId })
     onClose()
   }
 
@@ -265,6 +278,21 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose
                   <option value={4}>紧急</option>
                 </select>
               </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">指派人</label>
+              <select
+                className="input-field"
+                value={assigneeId || ''}
+                onChange={(e) => setAssigneeId(e.target.value ? parseInt(e.target.value) : null)}
+              >
+                <option value="">不指定</option>
+                {members.map((m) => (
+                  <option key={m.user_id} value={m.user_id}>
+                    {m.display_name || m.username}
+                  </option>
+                ))}
+              </select>
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <button type="button" className="btn-secondary" onClick={onClose}>

@@ -1,6 +1,14 @@
 import { useState, useEffect } from 'react'
-import { X, Calendar, User, AlertCircle, MessageSquare } from 'lucide-react'
+import { X, Calendar, User, AlertCircle, MessageSquare, ChevronDown, Check } from 'lucide-react'
 import api from '../../utils/api'
+import toast from 'react-hot-toast'
+
+interface Member {
+  id: number
+  user_id: number
+  display_name: string
+  username: string
+}
 
 interface TaskDetail {
   id: number
@@ -13,6 +21,11 @@ interface TaskDetail {
   is_completed: boolean
   created_at: string
   updated_at: string
+  subtasks?: Array<{
+    id: number
+    title: string
+    is_completed: boolean
+  }>
   comments: Array<{
     id: number
     content: string
@@ -32,12 +45,20 @@ export function TaskDetailDialog({ taskId, projectId, onClose, onUpdated }: Prop
   const [task, setTask] = useState<TaskDetail | null>(null)
   const [newComment, setNewComment] = useState('')
   const [loading, setLoading] = useState(true)
+  const [members, setMembers] = useState<Member[]>([])
+  const [showAssigneePicker, setShowAssigneePicker] = useState(false)
+  const [updatingAssignee, setUpdatingAssignee] = useState(false)
 
   useEffect(() => {
-    api.get(`/projects/${projectId}/tasks/${taskId}`).then(res => {
-      setTask(res.data)
+    // Load task detail and members in parallel
+    Promise.all([
+      api.get(`/projects/${projectId}/tasks/${taskId}`),
+      api.get(`/projects/${projectId}/members`),
+    ]).then(([taskRes, membersRes]) => {
+      setTask(taskRes.data)
+      setMembers(membersRes.data)
       setLoading(false)
-    })
+    }).catch(() => setLoading(false))
   }, [taskId, projectId])
 
   const handleAddComment = async () => {
@@ -53,6 +74,21 @@ export function TaskDetailDialog({ taskId, projectId, onClose, onUpdated }: Prop
     await api.put(`/projects/${projectId}/tasks/${taskId}`, { is_completed: !task.is_completed })
     onUpdated()
     onClose()
+  }
+
+  const handleAssigneeChange = async (userId: number | null) => {
+    if (!task) return
+    setUpdatingAssignee(true)
+    try {
+      await api.put(`/projects/${projectId}/tasks/${taskId}`, { assignee_id: userId })
+      const res = await api.get(`/projects/${projectId}/tasks/${taskId}`)
+      setTask(res.data)
+      onUpdated()
+    } catch {
+      toast.error('更新指派人失败')
+    }
+    setUpdatingAssignee(false)
+    setShowAssigneePicker(false)
   }
 
   if (loading || !task) {
@@ -91,9 +127,41 @@ export function TaskDetailDialog({ taskId, projectId, onClose, onUpdated }: Prop
                   <AlertCircle size={12} /> {priorityLabels[task.priority]}
                 </span>
               )}
-              {task.assignee && (
-                <span className="flex items-center gap-1"><User size={12} /> {task.assignee.display_name}</span>
-              )}
+              {/* Assignee picker */}
+              <div className="relative">
+                <button
+                  className={`flex items-center gap-1 hover:text-primary-600 transition-colors ${updatingAssignee ? 'opacity-50' : ''}`}
+                  onClick={() => setShowAssigneePicker(!showAssigneePicker)}
+                  disabled={updatingAssignee}
+                >
+                  <User size={12} />
+                  <span>{task.assignee?.display_name || '未指派'}</span>
+                  <ChevronDown size={10} className={`transition-transform ${showAssigneePicker ? 'rotate-180' : ''}`} />
+                </button>
+                {showAssigneePicker && (
+                  <div className="absolute top-full left-0 mt-1 w-40 bg-white rounded-lg shadow-lg border z-10 py-1">
+                    <button
+                      className="w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 flex items-center gap-1.5"
+                      onClick={() => handleAssigneeChange(null)}
+                    >
+                      {!task.assignee && <Check size={12} />}
+                      <span className={!task.assignee ? 'font-medium' : ''}>未指派</span>
+                    </button>
+                    {members.map((m) => (
+                      <button
+                        key={m.user_id}
+                        className="w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 flex items-center gap-1.5"
+                        onClick={() => handleAssigneeChange(m.user_id)}
+                      >
+                        {task.assignee?.id === m.user_id && <Check size={12} />}
+                        <span className={task.assignee?.id === m.user_id ? 'font-medium' : ''}>
+                          {m.display_name || m.username}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               {task.due_date && (
                 <span className="flex items-center gap-1"><Calendar size={12} /> {new Date(task.due_date).toLocaleDateString('zh-CN')}</span>
               )}
