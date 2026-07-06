@@ -112,10 +112,10 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-lg max-h-[85vh] flex flex-col">
+    <div className="fixed inset-0 bg-black/40 dark:bg-black/60 flex items-center justify-center z-50">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 w-full max-w-lg max-h-[85vh] flex flex-col">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold">新建任务</h3>
+          <h3 className="text-lg font-semibold dark:text-gray-100">新建任务</h3>
           <button onClick={onClose} className="btn-ghost p-1">
             <X size={18} />
           </button>
@@ -132,9 +132,9 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose
               <span>用自然语言让 LLM 帮你创建任务 — "下周完成用户登录模块"</span>
             </button>
           ) : (
-            <div className="mb-4 p-3 bg-primary-50 rounded-lg">
+            <div className="mb-4 p-3 bg-primary-50 dark:bg-primary-900/20 rounded-lg">
               <textarea
-                className="w-full text-sm bg-white rounded-lg p-2 border focus:outline-none focus:ring-1 focus:ring-primary-500 resize-none"
+                className="w-full text-sm bg-white dark:bg-gray-800 rounded-lg p-2 border dark:border-gray-600 focus:outline-none focus:ring-1 focus:ring-primary-500 resize-none"
                 rows={2}
                 placeholder="描述你要创建的任务..."
                 value={llmInstruction}

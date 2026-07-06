@@ -28,14 +28,14 @@ export default function ProjectPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Project header */}
-      <div className="bg-white border-b px-6 py-3">
+      <div className="bg-white border-b dark:bg-gray-800 dark:border-gray-700 px-6 py-3">
         <div className="flex items-center gap-3">
           <span
             className="w-4 h-4 rounded-full"
             style={{ backgroundColor: currentProject.color }}
           />
-          <h2 className="text-xl font-bold">{currentProject.name}</h2>
-          <span className="text-sm text-gray-400 ml-2">{currentProject.description}</span>
+          <h2 className="text-xl font-bold dark:text-gray-100">{currentProject.name}</h2>
+          <span className="text-sm text-gray-400 dark:text-gray-500 ml-2">{currentProject.description}</span>
         </div>
         <nav className="flex gap-1 mt-2">
           {navItems.map((item) => {
@@ -46,8 +46,8 @@ export default function ProjectPage() {
                 to={item.path}
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors ${
                   active
-                    ? 'bg-primary-50 text-primary-700 font-medium'
-                    : 'text-gray-600 hover:bg-gray-100'
+                    ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300 font-medium'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
                 }`}
               >
                 <item.icon size={16} />

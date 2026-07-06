@@ -47,7 +47,6 @@ export function KanbanCard({ task, isDragOverlay, onClick }: Props) {
         isDragging ? 'opacity-50' : ''
       } ${isDragOverlay ? 'shadow-lg rotate-2' : ''}`}
       onClick={(e) => {
-        // Only trigger on click if not dragging
         if (!isDragging && onClick) {
           e.stopPropagation()
           onClick()
@@ -67,10 +66,12 @@ export function KanbanCard({ task, isDragOverlay, onClick }: Props) {
       )}
 
       {/* Title */}
-      <p className="text-sm font-medium text-gray-900 leading-snug">{task.title}</p>
+      <p className="text-sm font-medium text-gray-900 dark:text-gray-100 leading-snug">
+        {task.title}
+      </p>
 
       {/* Meta */}
-      <div className="flex items-center justify-between mt-2 text-xs text-gray-400">
+      <div className="flex items-center justify-between mt-2 text-xs text-gray-400 dark:text-gray-500">
         <div className="flex items-center gap-2">
           {task.assignee && (
             <span className="flex items-center gap-1">

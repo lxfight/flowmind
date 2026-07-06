@@ -21,27 +21,27 @@ export function CreateProjectDialog({ onClose, onCreate }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md">
+    <div className="fixed inset-0 bg-black/40 dark:bg-black/60 flex items-center justify-center z-50">
+      <div className="card p-6 w-full max-w-md dark:bg-gray-800">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold">新建项目</h3>
+          <h3 className="text-lg font-semibold dark:text-gray-100">新建项目</h3>
           <button onClick={onClose} className="btn-ghost p-1"><X size={18} /></button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1">项目名称 *</label>
+            <label className="block text-sm font-medium mb-1 dark:text-gray-300">项目名称 *</label>
             <input className="input-field" value={name} onChange={(e) => setName(e.target.value)} placeholder="输入项目名称" required autoFocus />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">描述</label>
+            <label className="block text-sm font-medium mb-1 dark:text-gray-300">描述</label>
             <textarea className="input-field resize-none" rows={3} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="项目描述（可选）" />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">颜色</label>
+            <label className="block text-sm font-medium mb-1 dark:text-gray-300">颜色</label>
             <div className="flex gap-2">
               {COLORS.map(c => (
                 <button key={c} type="button" onClick={() => setColor(c)}
-                  className={`w-8 h-8 rounded-full transition-transform ${color === c ? 'ring-2 ring-offset-2 ring-gray-400 scale-110' : ''}`}
+                  className={`w-8 h-8 rounded-full transition-transform ${color === c ? 'ring-2 ring-offset-2 ring-gray-400 dark:ring-gray-300 scale-110' : ''}`}
                   style={{ backgroundColor: c }} />
               ))}
             </div>

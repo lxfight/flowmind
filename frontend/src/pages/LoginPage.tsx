@@ -23,15 +23,15 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-indigo-100">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
       <div className="card p-8 w-full max-w-md">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-primary-600">FlowMind</h1>
-          <p className="text-gray-500 mt-1">登录到智能任务管理系统</p>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">登录到智能任务管理系统</p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1">用户名</label>
+            <label className="block text-sm font-medium mb-1 dark:text-gray-300">用户名</label>
             <input
               className="input-field"
               value={username}
@@ -40,7 +40,7 @@ export default function LoginPage() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">密码</label>
+            <label className="block text-sm font-medium mb-1 dark:text-gray-300">密码</label>
             <input
               type="password"
               className="input-field"
@@ -53,7 +53,7 @@ export default function LoginPage() {
             {loading ? '登录中...' : '登录'}
           </button>
         </form>
-        <p className="text-center text-sm text-gray-500 mt-6">
+        <p className="text-center text-sm text-gray-500 dark:text-gray-400 mt-6">
           还没有账号？{' '}
           <Link to="/register" className="text-primary-600 hover:underline">
             注册

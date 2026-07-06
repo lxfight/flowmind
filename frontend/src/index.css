@@ -9,6 +9,13 @@
   body {
     @apply bg-gray-50 text-gray-900;
   }
+  .dark body,
+  .dark {
+    @apply bg-gray-900 text-gray-100;
+  }
+  .dark * {
+    @apply border-gray-700;
+  }
 }
 
 @layer components {
@@ -20,14 +27,26 @@
     @apply px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg
            hover:bg-gray-50 transition-colors font-medium;
   }
+  .dark .btn-secondary {
+    @apply bg-gray-800 border-gray-600 text-gray-200 hover:bg-gray-700;
+  }
   .btn-ghost {
     @apply px-3 py-1.5 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors;
+  }
+  .dark .btn-ghost {
+    @apply text-gray-300 hover:bg-gray-800;
   }
   .input-field {
     @apply w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none
            focus:ring-2 focus:ring-primary-500 focus:border-transparent;
   }
+  .dark .input-field {
+    @apply bg-gray-800 border-gray-600 text-gray-100 placeholder:text-gray-500;
+  }
   .card {
     @apply bg-white rounded-xl border border-gray-200 shadow-sm;
+  }
+  .dark .card {
+    @apply bg-gray-800 border-gray-700;
   }
 }

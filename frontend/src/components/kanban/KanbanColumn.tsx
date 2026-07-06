@@ -2,25 +2,11 @@ import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { KanbanCard } from './KanbanCard'
 import { Plus } from 'lucide-react'
-
-interface Status {
-  id: number
-  name: string
-  color: string
-  task_count: number
-}
-
-interface Task {
-  id: number
-  title: string
-  priority: number
-  assignee?: { display_name: string } | null
-  due_date: string | null
-}
+import type { TaskStatus, TaskCard } from '../../types'
 
 interface Props {
-  status: Status
-  tasks: Task[]
+  status: Pick<TaskStatus, 'id' | 'name' | 'color' | 'task_count'>
+  tasks: TaskCard[]
   onAddTask: () => void
   onTaskClick: (taskId: number) => void
 }
@@ -32,8 +18,8 @@ export function KanbanColumn({ status, tasks, onAddTask, onTaskClick }: Props) {
 
   return (
     <div
-      className={`flex-shrink-0 w-72 bg-gray-100 rounded-xl flex flex-col ${
-        isOver ? 'ring-2 ring-primary-400 bg-primary-50' : ''
+      className={`flex-shrink-0 w-72 bg-gray-100 dark:bg-gray-800 rounded-xl flex flex-col ${
+        isOver ? 'ring-2 ring-primary-400 dark:ring-primary-500 bg-primary-50 dark:bg-primary-900/30' : ''
       }`}
     >
       {/* Column header */}
@@ -43,8 +29,8 @@ export function KanbanColumn({ status, tasks, onAddTask, onTaskClick }: Props) {
             className="w-2.5 h-2.5 rounded-full"
             style={{ backgroundColor: status.color }}
           />
-          <h4 className="font-medium text-sm text-gray-700">{status.name}</h4>
-          <span className="text-xs text-gray-400 bg-white px-1.5 py-0.5 rounded-full">
+          <h4 className="font-medium text-sm text-gray-700 dark:text-gray-200">{status.name}</h4>
+          <span className="text-xs text-gray-400 dark:text-gray-500 bg-white dark:bg-gray-700 px-1.5 py-0.5 rounded-full">
             {tasks.length}
           </span>
         </div>
@@ -65,7 +51,7 @@ export function KanbanColumn({ status, tasks, onAddTask, onTaskClick }: Props) {
         </SortableContext>
 
         {tasks.length === 0 && (
-          <div className="text-center text-sm text-gray-400 py-8">
+          <div className="text-center text-sm text-gray-400 dark:text-gray-500 py-8">
             暂无任务
           </div>
         )}

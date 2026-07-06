@@ -137,9 +137,9 @@ export default function KanbanBoard() {
 
   return (
     <div className="flex h-full">
-      <div className="flex-1 p-6 overflow-auto">
+      <div className="flex-1 p-6 overflow-auto dark:bg-gray-900">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold">任务看板</h3>
+          <h3 className="text-lg font-semibold dark:text-gray-100">任务看板</h3>
           <div className="flex items-center gap-2">
             <button
               className="btn-secondary flex items-center gap-1.5"
@@ -194,7 +194,7 @@ export default function KanbanBoard() {
 
       {/* LLM Chat Side Panel */}
       {showChat && (
-        <div className="w-96 border-l bg-white flex-shrink-0">
+        <div className="w-96 border-l bg-white dark:bg-gray-800 dark:border-gray-700 flex-shrink-0">
           <LLMChatPanel
             projectId={parseInt(projectId!)}
             onClose={() => setShowChat(false)}

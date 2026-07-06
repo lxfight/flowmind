@@ -25,28 +25,28 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-indigo-100">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
       <div className="card p-8 w-full max-w-md">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-primary-600">FlowMind</h1>
-          <p className="text-gray-500 mt-1">创建您的账号</p>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">创建您的账号</p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1">用户名</label>
+            <label className="block text-sm font-medium mb-1 dark:text-gray-300">用户名</label>
             <input className="input-field" value={username} onChange={(e) => setUsername(e.target.value)} required />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">邮箱</label>
+            <label className="block text-sm font-medium mb-1 dark:text-gray-300">邮箱</label>
             <input type="email" className="input-field" value={email} onChange={(e) => setEmail(e.target.value)} required />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">密码</label>
+            <label className="block text-sm font-medium mb-1 dark:text-gray-300">密码</label>
             <input type="password" className="input-field" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} />
           </div>
           <button type="submit" className="btn-primary w-full" disabled={loading}>{loading ? '注册中...' : '注册'}</button>
         </form>
-        <p className="text-center text-sm text-gray-500 mt-6">
+        <p className="text-center text-sm text-gray-500 dark:text-gray-400 mt-6">
           已有账号？<Link to="/login" className="text-primary-600 hover:underline">登录</Link>
         </p>
       </div>

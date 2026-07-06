@@ -60,10 +60,10 @@ export function LLMChatPanel({ projectId, onClose, onCreateTasks }: Props) {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full dark:bg-gray-800">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b">
-        <h3 className="font-semibold text-sm">LLM 助手</h3>
+      <div className="flex items-center justify-between px-4 py-3 border-b dark:border-gray-700">
+        <h3 className="font-semibold text-sm dark:text-gray-100">LLM 助手</h3>
         <button onClick={onClose} className="btn-ghost p-1">
           <X size={16} />
         </button>
@@ -80,7 +80,7 @@ export function LLMChatPanel({ projectId, onClose, onCreateTasks }: Props) {
               className={`max-w-[85%] rounded-xl px-3 py-2 text-sm ${
                 msg.role === 'user'
                   ? 'bg-primary-500 text-white'
-                  : 'bg-gray-100 text-gray-800'
+                  : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200'
               }`}
             >
               {msg.content}
@@ -89,7 +89,7 @@ export function LLMChatPanel({ projectId, onClose, onCreateTasks }: Props) {
         ))}
         {loading && (
           <div className="flex justify-start">
-            <div className="bg-gray-100 rounded-xl px-3 py-2 text-sm text-gray-500">
+            <div className="bg-gray-100 dark:bg-gray-700 rounded-xl px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
               <span className="animate-pulse">思考中...</span>
             </div>
           </div>
@@ -97,16 +97,16 @@ export function LLMChatPanel({ projectId, onClose, onCreateTasks }: Props) {
       </div>
 
       {/* Quick actions */}
-      <div className="px-4 py-2 border-t">
+      <div className="px-4 py-2 border-t dark:border-gray-700">
         <div className="flex flex-wrap gap-1.5 mb-2">
           <button
-            className="text-xs px-2 py-1 bg-primary-50 text-primary-700 rounded-full hover:bg-primary-100"
+            className="text-xs px-2 py-1 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 rounded-full hover:bg-primary-100 dark:hover:bg-primary-900/50"
             onClick={() => setInput('帮我创建本周迭代的任务')}
           >
             📋 创建本周任务
           </button>
           <button
-            className="text-xs px-2 py-1 bg-primary-50 text-primary-700 rounded-full hover:bg-primary-100"
+            className="text-xs px-2 py-1 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 rounded-full hover:bg-primary-100 dark:hover:bg-primary-900/50"
             onClick={() => setInput('这个项目的进度怎么样？')}
           >
             📊 项目进度
@@ -115,7 +115,7 @@ export function LLMChatPanel({ projectId, onClose, onCreateTasks }: Props) {
       </div>
 
       {/* Input */}
-      <div className="p-3 border-t">
+      <div className="p-3 border-t dark:border-gray-700">
         <div className="flex gap-2">
           <input
             className="input-field flex-1 text-sm"

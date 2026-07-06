@@ -34,9 +34,9 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="p-6">
+    <div className="p-6 dark:text-gray-100">
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold">我的项目</h2>
+        <h2 className="text-2xl font-bold dark:text-gray-100">我的项目</h2>
         <button className="btn-primary flex items-center gap-2" onClick={() => setShowCreate(true)}>
           <Plus size={18} />
           新建项目
@@ -46,13 +46,13 @@ export default function DashboardPage() {
       {loading ? (
         <div className="card p-12 text-center">
           <RefreshCw size={32} className="mx-auto text-primary-500 animate-spin mb-4" />
-          <p className="text-gray-500">加载项目列表...</p>
+          <p className="text-gray-500 dark:text-gray-400">加载项目列表...</p>
         </div>
       ) : projects.length === 0 ? (
         <div className="card p-12 text-center">
-          <KanbanSquare size={48} className="mx-auto text-gray-300 mb-4" />
-          <h3 className="text-lg font-medium text-gray-600 mb-2">还没有项目</h3>
-          <p className="text-gray-400 mb-4">创建第一个项目，开始使用 FlowMind</p>
+          <KanbanSquare size={48} className="mx-auto text-gray-300 dark:text-gray-600 mb-4" />
+          <h3 className="text-lg font-medium text-gray-600 dark:text-gray-300 mb-2">还没有项目</h3>
+          <p className="text-gray-400 dark:text-gray-500 mb-4">创建第一个项目，开始使用 FlowMind</p>
           <button className="btn-primary" onClick={() => setShowCreate(true)}>创建项目</button>
         </div>
       ) : (
@@ -66,10 +66,10 @@ export default function DashboardPage() {
             >
               <div className="flex items-center gap-3 mb-3">
                 <span className="w-4 h-4 rounded-full" style={{ backgroundColor: p.color }} />
-                <h3 className="font-semibold text-lg">{p.name}</h3>
+                <h3 className="font-semibold text-lg dark:text-gray-100">{p.name}</h3>
               </div>
-              <p className="text-sm text-gray-500 line-clamp-2 mb-4">{p.description}</p>
-              <div className="flex items-center justify-between text-xs text-gray-400">
+              <p className="text-sm text-gray-500 dark:text-gray-400 line-clamp-2 mb-4">{p.description}</p>
+              <div className="flex items-center justify-between text-xs text-gray-400 dark:text-gray-500">
                 <span>{p.member_count} 位成员</span>
               </div>
             </Link>
