@@ -1,11 +1,21 @@
 import { useState } from 'react'
-import { X, Send } from 'lucide-react'
+import { X, Send, ListTodo, BarChart3, Loader2 } from 'lucide-react'
 import api from '../../utils/api'
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from '../ui/Sheet'
+import { Button } from '../ui/Button'
 
 interface Props {
   projectId: number
   onClose: () => void
   onCreateTasks: (instruction: string) => void
+  generating?: boolean
 }
 
 interface Message {
@@ -13,7 +23,7 @@ interface Message {
   content: string
 }
 
-export function LLMChatPanel({ projectId, onClose, onCreateTasks }: Props) {
+export function LLMChatPanel({ projectId, onClose, onCreateTasks, generating = false }: Props) {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'assistant',
@@ -60,84 +70,90 @@ export function LLMChatPanel({ projectId, onClose, onCreateTasks }: Props) {
   }
 
   return (
-    <div className="flex flex-col h-full min-w-0 dark:bg-gray-800">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b dark:border-gray-700">
-        <h3 className="font-semibold text-sm dark:text-gray-100">LLM 助手</h3>
-        <button onClick={onClose} className="btn-ghost p-1">
-          <X size={16} />
-        </button>
-      </div>
+    <Sheet open onClose={onClose} side="right" className="flex flex-col">
+      <SheetHeader>
+        <SheetTitle>LLM 助手</SheetTitle>
+        <SheetClose onClose={onClose} />
+      </SheetHeader>
 
-      {/* Messages */}
-      <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-          >
+      <SheetContent className="flex-1 flex flex-col">
+        {/* Messages */}
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
+          {messages.map((msg, i) => (
             <div
-              className={`max-w-[85%] rounded-xl px-3 py-2 text-sm ${
-                msg.role === 'user'
-                  ? 'bg-primary-500 text-white'
-                  : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200'
-              } break-words`}
+              key={i}
+              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
-              {msg.content}
+              <div
+                className={`max-w-[85%] rounded-xl px-3 py-2 text-sm ${
+                  msg.role === 'user'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted text-foreground'
+                } break-words`}
+              >
+                {msg.content}
+              </div>
             </div>
-          </div>
-        ))}
-        {loading && (
-          <div className="flex justify-start">
-            <div className="bg-gray-100 dark:bg-gray-700 rounded-xl px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
-              <span className="animate-pulse">思考中...</span>
+          ))}
+          {loading && (
+            <div className="flex justify-start">
+              <div className="bg-muted rounded-xl px-3 py-2 text-sm text-muted-foreground">
+                <span className="animate-pulse">思考中...</span>
+              </div>
             </div>
+          )}
+        </div>
+
+        {/* Quick actions */}
+        <div className="px-4 py-2 border-t border-border">
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onCreateTasks('帮我创建本周迭代的任务')}
+              disabled={generating}
+              className="gap-1.5"
+            >
+              {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ListTodo className="h-3.5 w-3.5" />}
+              创建本周任务
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setInput('这个项目的进度怎么样？')}
+              className="gap-1.5"
+            >
+              <BarChart3 className="h-3.5 w-3.5" />
+              项目进度
+            </Button>
           </div>
-        )}
-      </div>
-
-      {/* Quick actions */}
-      <div className="px-4 py-2 border-t dark:border-gray-700">
-        <div className="flex flex-wrap gap-1.5 mb-2">
-          <button
-            className="text-xs px-2 py-1 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 rounded-full hover:bg-primary-100 dark:hover:bg-primary-900/50"
-            onClick={() => setInput('帮我创建本周迭代的任务')}
-          >
-            📋 创建本周任务
-          </button>
-          <button
-            className="text-xs px-2 py-1 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 rounded-full hover:bg-primary-100 dark:hover:bg-primary-900/50"
-            onClick={() => setInput('这个项目的进度怎么样？')}
-          >
-            📊 项目进度
-          </button>
         </div>
-      </div>
 
-      {/* Input */}
-      <div className="p-3 border-t dark:border-gray-700">
-        <div className="flex gap-2">
-          <input
-            className="input-field flex-1 min-w-0 text-sm"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-            placeholder="输入消息..."
-          />
-          <button
-            className="btn-primary p-2"
-            onClick={handleSend}
-            disabled={loading || !input.trim()}
-          >
-            <Send size={16} />
-          </button>
-        </div>
-        {!loading && (
-          <p className="text-xs text-gray-400 mt-1">
-            Enter 发送，Shift+Enter 换行
-          </p>
-        )}
-      </div>
-    </div>
+        {/* Input */}
+        <SheetFooter className="flex-shrink-0">
+          <div className="flex gap-2 w-full">
+            <input
+              className="flex-1 min-w-0 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
+              placeholder="输入消息..."
+            />
+            <Button
+              onClick={handleSend}
+              disabled={loading || !input.trim()}
+              size="icon"
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          </div>
+          {!loading && (
+            <p className="text-xs text-muted-foreground mt-1.5 text-center">
+              Enter 发送，Shift+Enter 换行
+            </p>
+          )}
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   )
 }
