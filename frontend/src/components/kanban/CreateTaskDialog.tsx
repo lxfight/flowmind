@@ -1,8 +1,18 @@
 import { useState, useEffect } from 'react'
-import { X, Sparkles, Loader2, CheckSquare, Square } from 'lucide-react'
+import { Sparkles, Loader2, CheckSquare, Square, Plus } from 'lucide-react'
 import api from '../../utils/api'
 import toast from 'react-hot-toast'
-import { AnimatedDialog } from '../common/AnimatedDialog'
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/Dialog'
+import { Button } from '../ui/Button'
+import { Input } from '../ui/Input'
+import { Textarea } from '../ui/Textarea'
+import { Select } from '../ui/Select'
 import type { StatusOption, MemberOption, GeneratedTask } from '../../types'
 
 interface Props {
@@ -125,187 +135,193 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose
     }
   }
 
-  return (
-    <AnimatedDialog open onClose={creating || manualSubmitting ? undefined : onClose} className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 w-full max-w-lg max-h-[85vh] flex flex-col">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold dark:text-gray-100">新建任务</h3>
-          <button onClick={onClose} className="btn-ghost p-1" disabled={creating || manualSubmitting}>
-            <X size={18} />
-          </button>
-        </div>
+  const isBusy = creating || manualSubmitting
 
-        <div className="overflow-y-auto flex-1">
+  return (
+    <Dialog open onClose={isBusy ? () => {} : onClose}>
+      <form onSubmit={handleSubmit}>
+        <DialogHeader>
+          <DialogTitle showClose onClose={isBusy ? undefined : onClose}>新建任务</DialogTitle>
+          <DialogDescription>手动创建，或用 LLM 根据描述批量生成任务。</DialogDescription>
+        </DialogHeader>
+
+        <div className="px-6 pb-4 space-y-4 max-h-[60vh] overflow-y-auto">
           {/* LLM Quick Create */}
           {!llmOpen ? (
-            <button
-              className="w-full mb-4 px-4 py-3 bg-gradient-to-r from-primary-50 to-indigo-50 border border-primary-200 rounded-lg text-sm text-primary-700 flex items-center gap-2 hover:from-primary-100 transition-colors"
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full gap-2 border-dashed"
               onClick={() => setLlmOpen(true)}
+              disabled={isBusy}
             >
-              <Sparkles size={16} />
-              <span>用自然语言让 LLM 帮你创建任务 — "下周完成用户登录模块"</span>
-            </button>
+              <Sparkles className="h-4 w-4 text-primary" />
+              用自然语言让 LLM 帮你创建任务
+            </Button>
           ) : (
-            <div className="mb-4 p-3 bg-primary-50 dark:bg-primary-900/20 rounded-lg">
-              <textarea
-                className="w-full text-sm bg-white dark:bg-gray-800 rounded-lg p-2 border dark:border-gray-600 focus:outline-none focus:ring-1 focus:ring-primary-500 resize-none"
+            <div className="rounded-lg border border-border bg-muted/50 p-3 space-y-3">
+              <Textarea
                 rows={2}
-                placeholder="描述你要创建的任务..."
                 value={llmInstruction}
                 onChange={(e) => setLlmInstruction(e.target.value)}
-                disabled={llmLoading}
+                placeholder="描述你要创建的任务..."
+                disabled={llmLoading || isBusy}
               />
-              <div className="flex items-center justify-between mt-2">
-                <button
-                  className="text-xs text-gray-500 hover:text-gray-700"
+              <div className="flex items-center justify-between">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
                   onClick={() => { setLlmOpen(false); setGeneratedTasks([]); setSelectedTasks(new Set()) }}
                   disabled={llmLoading}
                 >
                   手动创建
-                </button>
-                <button
-                  className="btn-primary text-xs py-1.5 px-3 flex items-center gap-1"
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
                   onClick={handleLLMGenerate}
-                  disabled={llmLoading || !llmInstruction.trim()}
+                  disabled={llmLoading || !llmInstruction.trim() || isBusy}
+                  loading={llmLoading}
                 >
-                  {llmLoading && <Loader2 size={12} className="animate-spin" />}
-                  {llmLoading ? '生成中...' : 'LLM 生成'}
-                </button>
+                  LLM 生成
+                </Button>
               </div>
 
-              {/* Generated Tasks */}
               {generatedTasks.length > 0 && (
-                <div className="mt-3 bg-white rounded-lg border p-2 max-h-48 overflow-y-auto">
-                  <div className="flex items-center justify-between mb-2 px-1">
-                    <span className="text-xs font-medium text-gray-500">
-                      {generatedTasks.length} 个任务
-                    </span>
-                    <button
-                      className="text-xs text-primary-600 hover:underline"
+                <div className="rounded-md border border-border bg-card p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">{generatedTasks.length} 个任务</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
                       onClick={toggleAll}
                     >
                       {selectedTasks.size === generatedTasks.length ? '取消全选' : '全选'}
-                    </button>
+                    </Button>
                   </div>
-                  <div className="space-y-1">
+                  <div className="space-y-1 max-h-40 overflow-y-auto">
                     {generatedTasks.map((task, i) => (
                       <label
                         key={i}
-                        className="flex items-start gap-2 p-1.5 rounded hover:bg-gray-50 cursor-pointer"
+                        className="flex items-start gap-2 p-1.5 rounded hover:bg-accent cursor-pointer"
                       >
                         <button
-                          className="mt-0.5 flex-shrink-0 text-primary-500"
+                          type="button"
+                          className="mt-0.5 flex-shrink-0 text-primary"
                           onClick={() => toggleTask(i)}
                         >
                           {selectedTasks.has(i) ? (
-                            <CheckSquare size={14} />
+                            <CheckSquare className="h-4 w-4" />
                           ) : (
-                            <Square size={14} />
+                            <Square className="h-4 w-4" />
                           )}
                         </button>
                         <div className="min-w-0">
                           <p className="text-sm font-medium truncate">{task.title}</p>
                           {task.description && (
-                            <p className="text-xs text-gray-400 truncate">{task.description}</p>
+                            <p className="text-xs text-muted-foreground truncate">{task.description}</p>
                           )}
                         </div>
                       </label>
                     ))}
                   </div>
-                  <button
-                    className="btn-primary w-full text-xs py-1.5 mt-2 flex items-center justify-center gap-1"
+                  <Button
+                    type="button"
+                    className="w-full"
                     onClick={handleBatchCreate}
                     disabled={creating || selectedTasks.size === 0}
+                    loading={creating}
                   >
-                    {creating && <Loader2 size={12} className="animate-spin" />}
-                    {creating ? '创建中...' : `创建选中任务 (${selectedTasks.size})`}
-                  </button>
+                    <Plus className="h-4 w-4 mr-1" />
+                    创建选中任务 ({selectedTasks.size})
+                  </Button>
                 </div>
               )}
             </div>
           )}
 
           {/* Manual form */}
-          <form onSubmit={handleSubmit} className="space-y-3">
-            <div>
-              <label className="block text-sm font-medium mb-1">任务标题 *</label>
-              <input
-                className="input-field"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="输入任务标题"
-                required
-                autoFocus
-                disabled={manualSubmitting}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">描述</label>
-              <textarea
-                className="input-field resize-none"
-                rows={3}
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="可选的任务描述"
-                disabled={manualSubmitting}
-              />
-            </div>
-            <div className="flex gap-3">
-              <div className="flex-1">
-                <label className="block text-sm font-medium mb-1">状态</label>
-                <select
-                  className="input-field"
-                  value={statusId}
-                  onChange={(e) => setStatusId(parseInt(e.target.value))}
-                  disabled={manualSubmitting}
-                >
-                  {statuses.map((s) => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="w-28">
-                <label className="block text-sm font-medium mb-1">优先级</label>
-                <select
-                  className="input-field"
-                  value={priority}
-                  onChange={(e) => setPriority(parseInt(e.target.value))}
-                  disabled={manualSubmitting}
-                >
-                  <option value={0}>无</option>
-                  <option value={1}>低</option>
-                  <option value={2}>中</option>
-                  <option value={3}>高</option>
-                  <option value={4}>紧急</option>
-                </select>
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">指派人</label>
-              <select
-                className="input-field"
-                value={assigneeId || ''}
-                onChange={(e) => setAssigneeId(e.target.value ? parseInt(e.target.value) : null)}
-                disabled={manualSubmitting}
+          <div className="space-y-2">
+            <label className="text-sm font-medium">任务标题 *</label>
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="输入任务标题"
+              required
+              autoFocus={!llmOpen}
+              disabled={isBusy}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">描述</label>
+            <Textarea
+              rows={3}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="可选的任务描述"
+              disabled={isBusy}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">状态</label>
+              <Select
+                value={statusId}
+                onChange={(e) => setStatusId(parseInt(e.target.value))}
+                disabled={isBusy}
               >
-                <option value="">不指定</option>
-                {members.map((m) => (
-                  <option key={m.user_id} value={m.user_id}>
-                    {m.display_name || m.username}
-                  </option>
+                {statuses.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
-              </select>
+              </Select>
             </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button type="button" className="btn-secondary" onClick={onClose} disabled={manualSubmitting}>
-                取消
-              </button>
-              <button type="submit" className="btn-primary flex items-center gap-1.5" disabled={manualSubmitting || !title.trim()}>
-                {manualSubmitting && <Loader2 size={14} className="animate-spin" />}
-                {manualSubmitting ? '创建中...' : '创建'}
-              </button>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">优先级</label>
+              <Select
+                value={priority}
+                onChange={(e) => setPriority(parseInt(e.target.value))}
+                disabled={isBusy}
+              >
+                <option value={0}>无</option>
+                <option value={1}>低</option>
+                <option value={2}>中</option>
+                <option value={3}>高</option>
+                <option value={4}>紧急</option>
+              </Select>
             </div>
-          </form>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">指派人</label>
+            <Select
+              value={assigneeId || ''}
+              onChange={(e) => setAssigneeId(e.target.value ? parseInt(e.target.value) : null)}
+              disabled={isBusy}
+            >
+              <option value="">不指定</option>
+              {members.map((m) => (
+                <option key={m.user_id} value={m.user_id}>
+                  {m.display_name || m.username}
+                </option>
+              ))}
+            </Select>
+          </div>
         </div>
-    </AnimatedDialog>
+
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose} disabled={isBusy}>
+            取消
+          </Button>
+          <Button type="submit" disabled={isBusy || !title.trim()} loading={manualSubmitting}>
+            创建任务
+          </Button>
+        </DialogFooter>
+      </form>
+    </Dialog>
   )
 }
