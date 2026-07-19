@@ -11,35 +11,33 @@ const Switch = forwardRef<HTMLInputElement, SwitchProps>(
     return (
       <label
         className={cn(
-          'inline-flex items-center gap-2 cursor-pointer',
+          'relative inline-flex items-center cursor-pointer',
           disabled && 'cursor-not-allowed opacity-60',
           className
         )}
       >
-        <div className="relative">
-          <input
-            ref={ref}
-            type="checkbox"
-            className="peer sr-only"
-            checked={checked}
-            disabled={disabled}
-            onChange={(e) => onCheckedChange?.(e.target.checked)}
-            {...props}
-          />
-          <div
-            className={cn(
-              'h-5 w-9 rounded-full border-2 border-transparent transition-colors',
-              'peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background',
-              checked ? 'bg-primary' : 'bg-input'
-            )}
-          />
-          <div
-            className={cn(
-              'pointer-events-none absolute left-0.5 top-0.5 h-3.5 w-3.5 rounded-full bg-background shadow-sm transition-transform',
-              checked && 'translate-x-4'
-            )}
-          />
-        </div>
+        <input
+          ref={ref}
+          type="checkbox"
+          className="peer sr-only"
+          checked={checked}
+          disabled={disabled}
+          onChange={(e) => onCheckedChange?.(e.target.checked)}
+          {...props}
+        />
+        <div
+          className={cn(
+            'h-6 w-11 rounded-full border-2 border-transparent transition-colors overflow-hidden',
+            'peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background',
+            checked ? 'bg-primary' : 'bg-input'
+          )}
+        />
+        <div
+          className={cn(
+            'pointer-events-none absolute left-0.5 top-1/2 h-5 w-5 -translate-y-1/2 rounded-full bg-background shadow transition-transform',
+            checked ? 'translate-x-5' : 'translate-x-0'
+          )}
+        />
       </label>
     )
   }
