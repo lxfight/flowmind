@@ -21,16 +21,16 @@ const queryClient = new QueryClient()
 
 function AuthLoading() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-      <div className="text-sm text-gray-500 dark:text-gray-400">正在验证登录状态...</div>
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="text-sm text-muted-foreground">正在验证登录状态...</div>
     </div>
   )
 }
 
 function PageLoading() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-      <div className="text-sm text-gray-500 dark:text-gray-400">正在加载...</div>
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="text-sm text-muted-foreground">正在加载...</div>
     </div>
   )
 }

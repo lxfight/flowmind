@@ -3,6 +3,9 @@ import { useAuthStore } from '../stores/authStore'
 import { User, Mail, Lock, Save, Key } from 'lucide-react'
 import api from '../utils/api'
 import toast from 'react-hot-toast'
+import { Button } from '../components/ui/Button'
+import { Input } from '../components/ui/Input'
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 
 export default function ProfilePage() {
   const { user, loadUser } = useAuthStore()
@@ -66,66 +69,103 @@ export default function ProfilePage() {
   if (!user) return null
 
   return (
-    <div className="p-6 h-full overflow-y-auto dark:text-gray-100">
-      <div className="max-w-xl mx-auto space-y-6">
-        <h2 className="text-xl font-bold">个人资料设置</h2>
+    <div className="page-container h-full overflow-y-auto">
+      <div className="mx-auto max-w-xl space-y-6">
+        <h2 className="page-title">个人资料设置</h2>
 
-        {/* Profile */}
-        <div className="card p-6">
-          <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-4 flex items-center gap-1.5">
-            <User size={14} /> 基本信息
-          </h3>
-          <div className="space-y-4">
-            {/* Username (readonly) */}
-            <div>
-              <label className="block text-sm font-medium mb-1 dark:text-gray-300">用户名（不可修改）</label>
-              <input className="input-field bg-gray-100 dark:bg-gray-700 cursor-not-allowed" value={user.username} disabled />
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-1.5">
+              <User className="h-4 w-4 text-muted-foreground" />
+              基本信息
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">用户名（不可修改）</label>
+              <Input value={user.username} disabled className="bg-muted cursor-not-allowed" />
             </div>
-            {/* Display name */}
-            <div>
-              <label className="block text-sm font-medium mb-1 dark:text-gray-300">昵称</label>
-              <input className="input-field" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="输入昵称" />
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">昵称</label>
+              <Input
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                placeholder="输入昵称"
+              />
             </div>
-            {/* Email */}
-            <div>
-              <label className="block text-sm font-medium mb-1 dark:text-gray-300 flex items-center gap-1"><Mail size={13} /> 邮箱</label>
-              <input className="input-field" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="输入邮箱" />
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium flex items-center gap-1">
+                <Mail className="h-3.5 w-3.5" /> 邮箱
+              </label>
+              <Input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="输入邮箱"
+              />
             </div>
             <div className="flex justify-end">
-              <button className="btn-primary flex items-center gap-1.5 text-sm" onClick={handleSaveProfile} disabled={savingProfile}>
-                <Save size={14} />
-                {savingProfile ? '保存中...' : '保存修改'}
-              </button>
+              <Button
+                onClick={handleSaveProfile}
+                disabled={savingProfile || !displayName.trim()}
+                loading={savingProfile}
+                className="gap-1.5"
+              >
+                <Save className="h-4 w-4" />
+                保存修改
+              </Button>
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
 
-        {/* Password */}
-        <div className="card p-6">
-          <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-4 flex items-center gap-1.5">
-            <Lock size={14} /> 修改密码
-          </h3>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-1 dark:text-gray-300">原密码</label>
-              <input type="password" className="input-field" value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} placeholder="输入原密码" />
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-1.5">
+              <Lock className="h-4 w-4 text-muted-foreground" />
+              修改密码
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">原密码</label>
+              <Input
+                type="password"
+                value={oldPassword}
+                onChange={(e) => setOldPassword(e.target.value)}
+                placeholder="输入原密码"
+              />
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-1 dark:text-gray-300">新密码</label>
-              <input type="password" className="input-field" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="至少6位" />
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">新密码</label>
+              <Input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="至少6位"
+              />
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-1 dark:text-gray-300">确认新密码</label>
-              <input type="password" className="input-field" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="再次输入新密码" />
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">确认新密码</label>
+              <Input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="再次输入新密码"
+              />
             </div>
             <div className="flex justify-end">
-              <button className="btn-primary flex items-center gap-1.5 text-sm" onClick={handleChangePassword} disabled={changingPassword}>
-                <Key size={14} />
-                {changingPassword ? '修改中...' : '修改密码'}
-              </button>
+              <Button
+                onClick={handleChangePassword}
+                disabled={changingPassword || !oldPassword || !newPassword || !confirmPassword}
+                loading={changingPassword}
+                className="gap-1.5"
+              >
+                <Key className="h-4 w-4" />
+                修改密码
+              </Button>
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   )
