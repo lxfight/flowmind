@@ -34,7 +34,7 @@ const Switch = forwardRef<HTMLInputElement, SwitchProps>(
         />
         <div
           className={cn(
-            'pointer-events-none absolute left-0.5 top-1/2 h-5 w-5 -translate-y-1/2 rounded-full bg-background shadow transition-transform',
+            'pointer-events-none absolute left-0.5 top-1/2 h-5 w-5 -translate-y-1/2 rounded-full bg-white shadow-md ring-1 ring-black/10 transition-transform',
             checked ? 'translate-x-5' : 'translate-x-0'
           )}
         />
