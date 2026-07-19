@@ -8,8 +8,8 @@ class Settings(BaseSettings):
     app_name: str = "FlowMind"
     debug: bool = False
 
-    # Database
-    database_url: str = "postgresql+asyncpg://flowmind:flowmind_secret@localhost:5432/flowmind"
+    # Database (defaults to SQLite for local dev; override with DATABASE_URL env)
+    database_url: str = "sqlite+aiosqlite:///./flowmind_dev.db"
 
     # JWT
     jwt_secret: str = ""
