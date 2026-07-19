@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
-import { Users, Check, X, RefreshCw, ToggleLeft, ToggleRight, Shield, Key } from 'lucide-react'
+import { Users, Check, X, RefreshCw, Shield, Key } from 'lucide-react'
 import api from '../utils/api'
 import toast from 'react-hot-toast'
 import { Button } from '../components/ui/Button'
+import { Switch } from '../components/ui/Switch'
 import { Card, CardContent } from '../components/ui/Card'
 import { Badge } from '../components/ui/Badge'
 import { Avatar } from '../components/ui/Avatar'
+import { cn } from '../utils/cn'
 
 interface UserInfo {
   id: number
@@ -193,21 +195,22 @@ export default function AdminUsersPage() {
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleToggleCreateProject(u.id, u.can_create_project)}
-                        disabled={actionId === u.id}
-                        className="gap-1 text-muted-foreground hover:text-foreground"
-                      >
-                        {u.can_create_project ? (
-                          <ToggleRight className="h-4 w-4 text-success" />
-                        ) : (
-                          <ToggleLeft className="h-4 w-4" />
-                        )}
-                        创建项目
-                      </Button>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={u.can_create_project}
+                          onCheckedChange={() => handleToggleCreateProject(u.id, u.can_create_project)}
+                          disabled={actionId === u.id}
+                        />
+                        <span
+                          className={cn(
+                            'text-xs font-medium',
+                            u.can_create_project ? 'text-success' : 'text-muted-foreground'
+                          )}
+                        >
+                          {u.can_create_project ? '可创建项目' : '不可创建项目'}
+                        </span>
+                      </div>
                       <Button
                         variant="ghost"
                         size="sm"
