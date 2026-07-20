@@ -12,8 +12,8 @@ const Card = forwardRef<HTMLDivElement, CardProps>(
       <div
         ref={ref}
         className={cn(
-          'rounded-xl border border-border bg-card text-card-foreground shadow-sm',
-          hover && 'transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md cursor-pointer',
+          'rounded-xl border border-border bg-card text-card-foreground',
+          hover && 'transition-colors duration-200 hover:border-foreground/25 cursor-pointer',
           className
         )}
         {...props}

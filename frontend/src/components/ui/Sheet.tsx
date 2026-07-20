@@ -122,7 +122,7 @@ export function Sheet({ open, onClose, children, side = 'right', className, aria
             initial="hidden"
             animate="visible"
             exit="exit"
-            transition={{ type: 'spring', damping: 28, stiffness: 280 }}
+            transition={{ type: 'spring', stiffness: 380, damping: 30 }}
           >
             <SheetContext.Provider value={{ titleId }}>
               {isBottom && (
