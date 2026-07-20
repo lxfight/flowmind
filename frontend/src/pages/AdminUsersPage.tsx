@@ -114,7 +114,7 @@ export default function AdminUsersPage() {
 
   if (loading) {
     return (
-      <div className="page-container flex items-center justify-center">
+      <div className="flex items-center justify-center h-full">
         <RefreshCw className="h-6 w-6 animate-spin text-primary" />
       </div>
     )
@@ -136,7 +136,7 @@ export default function AdminUsersPage() {
             </h3>
             <div className="space-y-2">
               {pendingUsers.map((u) => (
-                <Card key={u.id} className="surface">
+                <Card key={u.id}>
                   <CardContent className="flex items-center justify-between p-4">
                     <div className="flex items-center gap-3 min-w-0">
                       <Avatar name={u.display_name || u.username} src={u.avatar_url} size="sm" />
@@ -179,7 +179,7 @@ export default function AdminUsersPage() {
           </h3>
           <div className="space-y-2">
             {activeUsers.map((u) => (
-              <Card key={u.id} className="surface">
+              <Card key={u.id}>
                 <CardContent className="p-4">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                     <div className="flex items-center gap-3">
@@ -199,6 +199,7 @@ export default function AdminUsersPage() {
                           checked={u.can_create_project}
                           onCheckedChange={() => handleToggleCreateProject(u.id, u.can_create_project)}
                           disabled={actionId === u.id}
+                          aria-label="允许创建项目"
                         />
                         <span
                           className={cn(
@@ -246,7 +247,7 @@ export default function AdminUsersPage() {
             </h3>
             <div className="space-y-2">
               {disabledUsers.map((u) => (
-                <Card key={u.id} className="surface opacity-60">
+                <Card key={u.id} className="opacity-60">
                   <CardContent className="flex items-center justify-between p-4">
                     <div className="flex items-center gap-3">
                       <Avatar name={u.display_name || u.username} src={u.avatar_url} size="sm" />

@@ -16,13 +16,13 @@ from app.core.config import get_settings
 import uuid
 from pathlib import Path
 import asyncio
+import time
 
 settings = get_settings()
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 # Simple in-memory rate limiter for login
 _login_attempts: dict[str, list[float]] = {}
-import time
 
 
 def _check_rate_limit(key: str) -> bool:
@@ -81,14 +81,13 @@ async def login(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="登录尝试过于频繁，请稍后再试",
         )
-    _record_attempt(rate_key)
-
     result = await db.execute(
         select(User).where(User.username == form_data.username)
     )
     user = result.scalar_one_or_none()
 
     if not user or not verify_password(form_data.password, user.hashed_password):
+        _record_attempt(rate_key)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户名或密码错误",
@@ -106,6 +105,7 @@ async def login(
             detail="账号尚未通过审批，请等待管理员审批",
         )
 
+    _login_attempts.pop(rate_key, None)
     token = create_access_token({"sub": str(user.id)})
     return Token(access_token=token)
 

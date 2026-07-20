@@ -2,11 +2,13 @@ import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import { Search, UserPlus, X, Trash2, Users } from 'lucide-react'
 import api from '../utils/api'
+import { useProjectRole } from '../hooks/useProjectRole'
 import { useAuthStore } from '../stores/authStore'
 import toast from 'react-hot-toast'
 import { PageHeader } from '../components/layout/PageHeader'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
+import { Select } from '../components/ui/Select'
 import { Card, CardContent } from '../components/ui/Card'
 import { Badge } from '../components/ui/Badge'
 import { Avatar } from '../components/ui/Avatar'
@@ -22,6 +24,7 @@ const ROLE_CONFIG: Record<string, { label: string; variant: 'default' | 'primary
 
 export default function ProjectMembersPage() {
   const { projectId } = useParams()
+  const userRole = useProjectRole()
   const currentUser = useAuthStore((s) => s.user)
   const [members, setMembers] = useState<ProjectMember[]>([])
   const [showAdd, setShowAdd] = useState(false)
@@ -29,6 +32,7 @@ export default function ProjectMembersPage() {
   const [searchResults, setSearchResults] = useState<UserInfo[]>([])
   const [searching, setSearching] = useState(false)
   const [adding, setAdding] = useState(false)
+  const [updatingUserId, setUpdatingUserId] = useState<number | null>(null)
 
   const loadMembers = async () => {
     if (!projectId) return
@@ -88,12 +92,51 @@ export default function ProjectMembersPage() {
     }
   }
 
-  const currentUserRole = members.find((m) => m.user_id === currentUser?.id)?.role
-  const canManage = currentUserRole === 'owner' || currentUserRole === 'admin'
+  const handleRoleChange = async (member: ProjectMember, role: string) => {
+    if (!projectId || role === member.role) return
+    setUpdatingUserId(member.user_id)
+    try {
+      await api.put(`/projects/${projectId}/members/${member.user_id}`, { role })
+      toast.success('角色已更新')
+      loadMembers()
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || '更新角色失败')
+    } finally {
+      setUpdatingUserId(null)
+    }
+  }
+
+  const canManage = userRole === 'owner' || userRole === 'admin'
 
   const RoleBadge = ({ role }: { role: string }) => {
     const cfg = ROLE_CONFIG[role] || ROLE_CONFIG.member
     return <Badge variant={cfg.variant}>{cfg.label}</Badge>
+  }
+
+  const RoleSelect = ({ member }: { member: ProjectMember }) => {
+    const available = userRole === 'owner'
+      ? [
+          { value: 'admin', label: '管理员' },
+          { value: 'member', label: '成员' },
+          { value: 'viewer', label: '查看者' },
+        ]
+      : [
+          { value: 'member', label: '成员' },
+          { value: 'viewer', label: '查看者' },
+        ]
+    return (
+      <Select
+        value={member.role}
+        onChange={(e) => handleRoleChange(member, e.target.value)}
+        disabled={updatingUserId === member.user_id}
+        className="h-7 text-xs w-28"
+        aria-label={`修改 ${member.username} 的角色`}
+      >
+        {available.map((r) => (
+          <option key={r.value} value={r.value}>{r.label}</option>
+        ))}
+      </Select>
+    )
   }
 
   return (
@@ -112,7 +155,7 @@ export default function ProjectMembersPage() {
       />
 
       {showAdd && (
-        <Card className="mb-6 surface">
+        <Card className="mb-6">
           <CardContent className="p-4 space-y-3">
             <div className="flex items-center gap-2">
               <Search className="h-4 w-4 text-muted-foreground flex-shrink-0" />
@@ -128,6 +171,7 @@ export default function ProjectMembersPage() {
                 size="icon"
                 className="h-8 w-8 flex-shrink-0"
                 onClick={() => { setShowAdd(false); setSearchQuery(''); setSearchResults([]) }}
+                aria-label="关闭"
               >
                 <X className="h-4 w-4" />
               </Button>
@@ -172,14 +216,18 @@ export default function ProjectMembersPage() {
       ) : (
         <div className="space-y-2">
           {members.map((m) => (
-            <Card key={m.id} className="surface">
+            <Card key={m.id}>
               <CardContent className="flex items-center justify-between p-4">
                 <div className="flex items-center gap-3">
                   <Avatar name={m.display_name || m.username} src={m.avatar_url} size="md" />
                   <div>
                     <div className="flex items-center gap-2">
                       <p className="font-medium text-sm">{m.display_name || m.username}</p>
-                      <RoleBadge role={m.role} />
+                      {canManage && m.role !== 'owner' && m.user_id !== currentUser?.id ? (
+                        <RoleSelect member={m} />
+                      ) : (
+                        <RoleBadge role={m.role} />
+                      )}
                     </div>
                     <p className="text-xs text-muted-foreground">@{m.username}</p>
                   </div>
@@ -190,6 +238,7 @@ export default function ProjectMembersPage() {
                     size="icon"
                     className="h-8 w-8 text-muted-foreground hover:text-danger"
                     onClick={() => handleRemoveMember(m.user_id, m.username)}
+                    aria-label={`移除成员 ${m.username}`}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>

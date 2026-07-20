@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Edit3, Trash2, ArrowRight, FileText, Loader2 } from 'lucide-react'
+import { Plus, Edit3, Trash2, ArrowRight, FileText, Loader2, AlertCircle, RefreshCw } from 'lucide-react'
 import api from '../../utils/api'
 import { Button } from '../ui/Button'
 import { Card, CardContent } from '../ui/Card'
@@ -36,13 +36,20 @@ const actionColors: Record<string, string> = {
 export function ActivityFeed({ projectId }: Props) {
   const [activities, setActivities] = useState<Activity[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [showMore, setShowMore] = useState(false)
 
   useEffect(() => {
     setLoading(true)
+    setError(null)
     api.get(`/projects/${projectId}/activities`, { params: { limit: showMore ? 50 : 15 } })
-      .then((res) => setActivities(res.data))
-      .catch(() => {})
+      .then((res) => {
+        setActivities(res.data)
+        setError(null)
+      })
+      .catch(() => {
+        setError('加载动态失败')
+      })
       .finally(() => setLoading(false))
   }, [projectId, showMore])
 
@@ -51,6 +58,21 @@ export function ActivityFeed({ projectId }: Props) {
       <div className="flex items-center justify-center py-12">
         <Loader2 className="h-6 w-6 animate-spin text-primary" />
       </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <Card>
+        <CardContent className="p-6 text-center">
+          <AlertCircle className="mx-auto h-8 w-8 text-danger mb-3" />
+          <p className="text-sm text-foreground mb-4">{error}</p>
+          <Button variant="outline" size="sm" onClick={() => setShowMore((v) => !v)} className="gap-1.5">
+            <RefreshCw className="h-4 w-4" />
+            重试
+          </Button>
+        </CardContent>
+      </Card>
     )
   }
 

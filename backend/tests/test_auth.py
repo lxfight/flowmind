@@ -92,3 +92,26 @@ async def test_register_duplicate_username(client):
     second = client.post("/api/auth/register", json=payload)
     assert second.status_code == 409
     assert "已存在" in second.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_register_rejects_invalid_input(client):
+    response = client.post(
+        "/api/auth/register",
+        json={
+            "username": "bad user",
+            "email": "not-an-email",
+            "password": "short",
+        },
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_successful_logins_do_not_consume_failure_limit(client, approved_user):
+    for _ in range(6):
+        response = client.post(
+            "/api/auth/login",
+            data={"username": "approveduser", "password": "approvedpass123"},
+        )
+        assert response.status_code == 200

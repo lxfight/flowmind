@@ -66,9 +66,6 @@ export const useLLMChatStore = create<LLMChatState>((set, get) => ({
 
   selectSession: (sessionId) => {
     set({ currentSessionId: sessionId, messages: [], error: null })
-    if (sessionId) {
-      void get().loadMessages(sessionId)
-    }
   },
 
   loadMessages: async (sessionId) => {

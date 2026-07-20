@@ -1,13 +1,12 @@
 import { useLayoutStore } from '../../stores/layoutStore'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
-import { PageHeader } from './PageHeader'
 import {
   Sheet,
-  SheetContent,
   SheetHeader,
   SheetTitle,
   SheetClose,
+  SheetContent,
 } from '../ui/Sheet'
 import type { Project } from '../../stores/projectStore'
 import type { ReactNode } from 'react'
@@ -16,8 +15,6 @@ interface AppShellProps {
   projects: Project[]
   currentProject: Project | null
   user: { id: number; username: string; email: string; display_name: string; avatar_url: string; is_superuser: boolean } | null
-  theme: 'light' | 'dark'
-  onToggleTheme: () => void
   onSelectProject: (project: Project) => void
   onLogout: () => void
   children: ReactNode
@@ -27,23 +24,18 @@ export function AppShell({
   projects,
   currentProject,
   user,
-  theme,
-  onToggleTheme,
   onSelectProject,
   onLogout,
   children,
 }: AppShellProps) {
   const mobileOpen = useLayoutStore((s) => s.mobileSidebarOpen)
   const closeMobileSidebar = useLayoutStore((s) => s.closeMobileSidebar)
-  const pageHeader = useLayoutStore((s) => s.pageHeader)
 
   const sidebar = (
     <Sidebar
       projects={projects}
       currentProject={currentProject}
       user={user}
-      theme={theme}
-      onToggleTheme={onToggleTheme}
       onSelectProject={onSelectProject}
       onLogout={onLogout}
       onCloseMobile={closeMobileSidebar}
@@ -58,7 +50,7 @@ export function AppShell({
       </aside>
 
       {/* Mobile sidebar */}
-      <Sheet open={mobileOpen} onClose={closeMobileSidebar} side="left" className="w-[280px] lg:hidden">
+      <Sheet open={mobileOpen} onClose={closeMobileSidebar} side="left" className="w-[280px] lg:hidden" ariaLabel="导航菜单">
         <SheetHeader className="sr-only">
           <SheetTitle>导航菜单</SheetTitle>
           <SheetClose onClose={closeMobileSidebar} />
@@ -74,7 +66,6 @@ export function AppShell({
           onLogout={onLogout}
         />
         <main className="flex-1 overflow-auto p-4 lg:p-8">
-          {pageHeader && <PageHeader {...pageHeader} />}
           {children}
         </main>
       </div>

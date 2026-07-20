@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from datetime import datetime, timezone
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from app.core.database import get_db
@@ -9,36 +9,45 @@ from app.api.permissions import ensure_project_admin, ensure_project_member
 from app.models.user import User
 from app.models.project import Project, ProjectMember
 from app.models.task import Task, TaskStatus
+from app.models.activity import ActivityLog
 from app.schemas import (
     ActivityLogOut,
     DashboardStats,
     ProjectCreate,
     ProjectMemberAdd,
+    ProjectMemberUpdate,
     ProjectMemberOut,
     ProjectOut,
     ProjectStats,
     ProjectUpdate,
-    UserOut,
+    UserSearchOut,
 )
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 
-@router.get("/users/search", response_model=list[UserOut])
+@router.get("/users/search", response_model=list[UserSearchOut])
 async def search_users(
-    q: str = "",
+    q: str = Query(default="", max_length=128),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Search users by username or display_name."""
-    if not q:
+    q = q.strip()
+    if len(q) < 2:
         return []
+    escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     result = await db.execute(
-        select(User).where(
-            (User.username.ilike(f"%{q}%")) | (User.display_name.ilike(f"%{q}%"))
-        ).limit(10)
+        select(User)
+        .where(
+            User.is_active.is_(True),
+            User.is_approved.is_(True),
+            (User.username.ilike(f"%{escaped}%", escape="\\"))
+            | (User.display_name.ilike(f"%{escaped}%", escape="\\")),
+        )
+        .limit(10)
     )
-    return [UserOut.model_validate(u) for u in result.scalars().all()]
+    return [UserSearchOut.model_validate(u) for u in result.scalars().all()]
 
 
 @router.get("", response_model=list[ProjectOut])
@@ -48,22 +57,23 @@ async def list_projects(
 ):
     """List projects the current user is a member of."""
     result = await db.execute(
-        select(Project)
+        select(Project, ProjectMember)
         .join(ProjectMember)
         .where(ProjectMember.user_id == current_user.id)
-        .where(Project.is_archived == False)
+        .where(Project.is_archived.is_(False))
         .order_by(Project.updated_at.desc())
     )
-    projects = result.scalars().all()
+    projects = result.all()
 
     # Attach member counts
     output = []
-    for p in projects:
+    for p, membership in projects:
         count_result = await db.execute(
             select(func.count(ProjectMember.id)).where(ProjectMember.project_id == p.id)
         )
         out = ProjectOut.model_validate(p)
         out.member_count = count_result.scalar() or 0
+        out.current_user_role = membership.role
         output.append(out)
     return output
 
@@ -105,10 +115,20 @@ async def create_project(
         status.project_id = project.id
         db.add(status)
 
+    db.add(ActivityLog(
+        project_id=project.id,
+        user_id=current_user.id,
+        action="create",
+        target_type="project",
+        target_id=project.id,
+        summary=f"创建项目: {project.name}",
+    ))
+
     await db.flush()
     await db.refresh(project)
     out = ProjectOut.model_validate(project)
     out.member_count = 1
+    out.current_user_role = "owner"
     return out
 
 
@@ -123,7 +143,7 @@ async def get_dashboard_stats(
         select(Project)
         .join(ProjectMember)
         .where(ProjectMember.user_id == current_user.id)
-        .where(Project.is_archived == False)
+        .where(Project.is_archived.is_(False))
     )
     projects = result.scalars().all()
 
@@ -131,7 +151,10 @@ async def get_dashboard_stats(
     for p in projects:
         # Total tasks
         total_result = await db.execute(
-            select(func.count(Task.id)).where(Task.project_id == p.id)
+            select(func.count(Task.id)).where(
+                Task.project_id == p.id,
+                Task.parent_task_id.is_(None),
+            )
         )
         total_tasks = total_result.scalar() or 0
 
@@ -139,7 +162,8 @@ async def get_dashboard_stats(
         completed_result = await db.execute(
             select(func.count(Task.id)).where(
                 Task.project_id == p.id,
-                Task.is_completed == True,
+                Task.parent_task_id.is_(None),
+                Task.is_completed.is_(True),
             )
         )
         completed_tasks = completed_result.scalar() or 0
@@ -148,7 +172,8 @@ async def get_dashboard_stats(
         overdue_result = await db.execute(
             select(func.count(Task.id)).where(
                 Task.project_id == p.id,
-                Task.is_completed == False,
+                Task.parent_task_id.is_(None),
+                Task.is_completed.is_(False),
                 Task.due_date.isnot(None),
                 Task.due_date < datetime.now(timezone.utc),
             )
@@ -187,21 +212,17 @@ async def get_project(
     if not project:
         raise HTTPException(status_code=404, detail="项目不存在")
 
-    # Check membership
-    member_check = await db.execute(
-        select(ProjectMember).where(
-            ProjectMember.project_id == project_id,
-            ProjectMember.user_id == current_user.id,
-        )
-    )
-    if not member_check.scalar_one_or_none() and project.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="无权访问此项目")
+    membership = await ensure_project_member(project_id, current_user, db)
 
     count_result = await db.execute(
         select(func.count(ProjectMember.id)).where(ProjectMember.project_id == project_id)
     )
     out = ProjectOut.model_validate(project)
     out.member_count = count_result.scalar() or 0
+    out.current_user_role = (
+        "owner" if current_user.is_superuser or project.owner_id == current_user.id
+        else membership.role if membership else "viewer"
+    )
     return out
 
 
@@ -216,15 +237,30 @@ async def update_project(
     project = result.scalar_one_or_none()
     if not project:
         raise HTTPException(status_code=404, detail="项目不存在")
-    if project.owner_id != current_user.id:
+    if project.owner_id != current_user.id and not current_user.is_superuser:
         raise HTTPException(status_code=403, detail="只有项目所有者才能修改项目")
 
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(project, field, value)
 
+    db.add(ActivityLog(
+        project_id=project_id,
+        user_id=current_user.id,
+        action="update",
+        target_type="project",
+        target_id=project_id,
+        summary=f"更新项目: {project.name}",
+    ))
+
     await db.flush()
     await db.refresh(project)
-    return ProjectOut.model_validate(project)
+    count_result = await db.execute(
+        select(func.count(ProjectMember.id)).where(ProjectMember.project_id == project_id)
+    )
+    out = ProjectOut.model_validate(project)
+    out.member_count = count_result.scalar() or 0
+    out.current_user_role = "owner"
+    return out
 
 
 @router.get("/{project_id}/members", response_model=list[ProjectMemberOut])
@@ -262,6 +298,17 @@ async def add_member(
     if data.role == "admin" and current_member and current_member.role != "owner":
         raise HTTPException(status_code=403, detail="只有项目所有者才能添加管理员")
 
+    user_result = await db.execute(
+        select(User).where(
+            User.id == data.user_id,
+            User.is_active.is_(True),
+            User.is_approved.is_(True),
+        )
+    )
+    target_user = user_result.scalar_one_or_none()
+    if not target_user:
+        raise HTTPException(status_code=400, detail="只能添加已启用并审批通过的用户")
+
     existing_result = await db.execute(
         select(ProjectMember).where(
             ProjectMember.project_id == project_id,
@@ -278,7 +325,57 @@ async def add_member(
     )
     db.add(member)
     await db.flush()
+    db.add(ActivityLog(
+        project_id=project_id,
+        user_id=current_user.id,
+        action="create",
+        target_type="member",
+        target_id=data.user_id,
+        summary=f"添加项目成员: {target_user.display_name or target_user.username}",
+    ))
     return {"message": "成员添加成功"}
+
+
+@router.put("/{project_id}/members/{user_id}", response_model=ProjectMemberOut)
+async def update_member_role(
+    project_id: int,
+    user_id: int,
+    data: ProjectMemberUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    current_member = await ensure_project_admin(project_id, current_user, db)
+    result = await db.execute(
+        select(ProjectMember).where(
+            ProjectMember.project_id == project_id,
+            ProjectMember.user_id == user_id,
+        )
+    )
+    member = result.scalar_one_or_none()
+    if not member:
+        raise HTTPException(status_code=404, detail="成员不存在")
+    if member.role == "owner":
+        raise HTTPException(status_code=400, detail="不能修改项目所有者角色")
+    actor_is_owner = current_user.is_superuser or (current_member and current_member.role == "owner")
+    if not actor_is_owner and (member.role == "admin" or data.role == "admin"):
+        raise HTTPException(status_code=403, detail="只有项目所有者才能管理管理员角色")
+
+    member.role = data.role
+    await db.flush()
+    await db.refresh(member, ["user"])
+    db.add(ActivityLog(
+        project_id=project_id,
+        user_id=current_user.id,
+        action="update",
+        target_type="member",
+        target_id=user_id,
+        summary=f"更新成员角色: {member.user.display_name or member.user.username} -> {data.role}",
+    ))
+    out = ProjectMemberOut.model_validate(member)
+    out.username = member.user.username
+    out.display_name = member.user.display_name
+    out.avatar_url = member.user.avatar_url
+    return out
 
 
 @router.delete("/{project_id}/members/{user_id}")
@@ -288,7 +385,7 @@ async def remove_member(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await ensure_project_admin(project_id, current_user, db)
+    current_member = await ensure_project_admin(project_id, current_user, db)
     result = await db.execute(
         select(ProjectMember).where(
             ProjectMember.project_id == project_id,
@@ -300,7 +397,30 @@ async def remove_member(
         raise HTTPException(status_code=404, detail="成员不存在")
     if member.role == "owner":
         raise HTTPException(status_code=400, detail="不能移除项目所有者")
+    if member.role == "admin" and not (
+        current_user.is_superuser or (current_member and current_member.role == "owner")
+    ):
+        raise HTTPException(status_code=403, detail="只有项目所有者才能移除管理员")
 
+    await db.refresh(member, ["user"])
+    removed_name = (
+        member.user.display_name or member.user.username
+        if member.user
+        else str(user_id)
+    )
+    db.add(ActivityLog(
+        project_id=project_id,
+        user_id=current_user.id,
+        action="delete",
+        target_type="member",
+        target_id=user_id,
+        summary=f"移除项目成员: {removed_name}",
+    ))
+    await db.execute(
+        update(Task)
+        .where(Task.project_id == project_id, Task.assignee_id == user_id)
+        .values(assignee_id=None)
+    )
     await db.delete(member)
     return {"message": "成员已移除"}
 
@@ -308,13 +428,12 @@ async def remove_member(
 @router.get("/{project_id}/activities", response_model=list[ActivityLogOut])
 async def list_activities(
     project_id: int,
-    limit: int = 30,
+    limit: int = Query(default=30, ge=1, le=100),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Get recent activity logs for a project."""
     await ensure_project_member(project_id, current_user, db)
-    from app.models.activity import ActivityLog
     result = await db.execute(
         select(ActivityLog)
         .options(selectinload(ActivityLog.user))

@@ -80,6 +80,8 @@ export function CreateProjectDialog({ onClose, onCreate }: Props) {
                   type="button"
                   onClick={() => setColor(c)}
                   disabled={submitting}
+                  aria-label={`选择颜色 ${c}`}
+                  aria-pressed={color === c}
                   className={cn(
                     'w-8 h-8 rounded-full transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
                     color === c && 'ring-2 ring-offset-2 ring-foreground scale-110'

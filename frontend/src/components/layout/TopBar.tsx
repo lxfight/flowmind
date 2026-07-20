@@ -1,5 +1,4 @@
 import { Link, useNavigate } from 'react-router-dom'
-import { useState } from 'react'
 import { useLayoutStore } from '../../stores/layoutStore'
 import { useThemeStore } from '../../stores/themeStore'
 import { Avatar } from '../ui/Avatar'
@@ -9,17 +8,13 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from '../ui/DropdownMenu'
-import { cn } from '../../utils/cn'
 import type { Project } from '../../stores/projectStore'
 import {
   Menu,
-  Search,
   Sun,
   Moon,
   User,
-  Settings,
   LogOut,
-  Bell,
 } from 'lucide-react'
 
 interface TopBarProps {
@@ -30,10 +25,8 @@ interface TopBarProps {
 
 export function TopBar({ currentProject, user, onLogout }: TopBarProps) {
   const openMobileSidebar = useLayoutStore((s) => s.openMobileSidebar)
-  const pageHeader = useLayoutStore((s) => s.pageHeader)
   const { theme, toggle } = useThemeStore()
   const navigate = useNavigate()
-  const [searchFocused, setSearchFocused] = useState(false)
 
   return (
     <header className="glass sticky top-0 z-20 h-16 px-4 lg:px-8">
@@ -66,45 +59,19 @@ export function TopBar({ currentProject, user, onLogout }: TopBarProps) {
                 </div>
               </>
             ) : (
-              <span className="text-sm font-medium text-foreground">{pageHeader?.title || 'FlowMind'}</span>
+              <span className="text-sm font-medium text-foreground">FlowMind</span>
             )}
           </div>
         </div>
 
-        {/* Center: global search placeholder */}
-        <div
-          className={cn(
-            'hidden md:flex items-center gap-2 flex-1 max-w-md px-3 py-1.5 rounded-xl transition-all',
-            searchFocused ? 'glass-strong' : 'bg-transparent'
-          )}
-        >
-          <Search className="h-4 w-4 text-muted-foreground" />
-          <input
-            type="text"
-            placeholder="全局搜索..."
-            className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground text-foreground"
-            onFocus={() => setSearchFocused(true)}
-            onBlur={() => setSearchFocused(false)}
-          />
-        </div>
-
-        {/* Right: notifications, theme, user */}
+        {/* Right: theme, user */}
         <div className="flex items-center gap-1.5 shrink-0">
           <Button
             variant="ghost"
             size="icon"
             className="h-9 w-9 text-muted-foreground"
-            title="通知"
-          >
-            <Bell className="h-4 w-4" />
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-9 w-9 text-muted-foreground"
             onClick={toggle}
-            title={theme === 'light' ? '切换暗色模式' : '切换亮色模式'}
+            aria-label={theme === 'light' ? '切换暗色模式' : '切换亮色模式'}
           >
             {theme === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
           </Button>
@@ -124,9 +91,6 @@ export function TopBar({ currentProject, user, onLogout }: TopBarProps) {
           >
             <DropdownMenuItem onClick={() => navigate('/profile')}>
               <User className="mr-2 h-4 w-4" /> 个人资料
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => navigate('/profile')}>
-              <Settings className="mr-2 h-4 w-4" /> 设置
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={onLogout}>

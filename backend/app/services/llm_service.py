@@ -1,7 +1,5 @@
 from typing import Optional
 from openai import AsyncOpenAI
-from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 
 settings = get_settings()

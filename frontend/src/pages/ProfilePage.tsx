@@ -107,7 +107,7 @@ export default function ProfilePage() {
       <PageHeader title="个人资料设置" description="管理你的头像、昵称和登录密码" />
 
       {/* Avatar */}
-      <Card className="surface">
+      <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-1.5">
             <Camera className="h-4 w-4 text-muted-foreground" />
@@ -159,7 +159,7 @@ export default function ProfilePage() {
         </CardContent>
       </Card>
 
-      <Card className="surface">
+      <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-1.5">
               <User className="h-4 w-4 text-muted-foreground" />

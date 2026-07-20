@@ -9,6 +9,7 @@ export interface Project {
   is_archived: boolean
   created_at: string
   member_count: number
+  current_user_role?: string
 }
 
 interface ProjectState {

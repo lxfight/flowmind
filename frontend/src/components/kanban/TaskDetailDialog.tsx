@@ -11,9 +11,11 @@ import {
   X,
   AlertTriangle,
   RotateCcw,
+  Trash2,
 } from 'lucide-react'
 import api from '../../utils/api'
 import toast from 'react-hot-toast'
+import { useProjectRole } from '../../hooks/useProjectRole'
 import {
   Dialog,
   DialogDescription,
@@ -47,6 +49,9 @@ const priorityOptions = [
 ]
 
 export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdated }: Props) {
+  const userRole = useProjectRole()
+  const isViewer = userRole === 'viewer'
+  const canDelete = userRole === 'owner' || userRole === 'admin'
   const [task, setTask] = useState<TaskDetail | null>(null)
   const [newComment, setNewComment] = useState('')
   const [loading, setLoading] = useState(true)
@@ -58,6 +63,7 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
   const [addingSubtask, setAddingSubtask] = useState(false)
   const [addingComment, setAddingComment] = useState(false)
   const [completing, setCompleting] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   // Edit mode state
   const [isEditing, setIsEditing] = useState(false)
@@ -219,6 +225,22 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
     setIsEditing(false)
   }
 
+  const handleDelete = async () => {
+    if (!task) return
+    if (!confirm(`确定删除任务「${task.title}」？此操作不可撤销。`)) return
+    setDeleting(true)
+    try {
+      await api.delete(`/projects/${projectId}/tasks/${taskId}`)
+      toast.success('任务已删除')
+      onUpdated()
+      onClose()
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || '删除任务失败')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   if (loading) {
     return (
       <Dialog open onClose={onClose}>
@@ -263,7 +285,7 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
             type="checkbox"
             checked={task.is_completed}
             onChange={handleComplete}
-            disabled={completing || isEditing}
+            disabled={completing || isEditing || isViewer}
             className="mt-1.5 h-4 w-4 rounded border-border text-primary focus:ring-primary"
           />
           <div className="flex-1 min-w-0">
@@ -277,6 +299,8 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
               />
             ) : (
               <DialogTitle
+                showClose
+                onClose={onClose}
                 className={task.is_completed ? 'line-through text-muted-foreground' : ''}
               >
                 {task.title}
@@ -325,7 +349,7 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
                     members={members}
                     value={task.assignee?.id || null}
                     onChange={handleAssigneeChange}
-                    disabled={updatingAssignee || isEditing}
+                    disabled={updatingAssignee || isEditing || isViewer}
                   />
 
                   {task.due_date && (
@@ -403,6 +427,7 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
                     type="checkbox"
                     checked={sub.is_completed}
                     onChange={() => handleSubtaskComplete(sub.id, sub.is_completed)}
+                    disabled={isViewer}
                     className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
                   />
                   <span className={`text-sm ${sub.is_completed ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
@@ -412,27 +437,31 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
               ))
             )}
           </div>
-          <div className="flex gap-2">
-            <Input
-              value={newSubtaskTitle}
-              onChange={(e) => setNewSubtaskTitle(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  handleAddSubtask()
-                }
-              }}
-              placeholder="添加子任务..."
-              className="text-sm"
-            />
-            <Button
-              onClick={handleAddSubtask}
-              disabled={addingSubtask || !newSubtaskTitle.trim()}
-              loading={addingSubtask}
-            >
-              <Plus className="h-4 w-4" />
-            </Button>
-          </div>
+          {!isViewer && (
+            <div className="flex gap-2">
+              <Input
+                value={newSubtaskTitle}
+                onChange={(e) => setNewSubtaskTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    handleAddSubtask()
+                  }
+                }}
+                placeholder="添加子任务..."
+                className="text-sm flex-1 min-w-0"
+              />
+              <Button
+                onClick={handleAddSubtask}
+                disabled={addingSubtask || !newSubtaskTitle.trim()}
+                loading={addingSubtask}
+                aria-label="添加子任务"
+                className="shrink-0"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
         </div>
 
         <Separator />
@@ -460,23 +489,26 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
               ))
             )}
           </div>
-          <div className="flex gap-2">
-            <Input
-              value={newComment}
-              onChange={(e) => setNewComment(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleAddComment()}
-              disabled={addingComment}
-              placeholder="输入评论..."
-              className="text-sm"
-            />
-            <Button
-              onClick={handleAddComment}
-              disabled={addingComment || !newComment.trim()}
-              loading={addingComment}
-            >
-              发送
-            </Button>
-          </div>
+          {!isViewer && (
+            <div className="flex gap-2">
+              <Input
+                value={newComment}
+                onChange={(e) => setNewComment(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleAddComment()}
+                disabled={addingComment}
+                placeholder="输入评论..."
+                className="text-sm flex-1 min-w-0"
+              />
+              <Button
+                onClick={handleAddComment}
+                disabled={addingComment || !newComment.trim()}
+                loading={addingComment}
+                className="shrink-0 whitespace-nowrap"
+              >
+                发送
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -492,10 +524,27 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
             </Button>
           </>
         ) : (
-          <Button variant="outline" onClick={() => setIsEditing(true)} className="gap-1.5">
-            <Edit2 className="h-4 w-4" />
-            编辑任务
-          </Button>
+          <>
+            {canDelete && (
+              <Button
+                variant="outline"
+                onClick={handleDelete}
+                disabled={deleting}
+                loading={deleting}
+                className="gap-1.5 text-danger hover:text-danger hover:bg-danger/10"
+              >
+                <Trash2 className="h-4 w-4" />
+                删除任务
+              </Button>
+            )}
+            <div className="flex-1" />
+            {!isViewer && (
+              <Button variant="outline" onClick={() => setIsEditing(true)} className="gap-1.5">
+                <Edit2 className="h-4 w-4" />
+                编辑任务
+              </Button>
+            )}
+          </>
         )}
       </DialogFooter>
     </Dialog>

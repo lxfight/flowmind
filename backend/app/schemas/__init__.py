@@ -1,14 +1,24 @@
 from datetime import datetime
-from typing import Literal, Optional
-from pydantic import BaseModel, EmailStr
+from typing import Literal
+from pydantic import BaseModel, EmailStr, Field
+
+from app.schemas.llm_chat import (
+    LLMAgentChatRequest,
+    LLMAgentChatResponse,
+    LLMChatMessageOut,
+    LLMChatSessionCreate,
+    LLMChatSessionDetailOut,
+    LLMChatSessionOut,
+    LLMChatSessionUpdate,
+)
 
 
 # Auth
 class UserCreate(BaseModel):
-    username: str
-    email: str
-    password: str
-    display_name: str = ""
+    username: str = Field(min_length=3, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")
+    email: EmailStr
+    password: str = Field(min_length=6, max_length=128)
+    display_name: str = Field(default="", max_length=128)
 
 
 class UserLogin(BaseModel):
@@ -22,14 +32,14 @@ class Token(BaseModel):
 
 
 class UserProfileUpdate(BaseModel):
-    display_name: str | None = None
-    email: str | None = None
-    avatar_url: str | None = None
+    display_name: str | None = Field(default=None, min_length=1, max_length=128)
+    email: EmailStr | None = None
+    avatar_url: str | None = Field(default=None, max_length=512)
 
 
 class PasswordChange(BaseModel):
     old_password: str
-    new_password: str
+    new_password: str = Field(min_length=6, max_length=128)
 
 
 class TokenData(BaseModel):
@@ -52,17 +62,35 @@ class UserOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class UserSearchOut(BaseModel):
+    id: int
+    username: str
+    display_name: str
+    avatar_url: str
+
+    model_config = {"from_attributes": True}
+
+
+class UserBriefOut(BaseModel):
+    id: int
+    username: str
+    display_name: str
+    avatar_url: str
+
+    model_config = {"from_attributes": True}
+
+
 # Project
 class ProjectCreate(BaseModel):
-    name: str
-    description: str = ""
-    color: str = "#6366f1"
+    name: str = Field(min_length=1, max_length=256)
+    description: str = Field(default="", max_length=10000)
+    color: str = Field(default="#6366f1", pattern=r"^#[0-9A-Fa-f]{6}$")
 
 
 class ProjectUpdate(BaseModel):
-    name: str | None = None
-    description: str | None = None
-    color: str | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=256)
+    description: str | None = Field(default=None, max_length=10000)
+    color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
     is_archived: bool | None = None
 
 
@@ -76,6 +104,7 @@ class ProjectOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     member_count: int = 0
+    current_user_role: str = "viewer"
 
     model_config = {"from_attributes": True}
 
@@ -96,17 +125,21 @@ class ProjectMemberAdd(BaseModel):
     role: Literal["admin", "member", "viewer"] = "member"
 
 
+class ProjectMemberUpdate(BaseModel):
+    role: Literal["admin", "member", "viewer"]
+
+
 # Task
 class TaskStatusCreate(BaseModel):
-    name: str
-    color: str = "#6b7280"
+    name: str = Field(min_length=1, max_length=64)
+    color: str = Field(default="#6b7280", pattern=r"^#[0-9A-Fa-f]{6}$")
     is_done: bool = False
 
 
 class TaskStatusUpdate(BaseModel):
-    name: str | None = None
-    color: str | None = None
-    order: int | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=64)
+    color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    order: int | None = Field(default=None, ge=0)
     is_done: bool | None = None
 
 
@@ -123,21 +156,21 @@ class TaskStatusOut(BaseModel):
 
 
 class TaskCreate(BaseModel):
-    title: str
-    description: str = ""
+    title: str = Field(min_length=1, max_length=512)
+    description: str = Field(default="", max_length=50000)
     status_id: int
     assignee_id: int | None = None
-    priority: int = 0
+    priority: int = Field(default=0, ge=0, le=4)
     due_date: datetime | None = None
     parent_task_id: int | None = None
 
 
 class TaskUpdate(BaseModel):
-    title: str | None = None
-    description: str | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=512)
+    description: str | None = Field(default=None, max_length=50000)
     status_id: int | None = None
     assignee_id: int | None = None
-    priority: int | None = None
+    priority: int | None = Field(default=None, ge=0, le=4)
     order: float | None = None
     due_date: datetime | None = None
     is_completed: bool | None = None
@@ -158,7 +191,7 @@ class TaskOut(BaseModel):
     completed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
-    assignee: UserOut | None = None
+    assignee: UserBriefOut | None = None
     comment_count: int = 0
     subtask_count: int = 0
     subtask_done: int = 0
@@ -174,7 +207,7 @@ class TaskDetailOut(TaskOut):
 
 
 class TaskCommentCreate(BaseModel):
-    content: str
+    content: str = Field(min_length=1, max_length=10000)
 
 
 class TaskCommentOut(BaseModel):
@@ -183,7 +216,7 @@ class TaskCommentOut(BaseModel):
     user_id: int
     content: str
     created_at: datetime
-    user: UserOut | None = None
+    user: UserBriefOut | None = None
 
     model_config = {"from_attributes": True}
 
@@ -195,14 +228,14 @@ class TaskMove(BaseModel):
 
 # Knowledge
 class KnowledgeDocCreate(BaseModel):
-    title: str
-    content: str
-    file_type: str = "text"
+    title: str = Field(min_length=1, max_length=256)
+    content: str = Field(max_length=2_000_000)
+    file_type: str = Field(default="text", min_length=1, max_length=16)
 
 
 class KnowledgeDocUpdate(BaseModel):
-    title: str | None = None
-    content: str | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=256)
+    content: str | None = Field(default=None, max_length=2_000_000)
 
 
 class KnowledgeDocOut(BaseModel):
@@ -220,29 +253,29 @@ class KnowledgeDocOut(BaseModel):
 
 
 class KnowledgeQuery(BaseModel):
-    question: str
-    top_k: int = 5
+    question: str = Field(min_length=1, max_length=5000)
+    top_k: int = Field(default=5, ge=1, le=20)
 
 
 class KnowledgeAnswer(BaseModel):
     answer: str
-    sources: list[dict] = []
+    sources: list[dict] = Field(default_factory=list)
 
 
 # LLM
 class LLMChatMessage(BaseModel):
-    role: str  # user, assistant, system
-    content: str
+    role: Literal["user", "assistant", "system"]
+    content: str = Field(min_length=1, max_length=10000)
 
 
 class LLMChatRequest(BaseModel):
     project_id: int
-    messages: list[LLMChatMessage]
+    messages: list[LLMChatMessage] = Field(min_length=1, max_length=100)
 
 
 class LLMChatResponse(BaseModel):
     message: str
-    actions: list[dict] = []
+    actions: list[dict] = Field(default_factory=list)
 
 
 # Stats
@@ -273,21 +306,12 @@ class ActivityLogOut(BaseModel):
     user_name: str = ""
 
     model_config = {"from_attributes": True}
+
+
 class LLMTaskGenerate(BaseModel):
     project_id: int
-    instruction: str  # e.g. "Create tasks for user login module"
+    instruction: str = Field(min_length=1, max_length=10000)
 
-
-# LLM Chat
-from app.schemas.llm_chat import (
-    LLMChatSessionCreate,
-    LLMChatSessionUpdate,
-    LLMChatSessionOut,
-    LLMChatSessionDetailOut,
-    LLMChatMessageOut,
-    LLMAgentChatRequest,
-    LLMAgentChatResponse,
-)
 
 __all__ = [
     "UserCreate",
@@ -297,11 +321,14 @@ __all__ = [
     "PasswordChange",
     "TokenData",
     "UserOut",
+    "UserSearchOut",
+    "UserBriefOut",
     "ProjectCreate",
     "ProjectUpdate",
     "ProjectOut",
     "ProjectMemberOut",
     "ProjectMemberAdd",
+    "ProjectMemberUpdate",
     "TaskStatusCreate",
     "TaskStatusUpdate",
     "TaskStatusOut",

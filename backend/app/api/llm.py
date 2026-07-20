@@ -19,7 +19,6 @@ from app.schemas import (
     LLMChatSessionUpdate,
     LLMChatSessionOut,
     LLMChatSessionDetailOut,
-    LLMChatMessageOut,
     LLMAgentChatRequest,
     LLMAgentChatResponse,
 )
@@ -94,7 +93,10 @@ async def llm_generate_tasks(
     status_names = [s.name for s in statuses]
 
     result = await db.execute(
-        select(Task).where(Task.project_id == request.project_id).limit(20)
+        select(Task).where(
+            Task.project_id == request.project_id,
+            Task.parent_task_id.is_(None),
+        ).limit(20)
     )
     existing_tasks = result.scalars().all()
     task_context = f"当前项目共有 {len(existing_tasks)} 个任务"
@@ -130,8 +132,6 @@ async def llm_suggest_status(
         return {"suggested_status": None}
 
     status_names = [s.name for s in statuses]
-    content = f"{task_title}\n{task_description}".strip()
-
     try:
         suggested = await llm_service.suggest_status(
             task_title, task_description, status_names
@@ -165,7 +165,7 @@ async def llm_report(
     result = await db.execute(
         select(Task, TaskStatus.name)
         .join(TaskStatus, Task.status_id == TaskStatus.id)
-        .where(Task.project_id == project_id)
+        .where(Task.project_id == project_id, Task.parent_task_id.is_(None))
         .order_by(TaskStatus.order, Task.order)
     )
     rows = result.all()
@@ -197,7 +197,9 @@ async def llm_report(
 
     log_data = ""
     if logs:
-        log_data = "\n近7天动态:\n" + "\n".join(f"- {l.summary}" for l in logs[:20])
+        log_data = "\n近7天动态:\n" + "\n".join(
+            f"- {log.summary}" for log in logs[:20]
+        )
 
     report = await llm_service.generate_report(
         tasks_data + log_data, project.name
@@ -261,6 +263,7 @@ async def get_session(
         raise HTTPException(status_code=404, detail="会话不存在")
     if session.user_id != current_user.id and not current_user.is_superuser:
         raise HTTPException(status_code=403, detail="无权访问此会话")
+    await ensure_project_member(session.project_id, current_user, db)
     return session
 
 
@@ -279,6 +282,7 @@ async def update_session(
         raise HTTPException(status_code=404, detail="会话不存在")
     if session.user_id != current_user.id and not current_user.is_superuser:
         raise HTTPException(status_code=403, detail="无权修改此会话")
+    await ensure_project_member(session.project_id, current_user, db)
     session.title = data.title
     await db.flush()
     await db.refresh(session)
@@ -299,6 +303,7 @@ async def delete_session(
         raise HTTPException(status_code=404, detail="会话不存在")
     if session.user_id != current_user.id and not current_user.is_superuser:
         raise HTTPException(status_code=403, detail="无权删除此会话")
+    await ensure_project_member(session.project_id, current_user, db)
     await db.delete(session)
     return {"message": "会话已删除"}
 
@@ -370,6 +375,12 @@ async def agent_chat(
     persisted_messages = []
     returned_messages = result.get("messages", [])
     new_messages = returned_messages[len(history):]
+    if not new_messages:
+        # Configuration and provider errors still belong to the visible session history.
+        new_messages = [
+            HumanMessage(content=request.message),
+            AIMessage(content=result.get("message", "")),
+        ]
     for msg in new_messages:
         if isinstance(msg, HumanMessage):
             db_msg = LLMChatMessage(
@@ -447,6 +458,12 @@ async def agent_chat(
         if key not in seen:
             seen.add(key)
             unique_actions.append(a)
+
+    if unique_actions:
+        for db_msg in reversed(persisted_messages):
+            if db_msg.role == "assistant":
+                db_msg.actions = unique_actions
+                break
 
     return LLMAgentChatResponse(
         session_id=session.id,

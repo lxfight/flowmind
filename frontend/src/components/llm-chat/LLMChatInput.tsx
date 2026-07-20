@@ -43,6 +43,7 @@ export function LLMChatInput({ onSend, loading = false, placeholder = '输入消
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
+          aria-label="消息内容"
           rows={1}
           disabled={loading}
           className="flex-1 min-w-0 resize-none rounded-xl border border-input bg-background px-3 py-2.5 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-70 max-h-[120px]"
@@ -51,6 +52,7 @@ export function LLMChatInput({ onSend, loading = false, placeholder = '输入消
           onClick={handleSend}
           disabled={loading || !input.trim()}
           size="icon"
+          aria-label="发送消息"
           className="h-10 w-10 shrink-0 rounded-xl"
         >
           {loading ? (

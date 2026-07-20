@@ -15,6 +15,7 @@ const ProjectReportPage = lazy(() => import('./pages/ProjectReportPage'))
 const ActivityPage = lazy(() => import('./pages/ActivityPage'))
 const AdminUsersPage = lazy(() => import('./pages/AdminUsersPage'))
 const ProfilePage = lazy(() => import('./pages/ProfilePage'))
+const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
 const Layout = lazy(() => import('./components/common/Layout'))
 
 const queryClient = new QueryClient()
@@ -94,6 +95,7 @@ export default function App() {
                   </AdminRoute>
                 }
               />
+              <Route path="*" element={<NotFoundPage />} />
             </Route>
           </Routes>
         </Suspense>

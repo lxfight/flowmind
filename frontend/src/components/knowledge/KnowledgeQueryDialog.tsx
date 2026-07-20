@@ -75,6 +75,7 @@ export function KnowledgeQueryDialog({ projectId, onClose }: Props) {
           />
           <Button
             size="icon"
+            aria-label="查询"
             onClick={handleQuery}
             disabled={loading || !question.trim()}
             loading={loading}

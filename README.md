@@ -89,6 +89,8 @@ SQLite 模式下，RAG 知识库的向量搜索会降级为随机检索，不影
 | `LLM_API_KEY` | LLM API 密钥 | - |
 | `LLM_BASE_URL` | LLM API 地址 | - |
 | `LLM_MODEL` | LLM 模型 | gpt-4o-mini |
+| `LLM_EMBEDDING_MODEL` | 向量嵌入模型 | text-embedding-3-small |
+| `KNOWLEDGE_MAX_BYTES` | 知识库单文件大小上限（字节） | 26214400 |
 | `RATE_LIMIT_LOGIN_MAX` | 登录最大尝试次数 | 5 |
 | `RATE_LIMIT_WINDOW` | 速率限制窗口(秒) | 60 |
 | `DEBUG` | 调试模式 | false |

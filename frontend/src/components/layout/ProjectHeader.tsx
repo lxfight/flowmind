@@ -1,5 +1,8 @@
 import { Link, useLocation } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
 import { cn } from '../../utils/cn'
+import { useProjectStore } from '../../stores/projectStore'
+import { useAuthStore } from '../../stores/authStore'
 import type { Project } from '../../stores/projectStore'
 import {
   KanbanSquare,
@@ -7,7 +10,11 @@ import {
   Activity,
   Users,
   FileText,
+  Settings,
 } from 'lucide-react'
+import { Button } from '../ui/Button'
+import { Badge } from '../ui/Badge'
+import { EditProjectDialog } from '../project/EditProjectDialog'
 
 interface ProjectHeaderProps {
   project: Project
@@ -23,6 +30,16 @@ const tabs = [
 
 export function ProjectHeader({ project }: ProjectHeaderProps) {
   const location = useLocation()
+  const { setCurrentProject } = useProjectStore()
+  const user = useAuthStore((s) => s.user)
+  const [showEdit, setShowEdit] = useState(false)
+  const activeRef = useRef<HTMLAnchorElement>(null)
+
+  useEffect(() => {
+    activeRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
+  }, [location.pathname])
+
+  const canEdit = user?.is_superuser || project.current_user_role === 'owner'
 
   return (
     <div className="surface p-5 mb-6">
@@ -31,11 +48,31 @@ export function ProjectHeader({ project }: ProjectHeaderProps) {
           className="mt-1.5 h-3 w-3 rounded-full flex-shrink-0"
           style={{ backgroundColor: project.color }}
         />
-        <div className="min-w-0">
-          <h2 className="text-xl font-semibold tracking-tight text-foreground">{project.name}</h2>
-          {project.description && (
-            <p className="mt-0.5 text-sm text-muted-foreground truncate">{project.description}</p>
-          )}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="text-xl font-semibold tracking-tight text-foreground">{project.name}</h2>
+              {project.description && (
+                <p className="mt-0.5 text-sm text-muted-foreground truncate">{project.description}</p>
+              )}
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {project.is_archived && (
+                <Badge variant="secondary">已归档</Badge>
+              )}
+              {canEdit && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setShowEdit(true)}
+                  aria-label="编辑项目"
+                >
+                  <Settings className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -47,6 +84,7 @@ export function ProjectHeader({ project }: ProjectHeaderProps) {
           return (
             <Link
               key={tab.path}
+              ref={active ? activeRef : undefined}
               to={fullPath}
               className={cn(
                 'flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-xl whitespace-nowrap transition-colors',
@@ -61,6 +99,14 @@ export function ProjectHeader({ project }: ProjectHeaderProps) {
           )
         })}
       </nav>
+
+      {showEdit && (
+        <EditProjectDialog
+          project={project}
+          onClose={() => setShowEdit(false)}
+          onUpdated={(updated) => setCurrentProject(updated)}
+        />
+      )}
     </div>
   )
 }

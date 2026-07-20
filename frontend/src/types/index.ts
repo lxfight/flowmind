@@ -108,6 +108,7 @@ export interface MemberOption {
   display_name: string
   username: string
   avatar_url: string
+  role?: string
 }
 
 // ===== 用户搜索 =====

@@ -228,7 +228,9 @@ async def add_comment(task_id: int, content: str, config: RunnableConfig = None)
     """给任务添加评论。"""
     db, user, project_id = _get_deps(config)
     try:
-        c = await task_service.add_comment(project_id, task_id, TaskCommentCreate(content=content), user, db)
+        await task_service.add_comment(
+            project_id, task_id, TaskCommentCreate(content=content), user, db
+        )
         return _format_result(
             True,
             message=f"已为任务 [{task_id}] 添加评论。",

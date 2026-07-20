@@ -49,6 +49,42 @@ async def ensure_project_admin(
     return member
 
 
+async def ensure_project_editor(
+    project_id: int,
+    current_user: User,
+    db: AsyncSession,
+) -> ProjectMember | None:
+    """Allow owners, admins, and members to mutate project content."""
+    member = await ensure_project_member(project_id, current_user, db)
+    if current_user.is_superuser:
+        return None
+    if member and member.role == "viewer":
+        raise HTTPException(status_code=403, detail="只读成员无权修改项目内容")
+    return member
+
+
+async def ensure_project_assignee(
+    project_id: int,
+    user_id: int,
+    db: AsyncSession,
+) -> User:
+    """Return an active project member that can be assigned work."""
+    result = await db.execute(
+        select(User)
+        .join(ProjectMember, ProjectMember.user_id == User.id)
+        .where(
+            ProjectMember.project_id == project_id,
+            User.id == user_id,
+            User.is_active.is_(True),
+            User.is_approved.is_(True),
+        )
+    )
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=400, detail="指派人必须是有效的项目成员")
+    return user
+
+
 async def ensure_status_in_project(
     project_id: int,
     status_id: int,

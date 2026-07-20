@@ -97,7 +97,7 @@ export default function ProjectReportPage() {
   }
 
   return (
-    <div className="page-container h-full overflow-y-auto">
+    <div className="max-w-7xl mx-auto h-full overflow-y-auto">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <h3 className="section-title">项目报告</h3>
         <div className="flex items-center gap-2">
@@ -135,6 +135,7 @@ export default function ProjectReportPage() {
                 size="icon"
                 className="h-7 w-7 text-muted-foreground hover:text-danger"
                 onClick={clearHistory}
+                aria-label="清空历史"
               >
                 <Trash2 className="h-4 w-4" />
               </Button>

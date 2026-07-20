@@ -48,10 +48,10 @@ async def lifespan(app: FastAPI):
             db.add(admin)
             await db.commit()
             print(f"\n{'='*60}")
-            print(f"  默认超级管理员已创建")
-            print(f"  用户名: admin")
+            print("  默认超级管理员已创建")
+            print("  用户名: admin")
             print(f"  密码:   {admin_password}")
-            print(f"  请登录后立即修改密码!")
+            print("  请登录后立即修改密码!")
             print(f"{'='*60}\n")
 
     yield

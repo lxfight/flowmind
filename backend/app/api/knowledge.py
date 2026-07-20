@@ -3,9 +3,11 @@ from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.api.permissions import ensure_project_member
+from app.api.permissions import ensure_project_editor, ensure_project_member
+from app.core.config import get_settings
 from app.models.user import User
 from app.models.knowledge import KnowledgeDoc, DocChunk
+from app.models.activity import ActivityLog
 from app.schemas import (
     KnowledgeDocCreate, KnowledgeDocUpdate, KnowledgeDocOut,
     KnowledgeQuery, KnowledgeAnswer,
@@ -14,6 +16,12 @@ from app.services.rag_service import rag_service
 from app.services.llm_service import llm_service
 
 router = APIRouter(prefix="/api/projects/{project_id}/knowledge", tags=["knowledge"])
+settings = get_settings()
+ALLOWED_UPLOAD_EXTENSIONS = {
+    "pdf", "docx", "pptx", "xls", "xlsx", "html", "htm", "md", "txt",
+    "csv", "json", "xml", "jpg", "jpeg", "png", "gif", "bmp", "tiff",
+    "wav", "mp3",
+}
 
 
 @router.get("", response_model=list[KnowledgeDocOut])
@@ -48,7 +56,7 @@ async def create_doc(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await ensure_project_member(project_id, current_user, db)
+    await ensure_project_editor(project_id, current_user, db)
     doc = KnowledgeDoc(
         project_id=project_id,
         title=data.title,
@@ -60,12 +68,19 @@ async def create_doc(
     await db.flush()
     await db.refresh(doc)
 
-    # Generate chunks and embeddings
     try:
         await rag_service.chunk_document(data.title, data.content, doc.id, db)
-    except Exception as e:
-        # If embedding fails (e.g. no API key), still store the doc as-is
-        pass
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"文档索引失败: {exc}") from exc
+
+    db.add(ActivityLog(
+        project_id=project_id,
+        user_id=current_user.id,
+        action="create",
+        target_type="doc",
+        target_id=doc.id,
+        summary=f"添加知识文档: {doc.title}",
+    ))
 
     count_result = await db.execute(
         select(func.count(DocChunk.id)).where(DocChunk.doc_id == doc.id)
@@ -109,7 +124,7 @@ async def update_doc(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await ensure_project_member(project_id, current_user, db)
+    await ensure_project_editor(project_id, current_user, db)
     result = await db.execute(
         select(KnowledgeDoc).where(
             KnowledgeDoc.id == doc_id,
@@ -130,8 +145,17 @@ async def update_doc(
         )
         try:
             await rag_service.chunk_document(doc.title, doc.content, doc.id, db)
-        except Exception:
-            pass
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"文档索引失败: {exc}") from exc
+
+    db.add(ActivityLog(
+        project_id=project_id,
+        user_id=current_user.id,
+        action="update",
+        target_type="doc",
+        target_id=doc.id,
+        summary=f"更新知识文档: {doc.title}",
+    ))
 
     await db.flush()
     await db.refresh(doc)
@@ -145,7 +169,7 @@ async def delete_doc(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await ensure_project_member(project_id, current_user, db)
+    await ensure_project_editor(project_id, current_user, db)
     result = await db.execute(
         select(KnowledgeDoc).where(
             KnowledgeDoc.id == doc_id,
@@ -156,6 +180,14 @@ async def delete_doc(
     if not doc:
         raise HTTPException(status_code=404, detail="文档不存在")
 
+    db.add(ActivityLog(
+        project_id=project_id,
+        user_id=current_user.id,
+        action="delete",
+        target_type="doc",
+        target_id=doc.id,
+        summary=f"删除知识文档: {doc.title}",
+    ))
     await db.delete(doc)
     return {"message": "文档已删除"}
 
@@ -168,31 +200,33 @@ async def upload_file(
     db: AsyncSession = Depends(get_db),
 ):
     """Upload a file and parse it to markdown using markitdown, then create a knowledge doc."""
-    await ensure_project_member(project_id, current_user, db)
+    await ensure_project_editor(project_id, current_user, db)
     if not file.filename:
         raise HTTPException(status_code=400, detail="文件名不能为空")
 
-    # Read file content
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    if ext not in ALLOWED_UPLOAD_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="不支持的文件格式")
+
     file_bytes = await file.read()
     if len(file_bytes) == 0:
         raise HTTPException(status_code=400, detail="文件为空")
+    if len(file_bytes) > settings.knowledge_max_bytes:
+        max_mb = settings.knowledge_max_bytes // 1024 // 1024
+        raise HTTPException(status_code=413, detail=f"文件大小不能超过 {max_mb}MB")
 
     # Parse file to markdown using markitdown
     try:
         from io import BytesIO
         from markitdown import MarkItDown
         md = MarkItDown()
-        ext = file.filename.rsplit(".", 1)[-1] if "." in file.filename else ""
         result = md.convert_stream(BytesIO(file_bytes), file_extension=ext)
         content = result.text_content
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"文件解析失败: {str(e)}")
+        raise HTTPException(status_code=422, detail=f"文件解析失败: {str(e)}")
 
     if not content.strip():
         raise HTTPException(status_code=400, detail="文件解析结果为空，请检查文件内容")
-
-    # Determine file type from extension
-    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "txt"
 
     # Strip extension from filename for title
     title = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename
@@ -208,11 +242,19 @@ async def upload_file(
     await db.flush()
     await db.refresh(doc)
 
-    # Generate chunks and embeddings
     try:
         await rag_service.chunk_document(title, content, doc.id, db)
-    except Exception:
-        pass
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"文档索引失败: {exc}") from exc
+
+    db.add(ActivityLog(
+        project_id=project_id,
+        user_id=current_user.id,
+        action="create",
+        target_type="doc",
+        target_id=doc.id,
+        summary=f"上传知识文档: {doc.title}",
+    ))
 
     count_result = await db.execute(
         select(func.count(DocChunk.id)).where(DocChunk.doc_id == doc.id)
@@ -237,10 +279,8 @@ async def query_knowledge(
             project_id=project_id,
             db=db,
             llm_service=llm_service,
+            top_k=data.top_k,
         )
-        return KnowledgeAnswer(**result)
-    except Exception as e:
-        return KnowledgeAnswer(
-            answer=f"查询失败: {str(e)}",
-            sources=[],
-        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"知识库查询失败: {exc}") from exc
+    return KnowledgeAnswer(**result)

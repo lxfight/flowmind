@@ -13,12 +13,14 @@ import {
 } from '@dnd-kit/core'
 import { useParams } from 'react-router-dom'
 import api from '../../utils/api'
+import { useProjectRole } from '../../hooks/useProjectRole'
 import { KanbanColumn } from './KanbanColumn'
 import { KanbanCard } from './KanbanCard'
 import { CreateTaskDialog } from './CreateTaskDialog'
 import { TaskDetailDialog } from './TaskDetailDialog'
+import { StatusManagerDialog } from './StatusManagerDialog'
 import { LLMChatPanel } from '../llm-chat/LLMChatPanel'
-import { AlertCircle, Filter, Loader2, MessageSquare, Plus, RefreshCw, Search, X } from 'lucide-react'
+import { AlertCircle, Columns3, Filter, Loader2, MessageSquare, Plus, RefreshCw, Search, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
@@ -29,6 +31,9 @@ import type { TaskSummary, TaskStatus, MemberOption, ActionSummary } from '../..
 
 export default function KanbanBoard() {
   const { projectId } = useParams()
+  const userRole = useProjectRole()
+  const isViewer = userRole === 'viewer'
+  const canManageStatuses = userRole === 'owner' || userRole === 'admin'
   const [statuses, setStatuses] = useState<TaskStatus[]>([])
   const [tasks, setTasks] = useState<TaskSummary[]>([])
   const [activeTask, setActiveTask] = useState<TaskSummary | null>(null)
@@ -38,6 +43,7 @@ export default function KanbanBoard() {
   const [detailTaskId, setDetailTaskId] = useState<number | null>(null)
   const [boardLoading, setBoardLoading] = useState(true)
   const [boardError, setBoardError] = useState<string | null>(null)
+  const [showStatusManager, setShowStatusManager] = useState(false)
 
   // Search & filter
   const [searchQuery, setSearchQuery] = useState('')
@@ -128,7 +134,17 @@ export default function KanbanBoard() {
   const getTasksByStatus = (statusId: number) =>
     tasks.filter((t) => t.status_id === statusId).sort((a, b) => a.order - b.order)
 
+  useEffect(() => {
+    setShowCreateDialog(false)
+    setShowStatusManager(false)
+    setShowChat(false)
+    setDetailTaskId(null)
+    setActiveTask(null)
+    setCreateStatusId(null)
+  }, [projectId, isViewer])
+
   const handleDragStart = (event: DragStartEvent) => {
+    if (isViewer) return
     const task = tasks.find((t) => t.id === event.active.id)
     if (task) setActiveTask(task)
   }
@@ -147,6 +163,7 @@ export default function KanbanBoard() {
 
   const handleDragEnd = async (event: DragEndEvent) => {
     setActiveTask(null)
+    if (isViewer) return
     const { active, over } = event
     if (!over || !projectId) return
     const taskId = active.id as number
@@ -192,13 +209,13 @@ export default function KanbanBoard() {
     priority?: number
     assignee_id?: number | null
   }) => {
-    if (!projectId) return
+    if (!projectId || isViewer) return
     const res = await api.post(`/projects/${projectId}/tasks`, data)
     setTasks((prev) => [...prev, res.data])
   }
 
   const handleAssignTask = async (taskId: number, userId: number | null) => {
-    if (!projectId) return
+    if (!projectId || isViewer) return
     const previousTasks = tasks
     const assignee = userId ? members.find((m) => m.user_id === userId) : null
     setTasks((prev) =>
@@ -249,27 +266,45 @@ export default function KanbanBoard() {
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
             <h3 className="section-title">任务看板</h3>
             <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowChat(!showChat)}
-                className="gap-1.5"
-              >
-                <MessageSquare className="h-4 w-4" />
-                <span className="hidden sm:inline">LLM 助手</span>
-              </Button>
-              <Button
-                size="sm"
-                disabled={statuses.length === 0 || boardLoading}
-                onClick={() => {
-                  setCreateStatusId(statuses[0]?.id || null)
-                  setShowCreateDialog(true)
-                }}
-                className="gap-1.5"
-              >
-                <Plus className="h-4 w-4" />
-                <span className="hidden sm:inline">新建任务</span>
-              </Button>
+              {canManageStatuses && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowStatusManager(true)}
+                  className="gap-1.5"
+                  aria-label="管理状态列"
+                >
+                  <Columns3 className="h-4 w-4" />
+                  <span className="hidden sm:inline">状态列</span>
+                </Button>
+              )}
+              {!isViewer && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowChat(!showChat)}
+                  className="gap-1.5"
+                  aria-label="LLM 助手"
+                >
+                  <MessageSquare className="h-4 w-4" />
+                  <span className="hidden sm:inline">LLM 助手</span>
+                </Button>
+              )}
+              {!isViewer && (
+                <Button
+                  size="sm"
+                  disabled={statuses.length === 0 || boardLoading}
+                  onClick={() => {
+                    setCreateStatusId(statuses[0]?.id || null)
+                    setShowCreateDialog(true)
+                  }}
+                  className="gap-1.5"
+                  aria-label="新建任务"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span className="hidden sm:inline">新建任务</span>
+                </Button>
+              )}
             </div>
           </div>
 
@@ -285,6 +320,7 @@ export default function KanbanBoard() {
               />
               {searchQuery && (
                 <button
+                  aria-label="清除搜索"
                   className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                   onClick={() => handleSearchChange('')}
                 >
@@ -343,7 +379,7 @@ export default function KanbanBoard() {
               </div>
             ) : (
               <DndContext
-                sensors={sensors}
+                sensors={isViewer ? [] : sensors}
                 collisionDetection={closestCorners}
                 onDragStart={handleDragStart}
                 onDragEnd={handleDragEnd}
@@ -358,6 +394,7 @@ export default function KanbanBoard() {
                       status={status}
                       tasks={getTasksByStatus(status.id)}
                       members={members}
+                      readOnly={isViewer}
                       onAddTask={() => {
                         setCreateStatusId(status.id)
                         setShowCreateDialog(true)
@@ -370,8 +407,8 @@ export default function KanbanBoard() {
 
                 <DragOverlay>
                   {activeTask ? (
-                    <div className="opacity-90">
-                      <KanbanCard task={activeTask} members={members} isDragOverlay />
+                    <div className="opacity-90" aria-hidden="true">
+                      <KanbanCard task={activeTask} members={members} isDragOverlay readOnly />
                     </div>
                   ) : null}
                 </DragOverlay>
@@ -398,6 +435,17 @@ export default function KanbanBoard() {
           projectId={parseInt(projectId!)}
           onClose={() => setShowCreateDialog(false)}
           onCreate={handleCreateTask}
+        />
+      )}
+
+      {/* Status Manager Dialog */}
+      {showStatusManager && (
+        <StatusManagerDialog
+          projectId={parseInt(projectId!)}
+          onClose={() => setShowStatusManager(false)}
+          onUpdated={() => {
+            void loadBoard().catch(() => {})
+          }}
         />
       )}
 

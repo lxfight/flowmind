@@ -1,14 +1,14 @@
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class LLMChatSessionCreate(BaseModel):
     project_id: int
-    title: str = "新会话"
+    title: str = Field(default="新会话", min_length=1, max_length=128)
 
 
 class LLMChatSessionUpdate(BaseModel):
-    title: str
+    title: str = Field(min_length=1, max_length=128)
 
 
 class LLMChatSessionOut(BaseModel):
@@ -36,16 +36,16 @@ class LLMChatMessageOut(BaseModel):
 
 
 class LLMChatSessionDetailOut(LLMChatSessionOut):
-    messages: list[LLMChatMessageOut] = []
+    messages: list[LLMChatMessageOut] = Field(default_factory=list)
 
 
 class LLMAgentChatRequest(BaseModel):
     project_id: int
     session_id: int | None = None
-    message: str
+    message: str = Field(min_length=1, max_length=10000)
 
 
 class LLMAgentChatResponse(BaseModel):
     session_id: int
     message: str
-    actions: list[dict] = []
+    actions: list[dict] = Field(default_factory=list)

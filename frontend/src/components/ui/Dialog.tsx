@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useId, useRef, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { X } from 'lucide-react'
 import { cn } from '../../utils/cn'
@@ -8,9 +8,33 @@ export interface DialogProps {
   onClose: () => void
   children: ReactNode
   className?: string
+  ariaLabel?: string
 }
 
-export function Dialog({ open, onClose, children, className }: DialogProps) {
+function getFirstFocusable(root: HTMLElement): HTMLElement | null {
+  const selector =
+    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  return root.querySelector(selector)
+}
+
+interface DialogContextValue {
+  titleId: string
+  descId: string
+}
+
+const DialogContext = createContext<DialogContextValue | null>(null)
+
+function useDialogContext() {
+  return useContext(DialogContext)
+}
+
+export function Dialog({ open, onClose, children, className, ariaLabel }: DialogProps) {
+  const titleId = useId()
+  const descId = useId()
+  const panelRef = useRef<HTMLDivElement>(null)
+  const previousFocus = useRef<HTMLElement | null>(null)
+  const originalOverflow = useRef('')
+
   // ESC to close
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -22,15 +46,24 @@ export function Dialog({ open, onClose, children, className }: DialogProps) {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [open, onClose])
 
-  // Lock body scroll when open
+  // Lock body scroll + focus management
   useEffect(() => {
-    if (open) {
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = ''
+    if (!open) {
+      document.body.style.overflow = originalOverflow.current
+      previousFocus.current?.focus?.()
+      return
     }
+    originalOverflow.current = document.body.style.overflow
+    previousFocus.current = document.activeElement as HTMLElement
+    document.body.style.overflow = 'hidden'
+    const timer = setTimeout(() => {
+      const first = panelRef.current ? getFirstFocusable(panelRef.current) : null
+      first?.focus()
+    }, 0)
     return () => {
-      document.body.style.overflow = ''
+      clearTimeout(timer)
+      document.body.style.overflow = originalOverflow.current
+      previousFocus.current?.focus?.()
     }
   }, [open])
 
@@ -52,8 +85,15 @@ export function Dialog({ open, onClose, children, className }: DialogProps) {
             exit={{ opacity: 0 }}
           />
           <motion.div
+            ref={panelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+            aria-describedby={descId}
+            aria-label={ariaLabel}
+            tabIndex={-1}
             className={cn(
-              'relative z-10 w-full max-w-lg rounded-xl border border-border bg-card p-0 text-card-foreground shadow-lg',
+              'relative z-10 w-full max-w-lg rounded-xl border border-border bg-card p-0 text-card-foreground shadow-lg outline-none',
               className
             )}
             initial={{ opacity: 0, scale: 0.96, y: 8 }}
@@ -62,7 +102,9 @@ export function Dialog({ open, onClose, children, className }: DialogProps) {
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
             onClick={(e) => e.stopPropagation()}
           >
-            {children}
+            <DialogContext.Provider value={{ titleId, descId }}>
+              {children}
+            </DialogContext.Provider>
           </motion.div>
         </motion.div>
       )}
@@ -104,17 +146,22 @@ export interface DialogTitleProps {
 }
 
 export function DialogTitle({ children, className, showClose = false, onClose }: DialogTitleProps) {
+  const ctx = useDialogContext()
   return (
     <div className="flex items-start justify-between gap-4">
-      <h2 className={cn('text-lg font-semibold leading-none tracking-tight', className)}>
+      <h2
+        id={ctx?.titleId}
+        className={cn('text-lg font-semibold leading-none tracking-tight', className)}
+      >
         {children}
       </h2>
       {showClose && onClose && (
         <button
           onClick={onClose}
+          aria-label="关闭"
           className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <X className="h-4 w-4" />
+          <X className="h-4 w-4" aria-hidden="true" />
         </button>
       )}
     </div>
@@ -122,8 +169,9 @@ export function DialogTitle({ children, className, showClose = false, onClose }:
 }
 
 export function DialogDescription({ children, className }: { children: ReactNode; className?: string }) {
+  const ctx = useDialogContext()
   return (
-    <p className={cn('text-sm text-muted-foreground', className)}>
+    <p id={ctx?.descId} className={cn('text-sm text-muted-foreground', className)}>
       {children}
     </p>
   )

@@ -1,11 +1,12 @@
-from typing import Optional
-from sqlalchemy import select, text, func
+import logging
+
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
 from app.core.config import get_settings
 from app.models.knowledge import KnowledgeDoc, DocChunk, DocChunkEmbedding
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 _is_sqlite = "sqlite" in settings.database_url
 
@@ -31,7 +32,7 @@ class RAGService:
     async def chunk_document(self, title: str, content: str, doc_id: int, db: AsyncSession):
         """Split document into chunks and store with embeddings."""
         chunks = self._split_text(content)
-
+        stored_chunks = []
         for i, chunk_text in enumerate(chunks):
             doc_chunk = DocChunk(
                 doc_id=doc_id,
@@ -40,9 +41,22 @@ class RAGService:
             )
             db.add(doc_chunk)
             await db.flush()
+            stored_chunks.append(doc_chunk)
 
-            embedding = await self.embed_text(chunk_text)
+        # Keep plain chunks useful in local/unconfigured environments.
+        if not settings.llm_api_key:
+            return
 
+        for doc_chunk in stored_chunks:
+            try:
+                embedding = await self.embed_text(doc_chunk.content)
+            except Exception as exc:
+                logger.warning(
+                    "Embedding generation failed for document %s; keeping plain-text chunks: %s",
+                    doc_id,
+                    exc,
+                )
+                return
             if _is_sqlite:
                 # SQLite: store embedding as JSON string for dev/testing
                 import json
@@ -57,31 +71,61 @@ class RAGService:
                 )
             db.add(doc_embedding)
 
-    async def retrieve_context(
-        self, query: str, project_id: int, db: AsyncSession
+    async def _retrieve_plain_text(
+        self,
+        query: str,
+        project_id: int,
+        db: AsyncSession,
+        result_limit: int,
     ) -> list[dict]:
-        """Retrieve relevant document chunks for a query."""
-        if _is_sqlite:
-            # SQLite fallback: return random chunks (no vector search)
+        result = await db.execute(
+            select(DocChunk.content, KnowledgeDoc.title)
+            .join(KnowledgeDoc)
+            .where(KnowledgeDoc.project_id == project_id)
+            .where(
+                DocChunk.content.ilike(f"%{query}%")
+                | KnowledgeDoc.title.ilike(f"%{query}%")
+            )
+            .order_by(DocChunk.chunk_index)
+            .limit(result_limit)
+        )
+        rows = result.all()
+        if not rows:
             result = await db.execute(
                 select(DocChunk.content, KnowledgeDoc.title)
                 .join(KnowledgeDoc)
                 .where(KnowledgeDoc.project_id == project_id)
-                .order_by(func.random())
-                .limit(settings.top_k_retrieval)
+                .order_by(DocChunk.chunk_index)
+                .limit(result_limit)
             )
             rows = result.all()
-            return [
-                {
-                    "content": content,
-                    "doc_title": title,
-                    "similarity": 0.0,
-                }
-                for content, title in rows
-            ]
+        return [
+            {
+                "content": content,
+                "doc_title": title,
+                "similarity": 0.0,
+            }
+            for content, title in rows
+        ]
+
+    async def retrieve_context(
+        self,
+        query: str,
+        project_id: int,
+        db: AsyncSession,
+        top_k: int | None = None,
+    ) -> list[dict]:
+        """Retrieve relevant document chunks for a query."""
+        result_limit = top_k if top_k is not None else settings.top_k_retrieval
+        if _is_sqlite or not settings.llm_api_key:
+            return await self._retrieve_plain_text(query, project_id, db, result_limit)
 
         # PostgreSQL: cosine distance via pgvector
-        query_embedding = await self.embed_text(query)
+        try:
+            query_embedding = await self.embed_text(query)
+        except Exception as exc:
+            logger.warning("Query embedding failed; using plain-text retrieval: %s", exc)
+            return await self._retrieve_plain_text(query, project_id, db, result_limit)
         query_embedding_str = str(query_embedding)
         result = await db.execute(
             text("""
@@ -100,7 +144,7 @@ class RAGService:
             {
                 "query_embedding": query_embedding_str,
                 "project_id": project_id,
-                "top_k": settings.top_k_retrieval,
+                "top_k": result_limit,
             },
         )
 
@@ -115,10 +159,15 @@ class RAGService:
         ]
 
     async def query_with_context(
-        self, query: str, project_id: int, db: AsyncSession, llm_service
+        self,
+        query: str,
+        project_id: int,
+        db: AsyncSession,
+        llm_service,
+        top_k: int | None = None,
     ) -> dict:
         """Answer a question using retrieved context."""
-        contexts = await self.retrieve_context(query, project_id, db)
+        contexts = await self.retrieve_context(query, project_id, db, top_k=top_k)
 
         if not contexts:
             return {

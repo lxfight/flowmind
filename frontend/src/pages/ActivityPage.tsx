@@ -6,7 +6,7 @@ export default function ActivityPage() {
   if (!projectId) return null
 
   return (
-    <div className="page-container h-full overflow-y-auto">
+    <div className="max-w-2xl mx-auto h-full overflow-y-auto">
       <div className="mx-auto max-w-2xl">
         <h3 className="section-title mb-4">项目动态</h3>
         <ActivityFeed projectId={parseInt(projectId)} />

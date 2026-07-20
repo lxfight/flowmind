@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
+import { useProjectRole } from '../hooks/useProjectRole'
 import { AlertCircle, FileText, Loader2, MessageSquare, Plus, RefreshCw, Trash2, Upload, X } from 'lucide-react'
 import api from '../utils/api'
 import { KnowledgeQueryDialog } from '../components/knowledge/KnowledgeQueryDialog'
+import { KnowledgeDocDialog } from '../components/knowledge/KnowledgeDocDialog'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { Textarea } from '../components/ui/Textarea'
@@ -23,9 +25,12 @@ interface Doc {
 
 export default function KnowledgePage() {
   const { projectId } = useParams()
+  const userRole = useProjectRole()
+  const canManageDocs = userRole !== 'viewer'
   const [docs, setDocs] = useState<Doc[]>([])
   const [showCreate, setShowCreate] = useState(false)
   const [showQuery, setShowQuery] = useState(false)
+  const [selectedDocId, setSelectedDocId] = useState<number | null>(null)
   const [newTitle, setNewTitle] = useState('')
   const [newContent, setNewContent] = useState('')
   const [loading, setLoading] = useState(false)
@@ -147,7 +152,7 @@ export default function KnowledgePage() {
   }
 
   return (
-    <div className="page-container h-full">
+    <div className="max-w-7xl mx-auto h-full">
       <div className="flex items-center justify-between mb-6">
         <h3 className="section-title">知识库</h3>
         <div className="flex items-center gap-2">
@@ -160,65 +165,78 @@ export default function KnowledgePage() {
             <MessageSquare className="h-4 w-4" />
             LLM 问答
           </Button>
-          <Button
-            size="sm"
-            onClick={() => setShowCreate(!showCreate)}
-            className="gap-1.5"
-          >
-            <Plus className="h-4 w-4" />
-            添加文档
-          </Button>
+          {canManageDocs && (
+            <Button
+              size="sm"
+              onClick={() => setShowCreate(!showCreate)}
+              className="gap-1.5"
+            >
+              <Plus className="h-4 w-4" />
+              添加文档
+            </Button>
+          )}
         </div>
       </div>
 
       {/* File upload drop zone */}
-      <Card
-        className={cn(
-          'mb-6 cursor-pointer border-2 border-dashed bg-transparent text-center transition-colors',
-          dragOver
-            ? 'border-primary bg-primary/5'
-            : 'border-border hover:border-primary/50 hover:bg-accent/30'
-        )}
-        onDragEnter={handleDragIn}
-        onDragLeave={handleDragOut}
-        onDragOver={handleDrag}
-        onDrop={handleDrop}
-        onClick={() => fileInputRef.current?.click()}
-      >
-        <CardContent className="flex flex-col items-center gap-2 py-8">
-          <input
-            ref={fileInputRef}
-            type="file"
-            className="hidden"
-            accept=".pdf,.docx,.pptx,.xlsx,.html,.md,.txt,.csv,.json,.xml,.jpg,.jpeg,.png,.gif,.bmp,.tiff,.wav,.mp3,.zip"
-            onChange={handleFileSelect}
-          />
-          {uploading ? (
-            <>
-              <Loader2 className="h-8 w-8 text-primary animate-spin" />
-              <p className="text-sm text-foreground">正在解析文件...</p>
-            </>
-          ) : (
-            <>
-              <Upload className="h-8 w-8 text-muted-foreground" />
-              <p className="text-sm text-foreground">
-                拖拽文件到此处上传，或<span className="text-primary font-medium">点击选择</span>
-              </p>
-              <p className="text-xs text-muted-foreground">
-                支持 PDF、Word、PPT、Excel、HTML、Markdown 等格式
-              </p>
-            </>
+      {canManageDocs && (
+        <Card
+          role="button"
+          tabIndex={0}
+          aria-label="上传文件到知识库"
+          className={cn(
+            'mb-6 cursor-pointer border-2 border-dashed bg-transparent text-center transition-colors',
+            dragOver
+              ? 'border-primary bg-primary/5'
+              : 'border-border hover:border-primary/50 hover:bg-accent/30'
           )}
-        </CardContent>
-      </Card>
+          onDragEnter={handleDragIn}
+          onDragLeave={handleDragOut}
+          onDragOver={handleDrag}
+          onDrop={handleDrop}
+          onClick={() => fileInputRef.current?.click()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              fileInputRef.current?.click()
+            }
+          }}
+        >
+          <CardContent className="flex flex-col items-center gap-2 py-8">
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              accept=".pdf,.docx,.pptx,.xls,.xlsx,.html,.md,.txt,.csv,.json,.xml,.jpg,.jpeg,.png,.gif,.bmp,.tiff,.wav,.mp3"
+              onChange={handleFileSelect}
+            />
+            {uploading ? (
+              <>
+                <Loader2 className="h-8 w-8 text-primary animate-spin" />
+                <p className="text-sm text-foreground">正在解析文件...</p>
+              </>
+            ) : (
+              <>
+                <Upload className="h-8 w-8 text-muted-foreground" />
+                <p className="text-sm text-foreground">
+                  拖拽文件到此处上传，或<span className="text-primary font-medium">点击选择</span>
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  支持 PDF、Word、PPT、Excel、HTML、Markdown 等格式
+                </p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Create form */}
-      {showCreate && (
+      {showCreate && canManageDocs && (
         <Card className="mb-6">
           <CardContent className="p-4 space-y-3">
             <div className="flex items-center justify-between">
               <label className="text-sm font-medium">新文档</label>
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setShowCreate(false)}>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setShowCreate(false)} aria-label="关闭">
                 <X className="h-4 w-4" />
               </Button>
             </div>
@@ -264,7 +282,9 @@ export default function KnowledgePage() {
           title="知识库为空"
           description="上传项目文档，LLM 将基于这些内容回答项目相关问题"
           action={
-            <Button size="sm" onClick={() => setShowCreate(true)}>添加文档</Button>
+            canManageDocs ? (
+              <Button size="sm" onClick={() => setShowCreate(true)}>添加文档</Button>
+            ) : undefined
           }
         />
       ) : (
@@ -272,7 +292,19 @@ export default function KnowledgePage() {
           {docs.map((doc) => (
             <Card key={doc.id} className="group">
               <CardContent className="flex items-start justify-between gap-4 p-4">
-                <div className="flex-1 min-w-0">
+                <div
+                  className="flex-1 min-w-0 cursor-pointer rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`查看文档 ${doc.title}`}
+                  onClick={() => setSelectedDocId(doc.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      setSelectedDocId(doc.id)
+                    }
+                  }}
+                >
                   <div className="flex items-center gap-2 mb-1">
                     <FileText className="h-4 w-4 text-primary flex-shrink-0" />
                     <h4 className="font-medium truncate">{doc.title}</h4>
@@ -286,23 +318,39 @@ export default function KnowledgePage() {
                     <span>{new Date(doc.created_at).toLocaleDateString('zh-CN')}</span>
                   </div>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 flex-shrink-0 text-muted-foreground hover:text-danger"
-                  onClick={() => handleDelete(doc)}
-                  disabled={deletingId === doc.id}
-                >
-                  {deletingId === doc.id ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Trash2 className="h-4 w-4" />
-                  )}
-                </Button>
+                {canManageDocs && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 flex-shrink-0 text-muted-foreground hover:text-danger"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleDelete(doc)
+                    }}
+                    disabled={deletingId === doc.id}
+                    aria-label={`删除 ${doc.title}`}
+                  >
+                    {deletingId === doc.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                  </Button>
+                )}
               </CardContent>
             </Card>
           ))}
         </div>
+      )}
+
+      {selectedDocId && (
+        <KnowledgeDocDialog
+          projectId={parseInt(projectId!)}
+          docId={selectedDocId}
+          canEdit={canManageDocs}
+          onClose={() => setSelectedDocId(null)}
+          onUpdated={loadDocs}
+        />
       )}
 
       {showQuery && projectId && (

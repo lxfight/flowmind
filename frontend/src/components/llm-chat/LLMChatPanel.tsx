@@ -1,5 +1,5 @@
-import { useEffect } from 'react'
-import { X, MessageSquarePlus } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { X, MessageSquarePlus, PanelLeft } from 'lucide-react'
 import {
   Sheet,
   SheetHeader,
@@ -12,6 +12,7 @@ import { LLMChatMessageList } from './LLMChatMessageList'
 import { LLMChatInput } from './LLMChatInput'
 import { useLLMChatStore } from '../../stores/llmChatStore'
 import type { ActionSummary } from '../../types'
+import { cn } from '../../utils/cn'
 
 interface Props {
   projectId: number
@@ -63,12 +64,29 @@ export function LLMChatPanel({ projectId, onClose, onActions }: Props) {
   }
 
   const currentTitle = sessions.find((s) => s.id === currentSessionId)?.title || '新会话'
+  const [showSessions, setShowSessions] = useState(false)
+
+  useEffect(() => {
+    const update = () => setShowSessions(window.innerWidth >= 640)
+    update()
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [])
 
   return (
     <Sheet open onClose={onClose} side="right" className="!w-full sm:!w-[560px]">
       <div className="flex h-full flex-col">
         <SheetHeader className="shrink-0">
           <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 sm:hidden"
+              onClick={() => setShowSessions(!showSessions)}
+              aria-label={showSessions ? '隐藏会话列表' : '显示会话列表'}
+            >
+              <PanelLeft className="h-4 w-4" />
+            </Button>
             <Button
               variant="ghost"
               size="sm"
@@ -94,6 +112,10 @@ export function LLMChatPanel({ projectId, onClose, onActions }: Props) {
             onCreate={handleCreateSession}
             onRename={renameSession}
             onDelete={deleteSession}
+            className={cn(
+              'flex h-full w-44 flex-col border-r border-border bg-muted/30',
+              !showSessions && 'hidden sm:flex'
+            )}
           />
 
           <div className="flex flex-1 min-w-0 flex-col">

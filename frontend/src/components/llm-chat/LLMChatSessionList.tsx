@@ -17,6 +17,7 @@ interface Props {
   onCreate: () => void
   onRename: (sessionId: number, title: string) => void
   onDelete: (sessionId: number) => void
+  className?: string
 }
 
 export function LLMChatSessionList({
@@ -26,6 +27,7 @@ export function LLMChatSessionList({
   onCreate,
   onRename,
   onDelete,
+  className,
 }: Props) {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editTitle, setEditTitle] = useState('')
@@ -43,12 +45,12 @@ export function LLMChatSessionList({
   }
 
   return (
-    <div className="flex h-full w-44 flex-col border-r border-border bg-muted/30">
+    <div className={cn('flex h-full w-44 flex-col border-r border-border bg-muted/30', className)}>
       <div className="flex items-center justify-between px-3 py-3">
         <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           会话
         </span>
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onCreate}>
+        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onCreate} aria-label="新建会话">
           <Plus className="h-4 w-4" />
         </Button>
       </div>
@@ -89,7 +91,8 @@ export function LLMChatSessionList({
                   trigger={
                     <button
                       onClick={(e) => e.stopPropagation()}
-                      className="opacity-0 group-hover:opacity-100 h-6 w-6 inline-flex items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                      aria-label="会话操作"
+                      className="h-6 w-6 inline-flex items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100"
                     >
                       <MoreHorizontal className="h-3.5 w-3.5" />
                     </button>

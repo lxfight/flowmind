@@ -1,10 +1,12 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 import secrets
 import os
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+
     app_name: str = "FlowMind"
     debug: bool = False
 
@@ -37,10 +39,7 @@ class Settings(BaseSettings):
     # File uploads
     upload_dir: str = "uploads"
     avatar_max_bytes: int = 2 * 1024 * 1024
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    knowledge_max_bytes: int = 25 * 1024 * 1024
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -48,8 +47,8 @@ class Settings(BaseSettings):
             self.jwt_secret = secrets.token_urlsafe(32)
             if not os.environ.get("JWT_SECRET") and not kwargs.get("jwt_secret"):
                 import sys
-                print(f"\n⚠️  JWT_SECRET 未设置，已自动生成随机密钥。"
-                      f"生产环境请通过环境变量设置 JWT_SECRET。\n",
+                print("\n⚠️  JWT_SECRET 未设置，已自动生成随机密钥。"
+                      "生产环境请通过环境变量设置 JWT_SECRET。\n",
                       file=sys.stderr)
 
 

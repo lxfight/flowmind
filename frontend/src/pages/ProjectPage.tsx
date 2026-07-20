@@ -36,7 +36,7 @@ export default function ProjectPage() {
   if (loading) {
     return (
       <div className="p-2">
-        <Card className="p-10 text-center surface">
+        <Card className="p-10 text-center">
           <Loader2 className="mx-auto h-7 w-7 text-primary animate-spin mb-3" />
           <p className="body-text">正在加载项目...</p>
         </Card>
@@ -47,7 +47,7 @@ export default function ProjectPage() {
   if (error || !currentProject) {
     return (
       <div className="p-2">
-        <Card className="p-10 text-center surface">
+        <Card className="p-10 text-center">
           <AlertCircle className="mx-auto h-8 w-8 text-danger mb-3" />
           <p className="text-sm text-foreground mb-4">{error || '项目不存在或无权访问'}</p>
           <Button variant="outline" size="sm" onClick={loadProject} className="gap-1.5">

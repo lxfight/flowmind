@@ -3,13 +3,7 @@ from sqlalchemy import String, Text, DateTime, ForeignKey, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 
-try:
-    from pgvector.sqlalchemy import Vector
-except ImportError:
-    Vector = None  # fallback for SQLite
-
-    class Vector:  # type: ignore
-        pass
+from pgvector.sqlalchemy import Vector
 
 
 class KnowledgeDoc(Base):
@@ -54,7 +48,7 @@ class DocChunkEmbedding(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     chunk_id: Mapped[int] = mapped_column(ForeignKey("doc_chunks.id", ondelete="CASCADE"), nullable=False, unique=True)
-    embedding: Mapped[list[float]] = mapped_column(Vector(1536) if Vector else Text, nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(Vector(1536), nullable=False)
 
     # Relationships
     chunk = relationship("DocChunk", back_populates="embedding")

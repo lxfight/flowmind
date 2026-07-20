@@ -33,11 +33,8 @@ export default function DashboardPage() {
 
   useEffect(() => {
     setLoading(true)
-    Promise.all([
-      projects.length === 0 ? api.get('/projects').then(r => { setProjects(r.data); return r.data }) : Promise.resolve(projects),
-      api.get('/projects/stats'),
-    ])
-      .then(([, statsRes]) => {
+    api.get('/projects/stats')
+      .then((statsRes) => {
         const map: Record<number, ProjectStat> = {}
         statsRes.data.projects.forEach((s: ProjectStat) => (map[s.project_id] = s))
         setStats(map)
@@ -74,7 +71,7 @@ export default function DashboardPage() {
       />
 
       {loading ? (
-        <Card className="p-12 text-center surface">
+        <Card className="p-12 text-center">
           <RefreshCw className="mx-auto h-8 w-8 text-primary animate-spin mb-4" />
           <p className="body-text">加载项目列表...</p>
         </Card>

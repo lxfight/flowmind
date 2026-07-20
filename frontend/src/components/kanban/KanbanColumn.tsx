@@ -13,14 +13,16 @@ interface Props {
   status: Pick<TaskStatus, 'id' | 'name' | 'color' | 'task_count'>
   tasks: TaskCard[]
   members: MemberOption[]
+  readOnly?: boolean
   onAddTask: () => void
   onTaskClick: (taskId: number) => void
   onAssignTask?: (taskId: number, userId: number | null) => void
 }
 
-export function KanbanColumn({ status, tasks, members, onAddTask, onTaskClick, onAssignTask }: Props) {
+export function KanbanColumn({ status, tasks, members, readOnly = false, onAddTask, onTaskClick, onAssignTask }: Props) {
   const { setNodeRef, isOver } = useDroppable({
     id: `status-${status.id}`,
+    disabled: readOnly,
   })
 
   return (
@@ -39,15 +41,17 @@ export function KanbanColumn({ status, tasks, members, onAddTask, onTaskClick, o
           <h4 className="truncate text-sm font-semibold text-foreground">{status.name}</h4>
           <Badge variant="secondary" className="h-5 px-1.5 text-xs">{tasks.length}</Badge>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 flex-shrink-0"
-          onClick={onAddTask}
-          aria-label={`在 ${status.name} 列添加任务`}
-        >
-          <Plus className="h-4 w-4" />
-        </Button>
+        {!readOnly && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 flex-shrink-0"
+            onClick={onAddTask}
+            aria-label={`在 ${status.name} 列添加任务`}
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
+        )}
       </CardHeader>
 
       <CardContent className="flex-1 px-2 pb-3 pt-0">
@@ -64,6 +68,7 @@ export function KanbanColumn({ status, tasks, members, onAddTask, onTaskClick, o
                 key={task.id}
                 task={task}
                 members={members}
+                readOnly={readOnly}
                 onClick={() => onTaskClick(task.id)}
                 onAssign={onAssignTask ? (userId) => onAssignTask(task.id, userId) : undefined}
               />
@@ -73,7 +78,7 @@ export function KanbanColumn({ status, tasks, members, onAddTask, onTaskClick, o
           {tasks.length === 0 && (
             <EmptyState
               title="暂无任务"
-              description="点击 + 按钮或拖拽任务到此处"
+              description={readOnly ? '该状态列下没有任务' : '点击 + 按钮或拖拽任务到此处'}
               className="bg-transparent border-none shadow-none"
             />
           )}

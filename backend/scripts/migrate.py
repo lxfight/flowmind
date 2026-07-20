@@ -22,6 +22,8 @@ TABLES = [
     "users",
     "projects",
     "project_members",
+    "llm_chat_sessions",
+    "llm_chat_messages",
     "task_statuses",
     "tasks",
     "task_comments",

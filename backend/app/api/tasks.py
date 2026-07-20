@@ -1,18 +1,15 @@
-from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.api.permissions import (
-    ensure_project_admin,
     ensure_project_member,
-    ensure_status_in_project,
     ensure_task_in_project,
 )
 from app.models.user import User
-from app.models.task import Task, TaskComment
+from app.models.task import TaskComment
 from app.schemas import (
     TaskCreate, TaskUpdate, TaskOut, TaskDetailOut, TaskMove,
     TaskCommentCreate, TaskCommentOut,
