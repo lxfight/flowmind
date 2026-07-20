@@ -12,19 +12,15 @@ import type { Project } from '../../stores/projectStore'
 import type { ReactNode } from 'react'
 
 interface AppShellProps {
-  projects: Project[]
   currentProject: Project | null
   user: { id: number; username: string; email: string; display_name: string; avatar_url: string; is_superuser: boolean } | null
-  onSelectProject: (project: Project) => void
   onLogout: () => void
   children: ReactNode
 }
 
 export function AppShell({
-  projects,
   currentProject,
   user,
-  onSelectProject,
   onLogout,
   children,
 }: AppShellProps) {
@@ -33,10 +29,7 @@ export function AppShell({
 
   const sidebar = (
     <Sidebar
-      projects={projects}
-      currentProject={currentProject}
       user={user}
-      onSelectProject={onSelectProject}
       onLogout={onLogout}
       onCloseMobile={closeMobileSidebar}
     />

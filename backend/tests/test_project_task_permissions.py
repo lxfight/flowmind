@@ -1,8 +1,11 @@
 import pytest
+from sqlalchemy import update
 
 from app.schemas import KnowledgeQuery
 from app.schemas.llm_chat import LLMAgentChatRequest, LLMChatSessionCreate
+from app.models.task import Task
 from app.services.rag_service import rag_service, settings as rag_settings
+from conftest import async_session_factory
 
 
 def _login(client, username: str, password: str) -> dict[str, str]:
@@ -139,6 +142,37 @@ async def test_done_status_sync_and_nonempty_status_protection(client):
         headers=admin_headers,
     )
     assert response.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_dashboard_completion_uses_status_as_source_of_truth(client):
+    admin_headers = _login(client, "admin", "testadmin")
+    project_id, statuses = _create_project(client, admin_headers)
+    done_status = next(status for status in statuses if status["is_done"])
+    response = client.post(
+        f"/api/projects/{project_id}/tasks",
+        headers=admin_headers,
+        json={"title": "历史完成任务", "status_id": done_status["id"]},
+    )
+    assert response.status_code == 201, response.text
+    task_id = response.json()["id"]
+
+    # Simulate a task created before completion flags were synchronized with columns.
+    async with async_session_factory() as session:
+        await session.execute(
+            update(Task)
+            .where(Task.id == task_id)
+            .values(is_completed=False, completed_at=None)
+        )
+        await session.commit()
+
+    response = client.get("/api/projects/stats", headers=admin_headers)
+    assert response.status_code == 200, response.text
+    project_stats = next(
+        item for item in response.json()["projects"]
+        if item["project_id"] == project_id
+    )
+    assert project_stats["completed_tasks"] == 1
 
 
 @pytest.mark.asyncio

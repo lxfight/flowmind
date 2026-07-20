@@ -1,13 +1,13 @@
 import { Outlet, useNavigate } from 'react-router-dom'
 import { useEffect } from 'react'
 import { useAuthStore } from '../../stores/authStore'
-import { useProjectStore, type Project } from '../../stores/projectStore'
+import { useProjectStore } from '../../stores/projectStore'
 import { AppShell } from '../layout/AppShell'
 import api from '../../utils/api'
 
 export default function Layout() {
   const { user, logout } = useAuthStore()
-  const { projects, currentProject, setProjects, setCurrentProject } = useProjectStore()
+  const { projects, currentProject, setProjects } = useProjectStore()
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -21,16 +21,10 @@ export default function Layout() {
     navigate('/login')
   }
 
-  const handleSelectProject = (project: Project) => {
-    setCurrentProject(project)
-  }
-
   return (
     <AppShell
-      projects={projects}
       currentProject={currentProject}
       user={user}
-      onSelectProject={handleSelectProject}
       onLogout={handleLogout}
     >
       <Outlet />

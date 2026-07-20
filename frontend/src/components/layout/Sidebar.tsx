@@ -1,8 +1,7 @@
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { NavItem } from './NavItem'
 import { Avatar } from '../ui/Avatar'
 import { cn } from '../../utils/cn'
-import type { Project } from '../../stores/projectStore'
 import {
   LayoutGrid,
   FolderKanban,
@@ -11,29 +10,16 @@ import {
 } from 'lucide-react'
 
 interface SidebarProps {
-  projects: Project[]
-  currentProject: Project | null
   user: { id: number; username: string; email: string; display_name: string; avatar_url: string; is_superuser: boolean } | null
-  onSelectProject: (project: Project) => void
   onLogout: () => void
   onCloseMobile?: () => void
 }
 
 export function Sidebar({
-  projects,
-  currentProject,
   user,
-  onSelectProject,
   onLogout,
   onCloseMobile,
 }: SidebarProps) {
-  const navigate = useNavigate()
-
-  const handleProjectClick = (project: Project) => {
-    onSelectProject(project)
-    onCloseMobile?.()
-  }
-
   return (
     <div className="flex h-full flex-col">
       {/* Brand */}
@@ -49,40 +35,16 @@ export function Sidebar({
 
       {/* Main nav */}
       <div className="px-3 pb-2">
-        <NavItem to="/" label="我的项目" icon={LayoutGrid} onClick={onCloseMobile} />
-      </div>
-
-      {/* Projects */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2">
-        <div className="mb-2 flex items-center justify-between px-1">
-          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">项目</span>
-        </div>
         <nav className="space-y-1">
-          {projects.map((project) => (
-            <NavItem
-              key={project.id}
-              to={`/project/${project.id}/board`}
-              label={project.name}
-              startDecorator={
-                <span
-                  className="h-2 w-2 rounded-full"
-                  style={{ backgroundColor: project.color }}
-                />
-              }
-              active={currentProject?.id === project.id}
-              onClick={() => handleProjectClick(project)}
-              className="pl-2"
-            />
-          ))}
+          <NavItem to="/" label="我的项目" icon={LayoutGrid} onClick={onCloseMobile} />
+          {user?.is_superuser && (
+            <NavItem to="/admin/users" label="用户管理" icon={Shield} onClick={onCloseMobile} />
+          )}
         </nav>
       </div>
 
-      {/* Admin */}
-      {user?.is_superuser && (
-        <div className="px-3 py-2">
-          <NavItem to="/admin/users" label="用户管理" icon={Shield} onClick={onCloseMobile} />
-        </div>
-      )}
+      {/* Middle spacer reserved for future features */}
+      <div className="flex-1 min-h-0" aria-hidden="true" />
 
       {/* User card */}
       <div className="mx-3 mb-3 p-3 surface">

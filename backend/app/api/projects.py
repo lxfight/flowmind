@@ -160,20 +160,24 @@ async def get_dashboard_stats(
 
         # Completed tasks
         completed_result = await db.execute(
-            select(func.count(Task.id)).where(
+            select(func.count(Task.id))
+            .join(TaskStatus, TaskStatus.id == Task.status_id)
+            .where(
                 Task.project_id == p.id,
                 Task.parent_task_id.is_(None),
-                Task.is_completed.is_(True),
+                TaskStatus.is_done.is_(True),
             )
         )
         completed_tasks = completed_result.scalar() or 0
 
         # Overdue tasks (due_date in the past and not completed)
         overdue_result = await db.execute(
-            select(func.count(Task.id)).where(
+            select(func.count(Task.id))
+            .join(TaskStatus, TaskStatus.id == Task.status_id)
+            .where(
                 Task.project_id == p.id,
                 Task.parent_task_id.is_(None),
-                Task.is_completed.is_(False),
+                TaskStatus.is_done.is_(False),
                 Task.due_date.isnot(None),
                 Task.due_date < datetime.now(timezone.utc),
             )
