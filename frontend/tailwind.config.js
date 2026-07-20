@@ -6,17 +6,20 @@ export default {
     extend: {
       colors: {
         primary: {
-          50: '#eef2ff',
-          100: '#e0e7ff',
-          200: '#c7d2fe',
-          300: '#a5b4fc',
-          400: '#818cf8',
-          500: '#6366f1',
-          600: '#4f46e5',
-          700: '#4338ca',
-          800: '#3730a3',
-          900: '#312e81',
-          950: '#1e1b4b',
+          DEFAULT: 'hsl(var(--primary) / <alpha-value>)',
+          foreground: 'hsl(var(--primary-foreground))',
+          hover: 'hsl(var(--primary-hover) / <alpha-value>)',
+          50: '#fef4ee',
+          100: '#fde5d7',
+          200: '#fbc9ae',
+          300: '#f8a67e',
+          400: '#f37b44',
+          500: '#ee5a1d',
+          600: '#e8490f',
+          700: '#c93d0b',
+          800: '#a1340c',
+          900: '#7f2d10',
+          950: '#451505',
         },
         success: {
           DEFAULT: 'hsl(var(--success))',
@@ -102,7 +105,7 @@ export default {
         },
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',
-        ring: 'hsl(var(--ring))',
+        ring: 'hsl(var(--ring) / 0.4)',
       },
       borderRadius: {
         sm: 'calc(var(--radius) - 4px)',
@@ -122,7 +125,7 @@ export default {
         glass: '0 4px 16px rgb(0 0 0 / 0.05)',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+        sans: ['Inter', '-apple-system', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'sans-serif'],
       },
       keyframes: {
         'fade-in': {
