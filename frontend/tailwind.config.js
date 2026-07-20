@@ -19,6 +19,8 @@ export default {
           950: '#1e1b4b',
         },
         success: {
+          DEFAULT: 'hsl(var(--success))',
+          foreground: 'hsl(var(--success-foreground))',
           50: '#f0fdf4',
           100: '#dcfce7',
           200: '#bbf7d0',
@@ -32,6 +34,8 @@ export default {
           950: '#052e16',
         },
         warning: {
+          DEFAULT: 'hsl(var(--warning))',
+          foreground: 'hsl(var(--warning-foreground))',
           50: '#fffbeb',
           100: '#fef3c7',
           200: '#fde68a',
@@ -45,6 +49,8 @@ export default {
           950: '#451a03',
         },
         danger: {
+          DEFAULT: 'hsl(var(--danger))',
+          foreground: 'hsl(var(--danger-foreground))',
           50: '#fef2f2',
           100: '#fee2e2',
           200: '#fecaca',
@@ -58,6 +64,8 @@ export default {
           950: '#450a0a',
         },
         info: {
+          DEFAULT: 'hsl(var(--info))',
+          foreground: 'hsl(var(--info-foreground))',
           50: '#eff6ff',
           100: '#dbeafe',
           200: '#bfdbfe',

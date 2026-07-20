@@ -90,9 +90,10 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {projects.map((p) => {
             const stat = stats[p.id]
-            const progress = stat && stat.total_tasks > 0
+            const rawProgress = stat && stat.total_tasks > 0
               ? Math.round((stat.completed_tasks / stat.total_tasks) * 100)
               : 0
+            const progress = Math.min(100, Math.max(0, rawProgress))
 
             return (
               <Link
@@ -125,7 +126,14 @@ export default function DashboardPage() {
                               </span>
                               <span>{progress}%</span>
                             </div>
-                            <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                            <div
+                              className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
+                              role="progressbar"
+                              aria-label="项目完成进度"
+                              aria-valuemin={0}
+                              aria-valuemax={100}
+                              aria-valuenow={progress}
+                            >
                               <div
                                 className="h-full rounded-full bg-success transition-all duration-500"
                                 style={{ width: `${progress}%` }}
