@@ -41,11 +41,14 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/10 to-background p-4">
-      <Card className="w-full max-w-md">
+    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <Card className="w-full max-w-md border-border">
         <CardHeader className="text-center">
-          <CardTitle className="text-3xl font-bold text-primary">FlowMind</CardTitle>
-          <CardDescription>登录到智能任务管理系统</CardDescription>
+          <CardTitle className="text-3xl font-bold tracking-tight text-foreground">
+            Flow<span className="text-primary">M</span>ind
+          </CardTitle>
+          <div className="mx-auto mt-2 h-0.5 w-10 rounded-full bg-primary" aria-hidden="true" />
+          <CardDescription className="pt-2">登录到智能任务管理系统</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">

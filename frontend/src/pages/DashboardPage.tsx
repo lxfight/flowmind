@@ -102,14 +102,14 @@ export default function DashboardPage() {
                 className="block group"
                 onClick={() => setCurrentProject(p)}
               >
-                <Card hover className="h-full">
+                <Card hover className="h-full" style={{ '--project-accent': p.color } as React.CSSProperties}>
                   <CardContent className="p-5">
                     <div className="flex items-center gap-3 mb-3">
                       <span
                         className="h-4 w-4 rounded-full flex-shrink-0"
                         style={{ backgroundColor: p.color }}
                       />
-                      <h3 className="card-title truncate">{p.name}</h3>
+                      <h3 className="card-title truncate transition-colors group-hover:text-[var(--project-accent)]">{p.name}</h3>
                     </div>
                     <p className="body-text line-clamp-2 mb-4 min-h-[2.5rem]">
                       {p.description || '暂无描述'}
@@ -120,11 +120,11 @@ export default function DashboardPage() {
                         {stat.total_tasks > 0 ? (
                           <div>
                             <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
-                              <span className="flex items-center gap-1">
+                              <span className="tnum flex items-center gap-1">
                                 <CheckCircle className="h-3 w-3 text-success" />
                                 {stat.completed_tasks}/{stat.total_tasks} 完成
                               </span>
-                              <span>{progress}%</span>
+                              <span className="tnum">{progress}%</span>
                             </div>
                             <div
                               className="h-1.5 w-full overflow-hidden rounded-full bg-muted"

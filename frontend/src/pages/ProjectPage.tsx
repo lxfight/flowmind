@@ -60,7 +60,10 @@ export default function ProjectPage() {
   }
 
   return (
-    <div className="flex flex-col min-h-full">
+    <div
+      className="flex flex-col min-h-full"
+      style={{ '--project-accent': currentProject.color } as React.CSSProperties}
+    >
       <ProjectHeader project={currentProject} />
       <div className="flex-1 min-w-0">
         <Outlet />
