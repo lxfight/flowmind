@@ -86,15 +86,23 @@ export function ProjectHeader({ project }: ProjectHeaderProps) {
               key={tab.path}
               ref={active ? activeRef : undefined}
               to={fullPath}
+              style={active ? { color: 'var(--project-accent, hsl(var(--primary)))' } : undefined}
               className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-xl whitespace-nowrap transition-colors',
+                'relative flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap transition-colors',
                 active
-                  ? 'bg-primary/10 text-primary'
+                  ? 'text-primary'
                   : 'text-muted-foreground hover:bg-accent hover:text-foreground'
               )}
             >
-              <Icon className="h-4 w-4" />
-              {tab.label}
+              {active && (
+                <span
+                  className="absolute inset-0 rounded-lg bg-primary/10"
+                  style={{ backgroundColor: 'color-mix(in srgb, var(--project-accent, hsl(var(--primary))) 10%, transparent)' }}
+                  aria-hidden="true"
+                />
+              )}
+              <Icon className="relative z-10 h-4 w-4" />
+              <span className="relative z-10">{tab.label}</span>
             </Link>
           )
         })}

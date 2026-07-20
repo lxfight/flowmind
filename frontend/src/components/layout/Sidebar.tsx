@@ -24,11 +24,28 @@ export function Sidebar({
     <div className="flex h-full flex-col">
       {/* Brand */}
       <div className="flex items-center gap-2.5 px-3 py-4">
-        <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
           <FolderKanban className="h-4 w-4" />
         </div>
         <div>
-          <h1 className="text-lg font-bold tracking-tight text-foreground">FlowMind</h1>
+          <h1 aria-label="FlowMind" className="group/brand text-lg font-bold tracking-tight text-foreground cursor-default">
+            {'FlowMind'.split('').map((ch, i) => (
+              <span
+                key={i}
+                aria-hidden="true"
+                style={{ transitionDelay: `${i * 30}ms` }}
+                className={cn(
+                  'inline-block transition-transform duration-300 ease-[cubic-bezier(0.65,0,0.35,1)]',
+                  i % 2 === 0
+                    ? 'group-hover/brand:-translate-y-0.5'
+                    : 'group-hover/brand:translate-y-0.5',
+                  ch === 'M' && 'text-primary'
+                )}
+              >
+                {ch}
+              </span>
+            ))}
+          </h1>
           <p className="text-[10px] text-muted-foreground">智能任务管理</p>
         </div>
       </div>

@@ -1,4 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import { cn } from '../../utils/cn'
 import type { LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
@@ -22,18 +23,28 @@ export function NavItem({ to, label, icon: Icon, startDecorator, active, onClick
       to={to}
       onClick={onClick}
       className={cn(
-        'group flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium transition-colors',
+        'group relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
         isActive
-          ? 'bg-primary/10 text-primary'
-          : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+          ? 'text-primary'
+          : 'text-muted-foreground hover:text-foreground',
         className
       )}
     >
-      {startDecorator}
-      {Icon && (
-        <Icon className={cn('h-4 w-4 transition-colors', isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground')} />
+      {isActive && (
+        <motion.span
+          layoutId="nav-active"
+          className="absolute inset-0 rounded-lg bg-primary/10"
+          transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+          aria-hidden="true"
+        />
       )}
-      <span className="truncate">{label}</span>
+      <span className="relative z-10 flex items-center gap-2.5 min-w-0 transition-transform duration-200 ease-out group-hover:translate-x-0.5">
+        {startDecorator}
+        {Icon && (
+          <Icon className={cn('h-4 w-4 shrink-0 transition-colors', isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground')} />
+        )}
+        <span className="truncate">{label}</span>
+      </span>
     </Link>
   )
 }
