@@ -29,6 +29,7 @@ class Project(Base):
     tasks = relationship("Task", back_populates="project", cascade="all, delete-orphan")
     knowledge_docs = relationship("KnowledgeDoc", back_populates="project", cascade="all, delete-orphan")
     owner = relationship("User")
+    chat_sessions = relationship("LLMChatSession", back_populates="project")
 
 
 class ProjectMember(Base):

@@ -3,6 +3,7 @@ import { useProjectStore } from '../stores/projectStore'
 import { Link, useNavigate } from 'react-router-dom'
 import { Plus, KanbanSquare, RefreshCw, CheckCircle, Clock, AlertTriangle } from 'lucide-react'
 import { CreateProjectDialog } from '../components/project/CreateProjectDialog'
+import { PageHeader } from '../components/layout/PageHeader'
 import { Button } from '../components/ui/Button'
 import { Card, CardContent } from '../components/ui/Card'
 import { Badge } from '../components/ui/Badge'
@@ -58,19 +59,22 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="page-container">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="page-title">我的项目</h2>
-        {(user?.can_create_project || user?.is_superuser) && (
-          <Button onClick={() => setShowCreate(true)} className="gap-1.5">
-            <Plus className="h-4 w-4" />
-            新建项目
-          </Button>
-        )}
-      </div>
+    <div className="max-w-7xl mx-auto">
+      <PageHeader
+        title="我的项目"
+        description="管理你参与的所有项目"
+        actions={
+          (user?.can_create_project || user?.is_superuser) && (
+            <Button onClick={() => setShowCreate(true)} className="gap-1.5">
+              <Plus className="h-4 w-4" />
+              新建项目
+            </Button>
+          )
+        }
+      />
 
       {loading ? (
-        <Card className="p-12 text-center">
+        <Card className="p-12 text-center surface">
           <RefreshCw className="mx-auto h-8 w-8 text-primary animate-spin mb-4" />
           <p className="body-text">加载项目列表...</p>
         </Card>

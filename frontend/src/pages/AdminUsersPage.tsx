@@ -4,6 +4,7 @@ import { useAuthStore } from '../stores/authStore'
 import { Users, Check, X, RefreshCw, Shield, Key } from 'lucide-react'
 import api from '../utils/api'
 import toast from 'react-hot-toast'
+import { PageHeader } from '../components/layout/PageHeader'
 import { Button } from '../components/ui/Button'
 import { Switch } from '../components/ui/Switch'
 import { Card, CardContent } from '../components/ui/Card'
@@ -16,6 +17,7 @@ interface UserInfo {
   username: string
   email: string
   display_name: string
+  avatar_url: string
   is_active: boolean
   is_superuser: boolean
   is_approved: boolean
@@ -123,12 +125,8 @@ export default function AdminUsersPage() {
   const disabledUsers = users.filter(u => !u.is_active)
 
   return (
-    <div className="page-container h-full overflow-y-auto">
-      <div className="mx-auto max-w-5xl">
-        <div className="flex items-center gap-2 mb-6">
-          <Shield className="h-6 w-6 text-primary" />
-          <h2 className="page-title">用户管理</h2>
-        </div>
+    <div className="max-w-5xl mx-auto h-full overflow-y-auto">
+      <PageHeader title="用户管理" description="审批、禁用、重置密码及管理项目创建权限" />
 
         {pendingUsers.length > 0 && (
           <div className="mb-8">
@@ -138,10 +136,10 @@ export default function AdminUsersPage() {
             </h3>
             <div className="space-y-2">
               {pendingUsers.map((u) => (
-                <Card key={u.id}>
+                <Card key={u.id} className="surface">
                   <CardContent className="flex items-center justify-between p-4">
                     <div className="flex items-center gap-3 min-w-0">
-                      <Avatar name={u.display_name || u.username} size="sm" />
+                      <Avatar name={u.display_name || u.username} src={u.avatar_url} size="sm" />
                       <div className="min-w-0">
                         <p className="font-medium text-sm truncate">{u.display_name || u.username}</p>
                         <p className="text-xs text-muted-foreground truncate">@{u.username} · {u.email}</p>
@@ -181,11 +179,11 @@ export default function AdminUsersPage() {
           </h3>
           <div className="space-y-2">
             {activeUsers.map((u) => (
-              <Card key={u.id}>
+              <Card key={u.id} className="surface">
                 <CardContent className="p-4">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                     <div className="flex items-center gap-3">
-                      <Avatar name={u.display_name || u.username} size="sm" />
+                      <Avatar name={u.display_name || u.username} src={u.avatar_url} size="sm" />
                       <div>
                         <div className="flex items-center gap-2">
                           <p className="font-medium text-sm">{u.display_name || u.username}</p>
@@ -248,10 +246,10 @@ export default function AdminUsersPage() {
             </h3>
             <div className="space-y-2">
               {disabledUsers.map((u) => (
-                <Card key={u.id} className="opacity-60">
+                <Card key={u.id} className="surface opacity-60">
                   <CardContent className="flex items-center justify-between p-4">
                     <div className="flex items-center gap-3">
-                      <Avatar name={u.display_name || u.username} size="sm" />
+                      <Avatar name={u.display_name || u.username} src={u.avatar_url} size="sm" />
                       <div>
                         <p className="font-medium text-sm line-through">{u.display_name || u.username}</p>
                         <p className="text-xs text-muted-foreground">@{u.username}</p>
@@ -273,7 +271,6 @@ export default function AdminUsersPage() {
             </div>
           </div>
         )}
-      </div>
     </div>
   )
 }

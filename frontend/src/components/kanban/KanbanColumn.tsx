@@ -7,16 +7,18 @@ import { Button } from '../ui/Button'
 import { Badge } from '../ui/Badge'
 import { EmptyState } from '../ui/EmptyState'
 import { cn } from '../../utils/cn'
-import type { TaskStatus, TaskCard } from '../../types'
+import type { TaskStatus, TaskCard, MemberOption } from '../../types'
 
 interface Props {
   status: Pick<TaskStatus, 'id' | 'name' | 'color' | 'task_count'>
   tasks: TaskCard[]
+  members: MemberOption[]
   onAddTask: () => void
   onTaskClick: (taskId: number) => void
+  onAssignTask?: (taskId: number, userId: number | null) => void
 }
 
-export function KanbanColumn({ status, tasks, onAddTask, onTaskClick }: Props) {
+export function KanbanColumn({ status, tasks, members, onAddTask, onTaskClick, onAssignTask }: Props) {
   const { setNodeRef, isOver } = useDroppable({
     id: `status-${status.id}`,
   })
@@ -24,7 +26,7 @@ export function KanbanColumn({ status, tasks, onAddTask, onTaskClick }: Props) {
   return (
     <Card
       className={cn(
-        'flex-shrink-0 w-full lg:w-72 flex flex-col bg-muted/40 dark:bg-muted/20',
+        'flex-shrink-0 w-full lg:w-72 flex flex-col',
         isOver && 'ring-2 ring-primary bg-primary/5 dark:bg-primary/10'
       )}
     >
@@ -58,7 +60,13 @@ export function KanbanColumn({ status, tasks, onAddTask, onTaskClick }: Props) {
             strategy={verticalListSortingStrategy}
           >
             {tasks.map((task) => (
-              <KanbanCard key={task.id} task={task} onClick={() => onTaskClick(task.id)} />
+              <KanbanCard
+                key={task.id}
+                task={task}
+                members={members}
+                onClick={() => onTaskClick(task.id)}
+                onAssign={onAssignTask ? (userId) => onAssignTask(task.id, userId) : undefined}
+              />
             ))}
           </SortableContext>
 

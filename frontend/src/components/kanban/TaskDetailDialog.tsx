@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   Calendar,
-  User,
   AlertCircle,
   MessageSquare,
   ListTodo,
@@ -27,13 +26,8 @@ import { Input } from '../ui/Input'
 import { Textarea } from '../ui/Textarea'
 import { Select } from '../ui/Select'
 import { Badge } from '../ui/Badge'
-import { Avatar } from '../ui/Avatar'
 import { Separator } from '../ui/Separator'
-import {
-  DropdownMenu,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-} from '../ui/DropdownMenu'
+import { AssigneePicker } from './AssigneePicker'
 import type { MemberOption, StatusOption, TaskDetail } from '../../types'
 
 interface Props {
@@ -261,18 +255,6 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
   const priority = priorityOptions[task.priority]
   const isOverdue = task.due_date && !task.is_completed && new Date(task.due_date) < new Date()
 
-  const assigneeTrigger = (
-    <Button
-      variant="ghost"
-      size="sm"
-      className="gap-1.5 h-7 px-2"
-      disabled={updatingAssignee || isEditing}
-    >
-      <User className="h-3.5 w-3.5" />
-      <span className="max-w-[120px] truncate">{task.assignee?.display_name || '未指派'}</span>
-    </Button>
-  )
-
   return (
     <Dialog open onClose={onClose} className="max-w-2xl">
       <DialogHeader className="pb-2">
@@ -339,26 +321,12 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
                       {priority.label}
                     </Badge>
                   )}
-                  <DropdownMenu trigger={assigneeTrigger}>
-                    <DropdownMenuItem onClick={() => handleAssigneeChange(null)}>
-                      <X className="mr-2 h-4 w-4" />
-                      未指派
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    {members.map((m) => (
-                      <DropdownMenuItem
-                        key={m.user_id}
-                        onClick={() => handleAssigneeChange(m.user_id)}
-                      >
-                        <Avatar name={m.display_name || m.username} size="sm" className="mr-2" />
-                        {m.display_name || m.username}
-                        {task.assignee?.id === m.user_id && <span className="ml-auto text-primary">✓</span>}
-                      </DropdownMenuItem>
-                    ))}
-                    {membersError && (
-                      <div className="px-2 py-1.5 text-xs text-danger">成员列表加载失败</div>
-                    )}
-                  </DropdownMenu>
+                  <AssigneePicker
+                    members={members}
+                    value={task.assignee?.id || null}
+                    onChange={handleAssigneeChange}
+                    disabled={updatingAssignee || isEditing}
+                  />
 
                   {task.due_date && (
                     <Badge variant={isOverdue ? 'danger' : 'secondary'} className="gap-1">
@@ -366,9 +334,26 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
                       {new Date(task.due_date).toLocaleDateString('zh-CN')}
                     </Badge>
                   )}
+
+                  <Badge variant="secondary" className="gap-1">
+                    <ListTodo className="h-3 w-3" />
+                    {task.subtask_done}/{task.subtask_count}
+                  </Badge>
+
+                  <Badge variant="secondary" className="gap-1">
+                    <MessageSquare className="h-3 w-3" />
+                    {task.comment_count}
+                  </Badge>
                 </>
               )}
             </div>
+
+            {!isEditing && (
+              <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                <span>创建于 {new Date(task.created_at).toLocaleString('zh-CN')}</span>
+                <span>更新于 {new Date(task.updated_at).toLocaleString('zh-CN')}</span>
+              </div>
+            )}
           </div>
         </div>
       </DialogHeader>

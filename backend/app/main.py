@@ -1,12 +1,15 @@
 import os
 import secrets
 from contextlib import asynccontextmanager
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text, select
 
 from app.api import auth, admin, projects, tasks, statuses, knowledge, llm
 from app.core.database import engine, Base, async_session_factory
+from app.core.config import get_settings
 
 
 @asynccontextmanager
@@ -18,6 +21,10 @@ async def lifespan(app: FastAPI):
         except Exception:
             pass  # ignore if not PostgreSQL (e.g. SQLite dev mode)
         await conn.run_sync(Base.metadata.create_all)
+
+    # Ensure upload directories exist
+    settings = get_settings()
+    os.makedirs(os.path.join(settings.upload_dir, "avatars"), exist_ok=True)
 
     # Auto-create default superuser if no users exist
     async with async_session_factory() as db:
@@ -75,6 +82,14 @@ app.include_router(tasks.router)
 app.include_router(statuses.router)
 app.include_router(knowledge.router)
 app.include_router(llm.router)
+
+# Serve uploaded files (avatars, etc.)
+settings = get_settings()
+upload_dir_path = Path(settings.upload_dir)
+if not upload_dir_path.is_absolute():
+    upload_dir_path = Path(__file__).resolve().parent.parent / upload_dir_path
+os.makedirs(upload_dir_path / "avatars", exist_ok=True)
+app.mount("/api/uploads", StaticFiles(directory=str(upload_dir_path)), name="uploads")
 
 
 @app.get("/api/health")

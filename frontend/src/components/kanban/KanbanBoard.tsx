@@ -17,7 +17,6 @@ import { KanbanColumn } from './KanbanColumn'
 import { KanbanCard } from './KanbanCard'
 import { CreateTaskDialog } from './CreateTaskDialog'
 import { TaskDetailDialog } from './TaskDetailDialog'
-import { BatchCreateTasksDialog } from './BatchCreateTasksDialog'
 import { LLMChatPanel } from '../llm-chat/LLMChatPanel'
 import { AlertCircle, Filter, Loader2, MessageSquare, Plus, RefreshCw, Search, X } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -26,7 +25,7 @@ import { Input } from '../ui/Input'
 import { Select } from '../ui/Select'
 import { Badge } from '../ui/Badge'
 import { cn } from '../../utils/cn'
-import type { TaskSummary, TaskStatus, MemberOption, GeneratedTask } from '../../types'
+import type { TaskSummary, TaskStatus, MemberOption, ActionSummary } from '../../types'
 
 export default function KanbanBoard() {
   const { projectId } = useParams()
@@ -45,11 +44,6 @@ export default function KanbanBoard() {
   const [assigneeFilter, setAssigneeFilter] = useState<number | null>(null)
   const [members, setMembers] = useState<MemberOption[]>([])
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  // LLM chat batch create
-  const [chatGeneratedTasks, setChatGeneratedTasks] = useState<GeneratedTask[]>([])
-  const [showBatchCreate, setShowBatchCreate] = useState(false)
-  const [chatGenerating, setChatGenerating] = useState(false)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -203,55 +197,127 @@ export default function KanbanBoard() {
     setTasks((prev) => [...prev, res.data])
   }
 
-  const handleCreateTasksFromChat = async (instruction: string) => {
-    if (!projectId || chatGenerating) return
-    setChatGenerating(true)
+  const handleAssignTask = async (taskId: number, userId: number | null) => {
+    if (!projectId) return
+    const previousTasks = tasks
+    const assignee = userId ? members.find((m) => m.user_id === userId) : null
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === taskId
+          ? {
+              ...t,
+              assignee_id: userId,
+              assignee: assignee
+                ? { id: assignee.user_id, display_name: assignee.display_name || assignee.username, avatar_url: assignee.avatar_url }
+                : null,
+            }
+          : t
+      )
+    )
     try {
-      const res = await api.post('/llm/generate-tasks', {
-        project_id: parseInt(projectId),
-        instruction: instruction.trim(),
-      })
-      const generated: GeneratedTask[] = res.data
-      if (!Array.isArray(generated) || generated.length === 0) {
-        toast.error('LLM 未生成有效任务，请尝试更具体的描述')
-        return
-      }
-      setChatGeneratedTasks(generated)
-      setShowBatchCreate(true)
+      await api.put(`/projects/${projectId}/tasks/${taskId}`, { assignee_id: userId })
+      void loadTasks(searchQuery, assigneeFilter, false).catch(() => {})
     } catch {
-      toast.error('任务生成失败，请检查 LLM 配置或稍后重试')
-    } finally {
-      setChatGenerating(false)
+      setTasks(previousTasks)
+      toast.error('指派失败，已还原')
     }
   }
 
+  const handleLLMActions = useCallback(
+    (actions: ActionSummary[]) => {
+      const needsRefresh = actions.some((a) =>
+        [
+          'create_task',
+          'update_task',
+          'move_task',
+          'delete_task',
+          'add_subtask',
+          'update_subtask',
+        ].includes(a.type)
+      )
+      if (needsRefresh) {
+        void loadTasks(searchQuery, assigneeFilter, false)
+      }
+    },
+    [loadTasks, searchQuery, assigneeFilter]
+  )
+
   return (
     <div className="flex h-full min-w-0">
-      <div className="flex-1 min-w-0 p-4 lg:p-6 overflow-auto">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-          <h3 className="section-title">任务看板</h3>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowChat(!showChat)}
-              className="gap-1.5"
+      <div className="flex-1 min-w-0 overflow-auto">
+        <div className="surface p-4 mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+            <h3 className="section-title">任务看板</h3>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowChat(!showChat)}
+                className="gap-1.5"
+              >
+                <MessageSquare className="h-4 w-4" />
+                <span className="hidden sm:inline">LLM 助手</span>
+              </Button>
+              <Button
+                size="sm"
+                disabled={statuses.length === 0 || boardLoading}
+                onClick={() => {
+                  setCreateStatusId(statuses[0]?.id || null)
+                  setShowCreateDialog(true)
+                }}
+                className="gap-1.5"
+              >
+                <Plus className="h-4 w-4" />
+                <span className="hidden sm:inline">新建任务</span>
+              </Button>
+            </div>
+          </div>
+
+          {/* Search & Filter bar */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative flex-1 min-w-[220px] max-w-xs">
+              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={searchQuery}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                placeholder="搜索任务标题或描述..."
+                className="pl-9 text-sm"
+              />
+              {searchQuery && (
+                <button
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  onClick={() => handleSearchChange('')}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+            <Select
+              value={assigneeFilter || ''}
+              onChange={(e) => handleAssigneeFilter(e.target.value ? parseInt(e.target.value) : null)}
+              className="w-full sm:w-auto text-sm"
             >
-              <MessageSquare className="h-4 w-4" />
-              <span className="hidden sm:inline">LLM 助手</span>
-            </Button>
-            <Button
-              size="sm"
-              disabled={statuses.length === 0 || boardLoading}
-              onClick={() => {
-                setCreateStatusId(statuses[0]?.id || null)
-                setShowCreateDialog(true)
-              }}
-              className="gap-1.5"
-            >
-              <Plus className="h-4 w-4" />
-              <span className="hidden sm:inline">新建任务</span>
-            </Button>
+              <option value="">全部指派人</option>
+              {members.map((m) => (
+                <option key={m.user_id} value={m.user_id}>
+                  {m.display_name || m.username}
+                </option>
+              ))}
+            </Select>
+            {hasActiveFilters && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={clearFilters}
+                className="gap-1 text-muted-foreground"
+              >
+                <Filter className="h-3.5 w-3.5" />
+                清除过滤
+              </Button>
+            )}
+            <Badge variant="secondary" className="sm:ml-auto text-xs">
+              {tasks.length} 个任务
+            </Badge>
           </div>
         </div>
 
@@ -271,53 +337,6 @@ export default function KanbanBoard() {
           </div>
         ) : (
           <>
-            {/* Search & Filter bar */}
-            <div className="flex flex-wrap items-center gap-2 mb-4">
-              <div className="relative flex-1 min-w-[220px] max-w-xs">
-                <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={searchQuery}
-                  onChange={(e) => handleSearchChange(e.target.value)}
-                  placeholder="搜索任务标题或描述..."
-                  className="pl-9 text-sm"
-                />
-                {searchQuery && (
-                  <button
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    onClick={() => handleSearchChange('')}
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
-              <Select
-                value={assigneeFilter || ''}
-                onChange={(e) => handleAssigneeFilter(e.target.value ? parseInt(e.target.value) : null)}
-                className="w-full sm:w-auto text-sm"
-              >
-                <option value="">全部指派人</option>
-                {members.map((m) => (
-                  <option key={m.user_id} value={m.user_id}>
-                    {m.display_name || m.username}
-                  </option>
-                ))}
-              </Select>
-              {hasActiveFilters && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={clearFilters}
-                  className="gap-1 text-muted-foreground"
-                >
-                  <Filter className="h-3.5 w-3.5" />
-                  清除过滤
-                </Button>
-              )}
-              <Badge variant="secondary" className="sm:ml-auto text-xs">
-                {tasks.length} 个任务
-              </Badge>
-            </div>
-
             {statuses.length === 0 ? (
               <div className="rounded-xl border border-border bg-card p-10 text-center body-text">
                 暂无任务状态
@@ -338,11 +357,13 @@ export default function KanbanBoard() {
                       key={status.id}
                       status={status}
                       tasks={getTasksByStatus(status.id)}
+                      members={members}
                       onAddTask={() => {
                         setCreateStatusId(status.id)
                         setShowCreateDialog(true)
                       }}
                       onTaskClick={(taskId) => setDetailTaskId(taskId)}
+                      onAssignTask={handleAssignTask}
                     />
                   ))}
                 </div>
@@ -350,7 +371,7 @@ export default function KanbanBoard() {
                 <DragOverlay>
                   {activeTask ? (
                     <div className="opacity-90">
-                      <KanbanCard task={activeTask} isDragOverlay />
+                      <KanbanCard task={activeTask} members={members} isDragOverlay />
                     </div>
                   ) : null}
                 </DragOverlay>
@@ -365,8 +386,7 @@ export default function KanbanBoard() {
         <LLMChatPanel
           projectId={parseInt(projectId!)}
           onClose={() => setShowChat(false)}
-          onCreateTasks={handleCreateTasksFromChat}
-          generating={chatGenerating}
+          onActions={handleLLMActions}
         />
       )}
 
@@ -391,18 +411,6 @@ export default function KanbanBoard() {
           onUpdated={() => {
             void loadTasks(searchQuery, assigneeFilter).catch(() => {})
           }}
-        />
-      )}
-
-      {/* Batch create from LLM chat */}
-      {showBatchCreate && (
-        <BatchCreateTasksDialog
-          tasks={chatGeneratedTasks}
-          statuses={statuses.map((s) => ({ id: s.id, name: s.name }))}
-          defaultStatusId={statuses[0]?.id || null}
-          projectId={parseInt(projectId!)}
-          onClose={() => setShowBatchCreate(false)}
-          onCreate={handleCreateTask}
         />
       )}
     </div>

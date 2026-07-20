@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     # Vector dimensions (text-embedding-3-small = 1536)
     vector_dimension: int = 1536
 
+    # File uploads
+    upload_dir: str = "uploads"
+    avatar_max_bytes: int = 2 * 1024 * 1024
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

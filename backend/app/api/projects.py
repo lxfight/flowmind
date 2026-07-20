@@ -246,6 +246,7 @@ async def list_members(
         if m.user:
             out.username = m.user.username
             out.display_name = m.user.display_name
+            out.avatar_url = m.user.avatar_url
         output.append(out)
     return output
 

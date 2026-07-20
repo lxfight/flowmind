@@ -20,6 +20,8 @@ dependencies = [
     "pgvector>=0.2.0",
     "tiktoken>=0.7.0",
     "markitdown>=0.1",
+    "langgraph>=1.0.0",
+    "langchain-openai>=0.2.0",
 ]
 
 [build-system]

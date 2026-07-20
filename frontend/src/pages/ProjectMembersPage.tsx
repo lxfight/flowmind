@@ -4,6 +4,7 @@ import { Search, UserPlus, X, Trash2, Users } from 'lucide-react'
 import api from '../utils/api'
 import { useAuthStore } from '../stores/authStore'
 import toast from 'react-hot-toast'
+import { PageHeader } from '../components/layout/PageHeader'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { Card, CardContent } from '../components/ui/Card'
@@ -96,19 +97,22 @@ export default function ProjectMembersPage() {
   }
 
   return (
-    <div className="page-container">
-      <div className="flex items-center justify-between mb-6">
-        <h3 className="section-title">项目成员</h3>
-        {canManage && (
-          <Button size="sm" onClick={() => setShowAdd(true)} className="gap-1.5">
-            <UserPlus className="h-4 w-4" />
-            添加成员
-          </Button>
-        )}
-      </div>
+    <div className="max-w-4xl mx-auto">
+      <PageHeader
+        title="项目成员"
+        description="管理项目成员及其权限"
+        actions={
+          canManage && (
+            <Button size="sm" onClick={() => setShowAdd(true)} className="gap-1.5">
+              <UserPlus className="h-4 w-4" />
+              添加成员
+            </Button>
+          )
+        }
+      />
 
       {showAdd && (
-        <Card className="mb-6">
+        <Card className="mb-6 surface">
           <CardContent className="p-4 space-y-3">
             <div className="flex items-center gap-2">
               <Search className="h-4 w-4 text-muted-foreground flex-shrink-0" />
@@ -134,7 +138,7 @@ export default function ProjectMembersPage() {
                 {searchResults.map((u) => (
                   <div key={u.id} className="flex items-center justify-between rounded-lg p-2 hover:bg-accent">
                     <div className="flex items-center gap-2">
-                      <Avatar name={u.display_name || u.username} size="sm" />
+                      <Avatar name={u.display_name || u.username} src={u.avatar_url} size="sm" />
                       <div>
                         <p className="text-sm font-medium">{u.display_name || u.username}</p>
                         <p className="text-xs text-muted-foreground">@{u.username}</p>
@@ -168,10 +172,10 @@ export default function ProjectMembersPage() {
       ) : (
         <div className="space-y-2">
           {members.map((m) => (
-            <Card key={m.id}>
+            <Card key={m.id} className="surface">
               <CardContent className="flex items-center justify-between p-4">
                 <div className="flex items-center gap-3">
-                  <Avatar name={m.display_name || m.username} size="md" />
+                  <Avatar name={m.display_name || m.username} src={m.avatar_url} size="md" />
                   <div>
                     <div className="flex items-center gap-2">
                       <p className="font-medium text-sm">{m.display_name || m.username}</p>

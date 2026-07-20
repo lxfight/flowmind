@@ -1,16 +1,21 @@
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { AlertCircle, Clock, ListTodo } from 'lucide-react'
+import { formatDistanceToNow } from 'date-fns'
+import { zhCN } from 'date-fns/locale'
+import { AlertCircle, Clock, ListTodo, MessageSquare } from 'lucide-react'
 import { Card } from '../ui/Card'
 import { Badge } from '../ui/Badge'
 import { Avatar } from '../ui/Avatar'
+import { AssigneePicker } from './AssigneePicker'
 import { cn } from '../../utils/cn'
-import type { TaskCard } from '../../types'
+import type { TaskCard, MemberOption } from '../../types'
 
 interface Props {
   task: TaskCard
+  members: MemberOption[]
   isDragOverlay?: boolean
   onClick?: () => void
+  onAssign?: (userId: number | null) => void
 }
 
 const priorityConfig = {
@@ -29,7 +34,7 @@ const priorityBorder = {
   4: 'border-l-danger',
 }
 
-export function KanbanCard({ task, isDragOverlay, onClick }: Props) {
+export function KanbanCard({ task, members, isDragOverlay, onClick, onAssign }: Props) {
   const {
     attributes,
     listeners,
@@ -50,7 +55,7 @@ export function KanbanCard({ task, isDragOverlay, onClick }: Props) {
   const isOverdue = task.due_date && new Date(task.due_date) < new Date() && !isDragOverlay
 
   const subtaskProgress =
-    task.subtask_count && task.subtask_count > 0
+    task.subtask_count > 0
       ? Math.round(((task.subtask_done || 0) / task.subtask_count) * 100)
       : 0
 
@@ -62,7 +67,7 @@ export function KanbanCard({ task, isDragOverlay, onClick }: Props) {
       {...listeners}
       hover={!isDragOverlay && !isDragging}
       className={cn(
-        'relative cursor-grab border-l-4 p-3 active:cursor-grabbing',
+        'relative cursor-grab border-l-4 p-3 active:cursor-grabbing surface',
         border,
         isDragging && 'opacity-40',
         isDragOverlay && 'shadow-lg rotate-2 scale-105 cursor-grabbing'
@@ -74,21 +79,24 @@ export function KanbanCard({ task, isDragOverlay, onClick }: Props) {
         }
       }}
     >
-      {/* Priority badge */}
-      {task.priority >= 1 && (
-        <div className="mb-1.5">
-          <Badge variant={priority.variant} className="gap-1 text-[10px] h-5 px-1.5">
-            <AlertCircle className="h-3 w-3" />
-            {priority.label}
-          </Badge>
-        </div>
-      )}
+      {/* Header: priority + relative time */}
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <Badge variant={priority.variant} className="gap-1 text-[10px] h-5 px-1.5">
+          <AlertCircle className="h-3 w-3" />
+          {priority.label}
+        </Badge>
+        {task.updated_at && (
+          <span className="text-[10px] text-muted-foreground">
+            {formatDistanceToNow(new Date(task.updated_at), { addSuffix: true, locale: zhCN })}
+          </span>
+        )}
+      </div>
 
       {/* Title */}
       <p className="text-sm font-medium leading-snug text-foreground">{task.title}</p>
 
       {/* Subtask progress */}
-      {task.subtask_count !== undefined && task.subtask_count > 0 && (
+      {task.subtask_count > 0 && (
         <div className="mt-2.5">
           <div className="mb-1 flex items-center gap-1.5 text-xs text-muted-foreground">
             <ListTodo className="h-3 w-3" />
@@ -103,18 +111,27 @@ export function KanbanCard({ task, isDragOverlay, onClick }: Props) {
         </div>
       )}
 
-      {/* Meta */}
-      <div className="mt-2.5 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          {task.assignee && (
-            <div className="flex items-center gap-1">
-              <Avatar name={task.assignee.display_name} size="sm" />
+      {/* Meta footer */}
+      <div className="mt-3 flex items-center justify-between">
+        <div className="flex items-center gap-2 min-w-0">
+          {onAssign ? (
+            <AssigneePicker
+              members={members}
+              value={task.assignee?.id || null}
+              onChange={onAssign}
+              size="sm"
+            />
+          ) : task.assignee ? (
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Avatar name={task.assignee.display_name} src={task.assignee.avatar_url} size="sm" />
+              <span className="text-xs text-muted-foreground truncate max-w-[80px]">{task.assignee.display_name}</span>
             </div>
-          )}
+          ) : null}
+
           {task.due_date && (
             <span
               className={cn(
-                'flex items-center gap-1 text-xs',
+                'flex items-center gap-1 text-xs shrink-0',
                 isOverdue ? 'text-danger font-medium' : 'text-muted-foreground'
               )}
             >
@@ -126,6 +143,13 @@ export function KanbanCard({ task, isDragOverlay, onClick }: Props) {
             </span>
           )}
         </div>
+
+        {task.comment_count > 0 && (
+          <div className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
+            <MessageSquare className="h-3 w-3" />
+            {task.comment_count}
+          </div>
+        )}
       </div>
     </Card>
   )

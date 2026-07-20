@@ -13,6 +13,7 @@ import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
 import { Textarea } from '../ui/Textarea'
 import { Select } from '../ui/Select'
+import { AssigneePicker } from './AssigneePicker'
 import type { StatusOption, MemberOption, GeneratedTask } from '../../types'
 
 interface Props {
@@ -298,18 +299,12 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose
 
           <div className="space-y-2">
             <label className="text-sm font-medium">指派人</label>
-            <Select
-              value={assigneeId || ''}
-              onChange={(e) => setAssigneeId(e.target.value ? parseInt(e.target.value) : null)}
+            <AssigneePicker
+              members={members}
+              value={assigneeId}
+              onChange={setAssigneeId}
               disabled={isBusy}
-            >
-              <option value="">不指定</option>
-              {members.map((m) => (
-                <option key={m.user_id} value={m.user_id}>
-                  {m.display_name || m.username}
-                </option>
-              ))}
-            </Select>
+            />
           </div>
         </div>
 
