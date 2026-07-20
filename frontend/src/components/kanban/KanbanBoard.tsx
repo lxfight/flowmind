@@ -358,12 +358,12 @@ export default function KanbanBoard() {
         </div>
 
         {boardLoading ? (
-          <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card p-10 text-center shadow-sm">
+          <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card p-10 text-center">
             <Loader2 className="h-7 w-7 text-primary animate-spin mb-3" />
             <p className="body-text">正在加载看板...</p>
           </div>
         ) : boardError ? (
-          <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card p-10 text-center shadow-sm">
+          <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card p-10 text-center">
             <AlertCircle className="h-8 w-8 text-danger mb-3" />
             <p className="text-sm text-foreground mb-4">{boardError}</p>
             <Button variant="outline" size="sm" onClick={loadBoard} className="gap-1.5">

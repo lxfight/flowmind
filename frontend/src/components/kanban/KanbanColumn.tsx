@@ -1,5 +1,6 @@
 import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { motion } from 'framer-motion'
 import { KanbanCard } from './KanbanCard'
 import { Plus } from 'lucide-react'
 import { Card, CardContent, CardHeader } from '../ui/Card'
@@ -32,14 +33,14 @@ export function KanbanColumn({ status, tasks, members, readOnly = false, onAddTa
         isOver && 'ring-2 ring-primary bg-primary/5 dark:bg-primary/10'
       )}
     >
-      <CardHeader className="px-3 py-3 flex-row items-center justify-between gap-2 space-y-0">
+      <CardHeader className="sticky top-0 z-10 rounded-t-xl bg-card px-3 py-3 flex-row items-center justify-between gap-2 space-y-0 border-b border-border/60">
         <div className="flex items-center gap-2 min-w-0">
           <span
             className="h-2.5 w-2.5 rounded-full flex-shrink-0"
             style={{ backgroundColor: status.color }}
           />
-          <h4 className="truncate text-sm font-semibold text-foreground">{status.name}</h4>
-          <Badge variant="secondary" className="h-5 px-1.5 text-xs">{tasks.length}</Badge>
+          <h4 className="truncate text-sm font-semibold tracking-tight text-foreground">{status.name}</h4>
+          <Badge variant="secondary" className="h-5 px-1.5 text-xs tnum">{tasks.length}</Badge>
         </div>
         {!readOnly && (
           <Button
@@ -64,14 +65,20 @@ export function KanbanColumn({ status, tasks, members, readOnly = false, onAddTa
             strategy={verticalListSortingStrategy}
           >
             {tasks.map((task) => (
-              <KanbanCard
+              <motion.div
                 key={task.id}
-                task={task}
-                members={members}
-                readOnly={readOnly}
-                onClick={() => onTaskClick(task.id)}
-                onAssign={onAssignTask ? (userId) => onAssignTask(task.id, userId) : undefined}
-              />
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.18, ease: 'easeOut' }}
+              >
+                <KanbanCard
+                  task={task}
+                  members={members}
+                  readOnly={readOnly}
+                  onClick={() => onTaskClick(task.id)}
+                  onAssign={onAssignTask ? (userId) => onAssignTask(task.id, userId) : undefined}
+                />
+              </motion.div>
             ))}
           </SortableContext>
 

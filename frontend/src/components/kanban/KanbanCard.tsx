@@ -27,14 +27,6 @@ const priorityConfig = {
   4: { label: '紧急', variant: 'danger' as const },
 }
 
-const priorityBorder = {
-  0: 'border-l-transparent',
-  1: 'border-l-info',
-  2: 'border-l-warning',
-  3: 'border-l-danger',
-  4: 'border-l-danger',
-}
-
 export function KanbanCard({ task, members, isDragOverlay, readOnly = false, onClick, onAssign }: Props) {
   const {
     attributes,
@@ -51,7 +43,6 @@ export function KanbanCard({ task, members, isDragOverlay, readOnly = false, onC
   }
 
   const priority = priorityConfig[task.priority as keyof typeof priorityConfig] || priorityConfig[0]
-  const border = priorityBorder[task.priority as keyof typeof priorityBorder] || priorityBorder[0]
 
   const isOverdue = task.due_date && new Date(task.due_date) < new Date() && !isDragOverlay
 
@@ -64,12 +55,12 @@ export function KanbanCard({ task, members, isDragOverlay, readOnly = false, onC
     <Card
       ref={setNodeRef}
       style={style}
-      hover={!isDragOverlay && !isDragging}
+      hover={false}
       className={cn(
-        'relative group border-l-4 p-3 rounded-xl border border-border bg-card text-card-foreground shadow-sm',
-        border,
+        'relative group kanban-card-edge p-3 rounded-lg border border-border bg-card text-card-foreground',
+        !isDragOverlay && !isDragging && 'cursor-pointer transition-shadow duration-150',
         isDragging && 'opacity-40',
-        isDragOverlay && 'shadow-lg rotate-2 scale-105 cursor-grabbing'
+        isDragOverlay && 'shadow-xl rotate-1 scale-[1.02] cursor-grabbing'
       )}
     >
       {/* Drag handle */}
@@ -114,7 +105,7 @@ export function KanbanCard({ task, members, isDragOverlay, readOnly = false, onC
           <div className="mt-2.5">
             <div className="mb-1 flex items-center gap-1.5 text-xs text-muted-foreground">
               <ListTodo className="h-3 w-3" aria-hidden="true" />
-              <span>{task.subtask_done || 0}/{task.subtask_count}</span>
+              <span className="tnum">{task.subtask_done || 0}/{task.subtask_count}</span>
             </div>
             <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
               <div
@@ -146,7 +137,7 @@ export function KanbanCard({ task, members, isDragOverlay, readOnly = false, onC
           {task.due_date && (
             <span
               className={cn(
-                'flex items-center gap-1 text-xs shrink-0',
+                'tnum flex items-center gap-1 text-xs shrink-0',
                 isOverdue ? 'text-danger font-medium' : 'text-muted-foreground'
               )}
             >
@@ -162,7 +153,7 @@ export function KanbanCard({ task, members, isDragOverlay, readOnly = false, onC
         {task.comment_count > 0 && (
           <div className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
             <MessageSquare className="h-3 w-3" aria-hidden="true" />
-            {task.comment_count}
+            <span className="tnum">{task.comment_count}</span>
           </div>
         )}
       </div>
