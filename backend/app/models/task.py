@@ -49,9 +49,8 @@ class Task(Base):
     assignee = relationship("User", back_populates="assigned_tasks")
     comments = relationship("TaskComment", back_populates="task", cascade="all, delete-orphan",
                             order_by="TaskComment.created_at")
-    subtasks = relationship("Task", back_populates="parent_task",
-                            cascade="all", remote_side=[id])
-    parent_task = relationship("Task", back_populates="subtasks", remote_side=[parent_task_id])
+    subtasks = relationship("Task", back_populates="parent_task", cascade="all, delete-orphan")
+    parent_task = relationship("Task", back_populates="subtasks", remote_side=[id])
 
 
 class TaskComment(Base):

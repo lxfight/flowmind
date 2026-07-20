@@ -18,9 +18,14 @@ import { KanbanCard } from './KanbanCard'
 import { CreateTaskDialog } from './CreateTaskDialog'
 import { TaskDetailDialog } from './TaskDetailDialog'
 import { LLMChatPanel } from '../llm-chat/LLMChatPanel'
-import { Plus, MessageSquare, Search, X, Filter } from 'lucide-react'
+import { AlertCircle, Filter, Loader2, MessageSquare, Plus, RefreshCw, Search, X } from 'lucide-react'
 import toast from 'react-hot-toast'
-import type { TaskSummary, TaskStatus, MemberOption } from '../../types'
+import { Button } from '../ui/Button'
+import { Input } from '../ui/Input'
+import { Select } from '../ui/Select'
+import { Badge } from '../ui/Badge'
+import { cn } from '../../utils/cn'
+import type { TaskSummary, TaskStatus, MemberOption, ActionSummary } from '../../types'
 
 export default function KanbanBoard() {
   const { projectId } = useParams()
@@ -31,6 +36,8 @@ export default function KanbanBoard() {
   const [showChat, setShowChat] = useState(false)
   const [createStatusId, setCreateStatusId] = useState<number | null>(null)
   const [detailTaskId, setDetailTaskId] = useState<number | null>(null)
+  const [boardLoading, setBoardLoading] = useState(true)
+  const [boardError, setBoardError] = useState<string | null>(null)
 
   // Search & filter
   const [searchQuery, setSearchQuery] = useState('')
@@ -44,39 +51,76 @@ export default function KanbanBoard() {
     useSensor(KeyboardSensor)
   )
 
-  const loadTasks = useCallback(async (search?: string, assigneeId?: number | null) => {
+  const fetchTasks = useCallback(async (search?: string, assigneeId?: number | null) => {
     if (!projectId) return
     const params: Record<string, string> = {}
     if (search) params.search = search
     if (assigneeId) params.assignee_id = String(assigneeId)
     const res = await api.get(`/projects/${projectId}/tasks`, { params })
-    setTasks(res.data)
+    return res.data as TaskSummary[]
   }, [projectId])
+
+  const loadTasks = useCallback(async (search?: string, assigneeId?: number | null, showError = true) => {
+    try {
+      const nextTasks = await fetchTasks(search, assigneeId)
+      if (nextTasks) setTasks(nextTasks)
+      return nextTasks
+    } catch (err) {
+      if (showError) toast.error('加载任务失败')
+      throw err
+    }
+  }, [fetchTasks])
+
+  const loadBoard = useCallback(async () => {
+    if (!projectId) return
+    setBoardLoading(true)
+    setBoardError(null)
+    try {
+      const [statusesRes, nextTasks] = await Promise.all([
+        api.get(`/projects/${projectId}/statuses`),
+        fetchTasks(),
+      ])
+      setStatuses(statusesRes.data)
+      setTasks(nextTasks || [])
+    } catch {
+      setBoardError('看板加载失败')
+      toast.error('加载看板失败')
+    } finally {
+      setBoardLoading(false)
+    }
+  }, [projectId, fetchTasks])
 
   useEffect(() => {
     if (!projectId) return
-    api.get(`/projects/${projectId}/statuses`).then((res) => setStatuses(res.data))
-    api.get(`/projects/${projectId}/members`).then((res) => setMembers(res.data)).catch(() => {})
-    loadTasks()
-  }, [projectId])
+    setSearchQuery('')
+    setAssigneeFilter(null)
+    loadBoard()
+    api.get(`/projects/${projectId}/members`)
+      .then((res) => setMembers(res.data))
+      .catch(() => toast.error('加载成员列表失败'))
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [projectId, loadBoard])
 
   const handleSearchChange = (value: string) => {
     setSearchQuery(value)
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => {
-      loadTasks(value, assigneeFilter)
+      void loadTasks(value, assigneeFilter).catch(() => {})
     }, 300)
   }
 
   const handleAssigneeFilter = (id: number | null) => {
     setAssigneeFilter(id)
-    loadTasks(searchQuery, id)
+    void loadTasks(searchQuery, id).catch(() => {})
   }
 
   const clearFilters = () => {
     setSearchQuery('')
     setAssigneeFilter(null)
-    loadTasks()
+    void loadTasks(undefined, null).catch(() => {})
   }
 
   const hasActiveFilters = searchQuery || assigneeFilter !== null
@@ -120,6 +164,7 @@ export default function KanbanBoard() {
       newOrder = getNewOrder(newStatusId, overTask.id)[1]
     }
     if (task.status_id === newStatusId && task.order === newOrder) return
+    const previousTasks = tasks
     setTasks((prev) =>
       prev.map((t) =>
         t.id === taskId ? { ...t, status_id: newStatusId, order: newOrder } : t
@@ -130,11 +175,14 @@ export default function KanbanBoard() {
         status_id: newStatusId,
         order: newOrder,
       })
-      loadTasks(searchQuery, assigneeFilter)
     } catch {
+      setTasks(previousTasks)
       toast.error('移动失败，已还原')
-      loadTasks(searchQuery, assigneeFilter)
+      return
     }
+    void loadTasks(searchQuery, assigneeFilter, false).catch(() => {
+      toast.error('任务已移动，但刷新失败')
+    })
   }
 
   const handleCreateTask = async (data: {
@@ -149,117 +197,197 @@ export default function KanbanBoard() {
     setTasks((prev) => [...prev, res.data])
   }
 
+  const handleAssignTask = async (taskId: number, userId: number | null) => {
+    if (!projectId) return
+    const previousTasks = tasks
+    const assignee = userId ? members.find((m) => m.user_id === userId) : null
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === taskId
+          ? {
+              ...t,
+              assignee_id: userId,
+              assignee: assignee
+                ? { id: assignee.user_id, display_name: assignee.display_name || assignee.username, avatar_url: assignee.avatar_url }
+                : null,
+            }
+          : t
+      )
+    )
+    try {
+      await api.put(`/projects/${projectId}/tasks/${taskId}`, { assignee_id: userId })
+      void loadTasks(searchQuery, assigneeFilter, false).catch(() => {})
+    } catch {
+      setTasks(previousTasks)
+      toast.error('指派失败，已还原')
+    }
+  }
+
+  const handleLLMActions = useCallback(
+    (actions: ActionSummary[]) => {
+      const needsRefresh = actions.some((a) =>
+        [
+          'create_task',
+          'update_task',
+          'move_task',
+          'delete_task',
+          'add_subtask',
+          'update_subtask',
+        ].includes(a.type)
+      )
+      if (needsRefresh) {
+        void loadTasks(searchQuery, assigneeFilter, false)
+      }
+    },
+    [loadTasks, searchQuery, assigneeFilter]
+  )
+
   return (
-    <div className="flex h-full">
-      <div className="flex-1 p-4 lg:p-6 overflow-auto dark:bg-gray-900">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold dark:text-gray-100">任务看板</h3>
-          <div className="flex items-center gap-2">
-            <button
-              className="btn-secondary flex items-center gap-1.5 text-sm"
-              onClick={() => setShowChat(!showChat)}
-            >
-              <MessageSquare size={16} />
-              <span className="hidden sm:inline">LLM 助手</span>
-            </button>
-            <button
-              className="btn-primary flex items-center gap-1.5 text-sm"
-              onClick={() => {
-                setCreateStatusId(statuses[0]?.id || null)
-                setShowCreateDialog(true)
-              }}
-            >
-              <Plus size={16} />
-              <span className="hidden sm:inline">新建任务</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Search & Filter bar */}
-        <div className="flex items-center gap-2 mb-4">
-          <div className="relative flex-1 max-w-xs">
-            <Search size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              className="input-field pl-8 text-sm"
-              value={searchQuery}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              placeholder="搜索任务标题或描述..."
-            />
-            {searchQuery && (
-              <button
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                onClick={() => handleSearchChange('')}
+    <div className="flex h-full min-w-0">
+      <div className="flex-1 min-w-0 overflow-auto">
+        <div className="surface p-4 mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+            <h3 className="section-title">任务看板</h3>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowChat(!showChat)}
+                className="gap-1.5"
               >
-                <X size={14} />
-              </button>
-            )}
-          </div>
-          <select
-            className="input-field w-auto text-sm py-2"
-            value={assigneeFilter || ''}
-            onChange={(e) => handleAssigneeFilter(e.target.value ? parseInt(e.target.value) : null)}
-          >
-            <option value="">全部指派人</option>
-            {members.map((m) => (
-              <option key={m.user_id} value={m.user_id}>
-                {m.display_name || m.username}
-              </option>
-            ))}
-          </select>
-          {hasActiveFilters && (
-            <button
-              className="btn-ghost text-xs flex items-center gap-1 text-gray-500"
-              onClick={clearFilters}
-            >
-              <Filter size={13} />
-              清除过滤
-            </button>
-          )}
-          <span className="text-xs text-gray-400 ml-auto">
-            {tasks.length} 个任务
-          </span>
-        </div>
-
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCorners}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-        >
-          <div className="flex gap-4 overflow-x-auto pb-4" style={{ minHeight: 'calc(100vh - 260px)' }}>
-            {statuses.map((status) => (
-              <KanbanColumn
-                key={status.id}
-                status={status}
-                tasks={getTasksByStatus(status.id)}
-                onAddTask={() => {
-                  setCreateStatusId(status.id)
+                <MessageSquare className="h-4 w-4" />
+                <span className="hidden sm:inline">LLM 助手</span>
+              </Button>
+              <Button
+                size="sm"
+                disabled={statuses.length === 0 || boardLoading}
+                onClick={() => {
+                  setCreateStatusId(statuses[0]?.id || null)
                   setShowCreateDialog(true)
                 }}
-                onTaskClick={(taskId) => setDetailTaskId(taskId)}
-              />
-            ))}
+                className="gap-1.5"
+              >
+                <Plus className="h-4 w-4" />
+                <span className="hidden sm:inline">新建任务</span>
+              </Button>
+            </div>
           </div>
 
-          <DragOverlay>
-            {activeTask ? (
-              <div className="opacity-85">
-                <KanbanCard task={activeTask} isDragOverlay />
+          {/* Search & Filter bar */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative flex-1 min-w-[220px] max-w-xs">
+              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={searchQuery}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                placeholder="搜索任务标题或描述..."
+                className="pl-9 text-sm"
+              />
+              {searchQuery && (
+                <button
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  onClick={() => handleSearchChange('')}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+            <Select
+              value={assigneeFilter || ''}
+              onChange={(e) => handleAssigneeFilter(e.target.value ? parseInt(e.target.value) : null)}
+              className="w-full sm:w-auto text-sm"
+            >
+              <option value="">全部指派人</option>
+              {members.map((m) => (
+                <option key={m.user_id} value={m.user_id}>
+                  {m.display_name || m.username}
+                </option>
+              ))}
+            </Select>
+            {hasActiveFilters && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={clearFilters}
+                className="gap-1 text-muted-foreground"
+              >
+                <Filter className="h-3.5 w-3.5" />
+                清除过滤
+              </Button>
+            )}
+            <Badge variant="secondary" className="sm:ml-auto text-xs">
+              {tasks.length} 个任务
+            </Badge>
+          </div>
+        </div>
+
+        {boardLoading ? (
+          <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card p-10 text-center shadow-sm">
+            <Loader2 className="h-7 w-7 text-primary animate-spin mb-3" />
+            <p className="body-text">正在加载看板...</p>
+          </div>
+        ) : boardError ? (
+          <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card p-10 text-center shadow-sm">
+            <AlertCircle className="h-8 w-8 text-danger mb-3" />
+            <p className="text-sm text-foreground mb-4">{boardError}</p>
+            <Button variant="outline" size="sm" onClick={loadBoard} className="gap-1.5">
+              <RefreshCw className="h-4 w-4" />
+              重试
+            </Button>
+          </div>
+        ) : (
+          <>
+            {statuses.length === 0 ? (
+              <div className="rounded-xl border border-border bg-card p-10 text-center body-text">
+                暂无任务状态
               </div>
-            ) : null}
-          </DragOverlay>
-        </DndContext>
+            ) : (
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCorners}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
+              >
+                <div
+                  className="flex flex-col lg:flex-row gap-4 lg:overflow-x-auto pb-4 scrollbar-thin"
+                  style={{ minHeight: 'calc(100vh - 260px)' }}
+                >
+                  {statuses.map((status) => (
+                    <KanbanColumn
+                      key={status.id}
+                      status={status}
+                      tasks={getTasksByStatus(status.id)}
+                      members={members}
+                      onAddTask={() => {
+                        setCreateStatusId(status.id)
+                        setShowCreateDialog(true)
+                      }}
+                      onTaskClick={(taskId) => setDetailTaskId(taskId)}
+                      onAssignTask={handleAssignTask}
+                    />
+                  ))}
+                </div>
+
+                <DragOverlay>
+                  {activeTask ? (
+                    <div className="opacity-90">
+                      <KanbanCard task={activeTask} members={members} isDragOverlay />
+                    </div>
+                  ) : null}
+                </DragOverlay>
+              </DndContext>
+            )}
+          </>
+        )}
       </div>
 
-      {/* LLM Chat Side Panel */}
+      {/* LLM Chat Sheet */}
       {showChat && (
-        <div className="w-96 border-l bg-white dark:bg-gray-800 dark:border-gray-700 flex-shrink-0">
-          <LLMChatPanel
-            projectId={parseInt(projectId!)}
-            onClose={() => setShowChat(false)}
-            onCreateTasks={() => {}}
-          />
-        </div>
+        <LLMChatPanel
+          projectId={parseInt(projectId!)}
+          onClose={() => setShowChat(false)}
+          onActions={handleLLMActions}
+        />
       )}
 
       {/* Create Task Dialog */}
@@ -278,9 +406,10 @@ export default function KanbanBoard() {
         <TaskDetailDialog
           taskId={detailTaskId}
           projectId={parseInt(projectId!)}
+          statuses={statuses.map((s) => ({ id: s.id, name: s.name }))}
           onClose={() => setDetailTaskId(null)}
           onUpdated={() => {
-            loadTasks(searchQuery, assigneeFilter)
+            void loadTasks(searchQuery, assigneeFilter).catch(() => {})
           }}
         />
       )}

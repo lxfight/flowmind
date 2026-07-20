@@ -3,6 +3,9 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import toast from 'react-hot-toast'
 import axios from 'axios'
+import { Button } from '../components/ui/Button'
+import { Input } from '../components/ui/Input'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/Card'
 
 export default function LoginPage() {
   const [username, setUsername] = useState('')
@@ -38,43 +41,44 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
-      <div className="card p-8 w-full max-w-md">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-primary-600">FlowMind</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">登录到智能任务管理系统</p>
-        </div>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-1 dark:text-gray-300">用户名</label>
-            <input
-              className="input-field"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1 dark:text-gray-300">密码</label>
-            <input
-              type="password"
-              className="input-field"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-          </div>
-          <button type="submit" className="btn-primary w-full" disabled={loading}>
-            {loading ? '登录中...' : '登录'}
-          </button>
-        </form>
-        <p className="text-center text-sm text-gray-500 dark:text-gray-400 mt-6">
-          还没有账号？{' '}
-          <Link to="/register" className="text-primary-600 hover:underline">
-            注册
-          </Link>
-        </p>
-      </div>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/10 to-background p-4">
+      <Card className="w-full max-w-md">
+        <CardHeader className="text-center">
+          <CardTitle className="text-3xl font-bold text-primary">FlowMind</CardTitle>
+          <CardDescription>登录到智能任务管理系统</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">用户名</label>
+              <Input
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required
+                autoFocus
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">密码</label>
+              <Input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
+            <Button type="submit" className="w-full" disabled={loading} loading={loading}>
+              登录
+            </Button>
+          </form>
+          <p className="text-center text-sm text-muted-foreground mt-6">
+            还没有账号？{' '}
+            <Link to="/register" className="text-primary hover:underline">
+              注册
+            </Link>
+          </p>
+        </CardContent>
+      </Card>
     </div>
   )
 }

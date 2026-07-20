@@ -3,6 +3,7 @@ from app.models.project import Project, ProjectMember
 from app.models.task import Task, TaskStatus, TaskComment
 from app.models.knowledge import KnowledgeDoc, DocChunk, DocChunkEmbedding
 from app.models.activity import ActivityLog
+from app.models.llm_chat import LLMChatSession, LLMChatMessage
 
 __all__ = [
     "User",
@@ -15,4 +16,6 @@ __all__ = [
     "DocChunk",
     "DocChunkEmbedding",
     "ActivityLog",
+    "LLMChatSession",
+    "LLMChatMessage",
 ]

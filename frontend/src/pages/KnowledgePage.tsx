@@ -1,8 +1,15 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
-import { Plus, Search, FileText, Trash2, MessageSquare, Upload, Loader2, X } from 'lucide-react'
+import { AlertCircle, FileText, Loader2, MessageSquare, Plus, RefreshCw, Trash2, Upload, X } from 'lucide-react'
 import api from '../utils/api'
 import { KnowledgeQueryDialog } from '../components/knowledge/KnowledgeQueryDialog'
+import { Button } from '../components/ui/Button'
+import { Input } from '../components/ui/Input'
+import { Textarea } from '../components/ui/Textarea'
+import { Card, CardContent } from '../components/ui/Card'
+import { Badge } from '../components/ui/Badge'
+import { EmptyState } from '../components/ui/EmptyState'
+import { cn } from '../utils/cn'
 import toast from 'react-hot-toast'
 
 interface Doc {
@@ -22,19 +29,37 @@ export default function KnowledgePage() {
   const [newTitle, setNewTitle] = useState('')
   const [newContent, setNewContent] = useState('')
   const [loading, setLoading] = useState(false)
+  const [docsLoading, setDocsLoading] = useState(true)
+  const [docsError, setDocsError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const loadDocs = async () => {
+  const loadDocs = useCallback(async () => {
     if (!projectId) return
-    const res = await api.get(`/projects/${projectId}/knowledge`)
-    setDocs(res.data)
-  }
+    setDocsLoading(true)
+    setDocsError(null)
+    try {
+      const res = await api.get(`/projects/${projectId}/knowledge`)
+      setDocs(res.data)
+    } catch (err: any) {
+      setDocsError('知识库加载失败')
+      toast.error(err.response?.data?.detail || '加载知识库失败')
+    } finally {
+      setDocsLoading(false)
+    }
+  }, [projectId])
 
   useEffect(() => {
     loadDocs()
-  }, [projectId])
+  }, [loadDocs])
+
+  const resetCreate = () => {
+    setNewTitle('')
+    setNewContent('')
+    setShowCreate(false)
+  }
 
   const handleCreate = async () => {
     if (!projectId || !newTitle.trim()) return
@@ -44,22 +69,29 @@ export default function KnowledgePage() {
         title: newTitle,
         content: newContent,
       })
-      setNewTitle('')
-      setNewContent('')
-      setShowCreate(false)
+      resetCreate()
       toast.success('文档已添加')
-      loadDocs()
-    } catch {
-      toast.error('保存失败')
+      await loadDocs()
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || '保存失败')
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
-  const handleDelete = async (docId: number) => {
+  const handleDelete = async (doc: Doc) => {
     if (!projectId) return
-    await api.delete(`/projects/${projectId}/knowledge/${docId}`)
-    toast.success('文档已删除')
-    loadDocs()
+    if (!confirm(`确定删除文档「${doc.title}」？`)) return
+    setDeletingId(doc.id)
+    try {
+      await api.delete(`/projects/${projectId}/knowledge/${doc.id}`)
+      toast.success('文档已删除')
+      await loadDocs()
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || '删除失败')
+    } finally {
+      setDeletingId(null)
+    }
   }
 
   const handleFileUpload = async (file: File) => {
@@ -68,19 +100,15 @@ export default function KnowledgePage() {
     try {
       const formData = new FormData()
       formData.append('file', file)
-      const res = await api.post(`/projects/${projectId}/knowledge/upload`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
-      // Pre-fill form with parsed result for review
-      setNewTitle(res.data.title)
-      setNewContent(res.data.content)
-      setShowCreate(true)
-      toast.success(`文件解析完成，共 ${res.data.chunk_count} 个片段`)
-      loadDocs()
+      const res = await api.post(`/projects/${projectId}/knowledge/upload`, formData)
+      const chunkCount = res.data?.chunk_count
+      toast.success(chunkCount ? `文件已上传并入库，共 ${chunkCount} 个片段` : '文件已上传并入库')
+      await loadDocs()
     } catch (err: any) {
       toast.error(err.response?.data?.detail || '文件上传失败')
+    } finally {
+      setUploading(false)
     }
-    setUploading(false)
   }
 
   const handleDrag = useCallback((e: React.DragEvent) => {
@@ -119,143 +147,164 @@ export default function KnowledgePage() {
   }
 
   return (
-    <div className="p-6 h-full">
+    <div className="page-container h-full">
       <div className="flex items-center justify-between mb-6">
-        <h3 className="text-lg font-semibold">知识库</h3>
+        <h3 className="section-title">知识库</h3>
         <div className="flex items-center gap-2">
-          <button
-            className="btn-secondary flex items-center gap-1.5"
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => setShowQuery(true)}
+            className="gap-1.5"
           >
-            <MessageSquare size={16} />
+            <MessageSquare className="h-4 w-4" />
             LLM 问答
-          </button>
-          <button
-            className="btn-primary flex items-center gap-1.5"
+          </Button>
+          <Button
+            size="sm"
             onClick={() => setShowCreate(!showCreate)}
+            className="gap-1.5"
           >
-            <Plus size={16} />
+            <Plus className="h-4 w-4" />
             添加文档
-          </button>
+          </Button>
         </div>
       </div>
 
       {/* File upload drop zone */}
-      <div
-        className={`mb-6 border-2 border-dashed rounded-xl p-6 text-center transition-colors cursor-pointer ${
+      <Card
+        className={cn(
+          'mb-6 cursor-pointer border-2 border-dashed bg-transparent text-center transition-colors',
           dragOver
-            ? 'border-primary-400 bg-primary-50'
-            : 'border-gray-300 hover:border-gray-400 bg-gray-50 hover:bg-gray-100'
-        }`}
+            ? 'border-primary bg-primary/5'
+            : 'border-border hover:border-primary/50 hover:bg-accent/30'
+        )}
         onDragEnter={handleDragIn}
         onDragLeave={handleDragOut}
         onDragOver={handleDrag}
         onDrop={handleDrop}
         onClick={() => fileInputRef.current?.click()}
       >
-        <input
-          ref={fileInputRef}
-          type="file"
-          className="hidden"
-          accept=".pdf,.docx,.pptx,.xlsx,.html,.md,.txt,.csv,.json,.xml,.jpg,.jpeg,.png,.gif,.bmp,.tiff,.wav,.mp3,.zip"
-          onChange={handleFileSelect}
-        />
-        {uploading ? (
-          <div className="flex flex-col items-center gap-2">
-            <Loader2 size={32} className="text-primary-500 animate-spin" />
-            <p className="text-sm text-gray-600">正在解析文件...</p>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center gap-2">
-            <Upload size={32} className="text-gray-400" />
-            <p className="text-sm text-gray-600">
-              拖拽文件到此处上传，或<span className="text-primary-600">点击选择</span>
-            </p>
-            <p className="text-xs text-gray-400">
-              支持 PDF、Word、PPT、Excel、HTML、Markdown 等格式
-            </p>
-          </div>
-        )}
-      </div>
+        <CardContent className="flex flex-col items-center gap-2 py-8">
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            accept=".pdf,.docx,.pptx,.xlsx,.html,.md,.txt,.csv,.json,.xml,.jpg,.jpeg,.png,.gif,.bmp,.tiff,.wav,.mp3,.zip"
+            onChange={handleFileSelect}
+          />
+          {uploading ? (
+            <>
+              <Loader2 className="h-8 w-8 text-primary animate-spin" />
+              <p className="text-sm text-foreground">正在解析文件...</p>
+            </>
+          ) : (
+            <>
+              <Upload className="h-8 w-8 text-muted-foreground" />
+              <p className="text-sm text-foreground">
+                拖拽文件到此处上传，或<span className="text-primary font-medium">点击选择</span>
+              </p>
+              <p className="text-xs text-muted-foreground">
+                支持 PDF、Word、PPT、Excel、HTML、Markdown 等格式
+              </p>
+            </>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Create form */}
       {showCreate && (
-        <div className="card p-4 mb-6">
-          <div className="space-y-3">
+        <Card className="mb-6">
+          <CardContent className="p-4 space-y-3">
             <div className="flex items-center justify-between">
-              <label className="text-sm font-medium">文档标题</label>
-              <button className="btn-ghost p-1" onClick={() => setShowCreate(false)}>
-                <X size={16} />
-              </button>
+              <label className="text-sm font-medium">新文档</label>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setShowCreate(false)}>
+                <X className="h-4 w-4" />
+              </Button>
             </div>
-            <input
-              className="input-field"
+            <Input
               value={newTitle}
               onChange={(e) => setNewTitle(e.target.value)}
               placeholder="文档标题"
             />
-            <label className="text-sm font-medium">内容（Markdown 格式）</label>
-            <textarea
-              className="input-field resize-none"
-              rows={10}
+            <Textarea
+              rows={8}
               value={newContent}
               onChange={(e) => setNewContent(e.target.value)}
               placeholder="文档内容（Markdown 格式）"
             />
-            <div className="flex gap-2 justify-end">
-              <button className="btn-secondary" onClick={() => setShowCreate(false)}>
-                取消
-              </button>
-              <button className="btn-primary" onClick={handleCreate} disabled={loading}>
-                {loading ? '保存中...' : '保存'}
-              </button>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setShowCreate(false)}>取消</Button>
+              <Button size="sm" onClick={handleCreate} disabled={loading || !newTitle.trim()} loading={loading}>
+                保存
+              </Button>
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Document list */}
-      {docs.length === 0 ? (
-        <div className="card p-12 text-center">
-          <FileText size={48} className="mx-auto text-gray-300 mb-4" />
-          <h3 className="text-lg font-medium text-gray-600 mb-2">知识库为空</h3>
-          <p className="text-gray-400 mb-4">
-            上传项目文档，LLM 将基于这些内容回答项目相关问题
-          </p>
-          <button className="btn-primary" onClick={() => setShowCreate(true)}>
-            添加文档
-          </button>
-        </div>
+      {docsLoading ? (
+        <Card className="p-12 text-center">
+          <Loader2 className="mx-auto h-8 w-8 text-primary animate-spin mb-4" />
+          <p className="body-text">正在加载知识库...</p>
+        </Card>
+      ) : docsError ? (
+        <Card className="p-12 text-center">
+          <AlertCircle className="mx-auto h-10 w-10 text-danger mb-4" />
+          <p className="text-sm text-foreground mb-4">{docsError}</p>
+          <Button variant="outline" size="sm" onClick={loadDocs} className="gap-1.5">
+            <RefreshCw className="h-4 w-4" />
+            重试
+          </Button>
+        </Card>
+      ) : docs.length === 0 ? (
+        <EmptyState
+          icon={FileText}
+          title="知识库为空"
+          description="上传项目文档，LLM 将基于这些内容回答项目相关问题"
+          action={
+            <Button size="sm" onClick={() => setShowCreate(true)}>添加文档</Button>
+          }
+        />
       ) : (
         <div className="space-y-3">
           {docs.map((doc) => (
-            <div key={doc.id} className="card p-4 flex items-start justify-between">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <FileText size={16} className="text-primary-500 flex-shrink-0" />
-                  <h4 className="font-medium truncate">{doc.title}</h4>
-                  <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded flex-shrink-0">
-                    .{doc.file_type}
-                  </span>
+            <Card key={doc.id} className="group">
+              <CardContent className="flex items-start justify-between gap-4 p-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <FileText className="h-4 w-4 text-primary flex-shrink-0" />
+                    <h4 className="font-medium truncate">{doc.title}</h4>
+                    <Badge variant="secondary" className="text-[10px] h-5 px-1.5 flex-shrink-0">
+                      .{doc.file_type}
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground line-clamp-2">{doc.content}</p>
+                  <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
+                    <span>{doc.chunk_count} 个片段</span>
+                    <span>{new Date(doc.created_at).toLocaleDateString('zh-CN')}</span>
+                  </div>
                 </div>
-                <p className="text-sm text-gray-500 mt-1 line-clamp-2">{doc.content}</p>
-                <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
-                  <span>{doc.chunk_count} 个片段</span>
-                  <span>{new Date(doc.created_at).toLocaleDateString('zh-CN')}</span>
-                </div>
-              </div>
-              <button
-                className="btn-ghost p-2 text-gray-400 hover:text-red-500"
-                onClick={() => handleDelete(doc.id)}
-              >
-                <Trash2 size={16} />
-              </button>
-            </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 flex-shrink-0 text-muted-foreground hover:text-danger"
+                  onClick={() => handleDelete(doc)}
+                  disabled={deletingId === doc.id}
+                >
+                  {deletingId === doc.id ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4" />
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
           ))}
         </div>
       )}
 
-      {/* Query Dialog */}
       {showQuery && projectId && (
         <KnowledgeQueryDialog
           projectId={parseInt(projectId)}

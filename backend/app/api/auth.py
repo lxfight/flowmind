@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
+from fastapi import UploadFile, File
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
@@ -10,8 +11,11 @@ from app.core.security import (
     get_current_user,
 )
 from app.models.user import User
-from app.schemas import UserCreate, UserOut, Token
+from app.schemas import PasswordChange, Token, UserCreate, UserOut, UserProfileUpdate
 from app.core.config import get_settings
+import uuid
+from pathlib import Path
+import asyncio
 
 settings = get_settings()
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -113,7 +117,7 @@ async def get_me(current_user: User = Depends(get_current_user)):
 
 @router.put("/profile", response_model=UserOut)
 async def update_profile(
-    data: "UserProfileUpdate",
+    data: UserProfileUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -138,7 +142,7 @@ async def update_profile(
 
 @router.put("/password")
 async def change_password(
-    data: "PasswordChange",
+    data: PasswordChange,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -152,3 +156,38 @@ async def change_password(
     current_user.hashed_password = hash_password(data.new_password)
     await db.flush()
     return {"message": "密码修改成功"}
+
+
+@router.post("/avatar")
+async def upload_avatar(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload a new avatar image for the current user."""
+    allowed_types = {"image/png", "image/jpeg", "image/webp", "image/gif"}
+    if not file.content_type or file.content_type not in allowed_types:
+        raise HTTPException(status_code=400, detail="仅支持 png、jpg、webp、gif 格式的图片")
+
+    contents = await file.read()
+    if len(contents) > settings.avatar_max_bytes:
+        raise HTTPException(status_code=400, detail=f"头像大小不能超过 {settings.avatar_max_bytes // 1024 // 1024}MB")
+
+    ext = file.content_type.split("/")[-1]
+    if ext == "jpeg":
+        ext = "jpg"
+    filename = f"{uuid.uuid4().hex}.{ext}"
+    avatars_dir = Path(settings.upload_dir)
+    if not avatars_dir.is_absolute():
+        avatars_dir = Path(__file__).resolve().parent.parent / avatars_dir
+    avatars_dir = avatars_dir / "avatars"
+    avatars_dir.mkdir(parents=True, exist_ok=True)
+    file_path = avatars_dir / filename
+
+    await asyncio.to_thread(file_path.write_bytes, contents)
+
+    current_user.avatar_url = f"/api/uploads/avatars/{filename}"
+    await db.flush()
+    await db.refresh(current_user)
+
+    return {"avatar_url": current_user.avatar_url}

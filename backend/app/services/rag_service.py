@@ -61,28 +61,27 @@ class RAGService:
         self, query: str, project_id: int, db: AsyncSession
     ) -> list[dict]:
         """Retrieve relevant document chunks for a query."""
-        query_embedding = await self.embed_text(query)
-
         if _is_sqlite:
             # SQLite fallback: return random chunks (no vector search)
             result = await db.execute(
-                select(DocChunk)
+                select(DocChunk.content, KnowledgeDoc.title)
                 .join(KnowledgeDoc)
                 .where(KnowledgeDoc.project_id == project_id)
                 .order_by(func.random())
                 .limit(settings.top_k_retrieval)
             )
-            rows = result.scalars().all()
+            rows = result.all()
             return [
                 {
-                    "content": r.content,
-                    "doc_title": r.doc.title,
+                    "content": content,
+                    "doc_title": title,
                     "similarity": 0.0,
                 }
-                for r in rows
+                for content, title in rows
             ]
 
         # PostgreSQL: cosine distance via pgvector
+        query_embedding = await self.embed_text(query)
         query_embedding_str = str(query_embedding)
         result = await db.execute(
             text("""
@@ -99,7 +98,7 @@ class RAGService:
                 LIMIT :top_k
             """),
             {
-                "query_embedding": query_embedding,
+                "query_embedding": query_embedding_str,
                 "project_id": project_id,
                 "top_k": settings.top_k_retrieval,
             },

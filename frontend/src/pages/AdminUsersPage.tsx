@@ -1,15 +1,23 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
-import { Users, Check, X, RefreshCw, ToggleLeft, ToggleRight, Shield, Key } from 'lucide-react'
+import { Users, Check, X, RefreshCw, Shield, Key } from 'lucide-react'
 import api from '../utils/api'
 import toast from 'react-hot-toast'
+import { PageHeader } from '../components/layout/PageHeader'
+import { Button } from '../components/ui/Button'
+import { Switch } from '../components/ui/Switch'
+import { Card, CardContent } from '../components/ui/Card'
+import { Badge } from '../components/ui/Badge'
+import { Avatar } from '../components/ui/Avatar'
+import { cn } from '../utils/cn'
 
 interface UserInfo {
   id: number
   username: string
   email: string
   display_name: string
+  avatar_url: string
   is_active: boolean
   is_superuser: boolean
   is_approved: boolean
@@ -106,8 +114,8 @@ export default function AdminUsersPage() {
 
   if (loading) {
     return (
-      <div className="p-6 flex items-center justify-center">
-        <RefreshCw size={24} className="animate-spin text-primary-500" />
+      <div className="page-container flex items-center justify-center">
+        <RefreshCw className="h-6 w-6 animate-spin text-primary" />
       </div>
     )
   }
@@ -117,149 +125,152 @@ export default function AdminUsersPage() {
   const disabledUsers = users.filter(u => !u.is_active)
 
   return (
-    <div className="p-6 h-full overflow-y-auto dark:text-gray-100">
-      <div className="max-w-5xl mx-auto">
-        <div className="flex items-center gap-2 mb-6">
-          <Shield size={22} className="text-primary-500" />
-          <h2 className="text-xl font-bold">用户管理</h2>
-        </div>
+    <div className="max-w-5xl mx-auto h-full overflow-y-auto">
+      <PageHeader title="用户管理" description="审批、禁用、重置密码及管理项目创建权限" />
 
-        {/* Pending approvals */}
         {pendingUsers.length > 0 && (
           <div className="mb-8">
-            <h3 className="text-sm font-semibold text-yellow-600 dark:text-yellow-400 mb-3 flex items-center gap-1.5">
-              <Users size={14} />
+            <h3 className="text-sm font-semibold text-warning mb-3 flex items-center gap-1.5">
+              <Users className="h-4 w-4" />
               待审批 ({pendingUsers.length})
             </h3>
             <div className="space-y-2">
               {pendingUsers.map((u) => (
-                <div key={u.id} className="card p-4 flex items-center justify-between">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-8 h-8 rounded-full bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 flex items-center justify-center text-sm font-medium flex-shrink-0">
-                      {(u.display_name || u.username).charAt(0)}
+                <Card key={u.id} className="surface">
+                  <CardContent className="flex items-center justify-between p-4">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <Avatar name={u.display_name || u.username} src={u.avatar_url} size="sm" />
+                      <div className="min-w-0">
+                        <p className="font-medium text-sm truncate">{u.display_name || u.username}</p>
+                        <p className="text-xs text-muted-foreground truncate">@{u.username} · {u.email}</p>
+                      </div>
                     </div>
-                    <div className="min-w-0">
-                      <p className="font-medium text-sm">{u.display_name || u.username}</p>
-                      <p className="text-xs text-gray-400">@{u.username} · {u.email}</p>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <Button
+                        size="sm"
+                        onClick={() => handleApprove(u.id, false)}
+                        disabled={actionId === u.id}
+                        className="gap-1"
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                        通过
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleReject(u.id)}
+                        disabled={actionId === u.id}
+                        className="gap-1"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                        拒绝
+                      </Button>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <button
-                      className="btn-primary text-xs py-1.5 px-3 flex items-center gap-1"
-                      onClick={() => handleApprove(u.id, false)}
-                      disabled={actionId === u.id}
-                    >
-                      <Check size={13} /> 通过
-                    </button>
-                    <button
-                      className="btn-secondary text-xs py-1.5 px-3 flex items-center gap-1"
-                      onClick={() => handleReject(u.id)}
-                      disabled={actionId === u.id}
-                    >
-                      <X size={13} /> 拒绝
-                    </button>
-                  </div>
-                </div>
+                  </CardContent>
+                </Card>
               ))}
             </div>
           </div>
         )}
 
-        {/* Active users */}
         <div>
-          <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-3">
+          <h3 className="text-sm font-semibold text-muted-foreground mb-3">
             活跃用户 ({activeUsers.length})
           </h3>
           <div className="space-y-2">
             {activeUsers.map((u) => (
-              <div key={u.id} className="card p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 flex items-center justify-center text-sm font-medium">
-                      {(u.display_name || u.username).charAt(0)}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <p className="font-medium text-sm">{u.display_name || u.username}</p>
-                        {u.is_superuser && (
-                          <span className="text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 px-1.5 py-0.5 rounded">管理员</span>
-                        )}
+              <Card key={u.id} className="surface">
+                <CardContent className="p-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <Avatar name={u.display_name || u.username} src={u.avatar_url} size="sm" />
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-sm">{u.display_name || u.username}</p>
+                          {u.is_superuser && <Badge variant="primary">管理员</Badge>}
+                        </div>
+                        <p className="text-xs text-muted-foreground">@{u.username} · {u.email}</p>
                       </div>
-                      <p className="text-xs text-gray-400">@{u.username} · {u.email}</p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={u.can_create_project}
+                          onCheckedChange={() => handleToggleCreateProject(u.id, u.can_create_project)}
+                          disabled={actionId === u.id}
+                        />
+                        <span
+                          className={cn(
+                            'text-xs font-medium',
+                            u.can_create_project ? 'text-success' : 'text-muted-foreground'
+                          )}
+                        >
+                          {u.can_create_project ? '可创建项目' : '不可创建项目'}
+                        </span>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleResetPassword(u.id)}
+                        disabled={actionId === u.id}
+                        className="gap-1"
+                      >
+                        <Key className="h-3.5 w-3.5" />
+                        重置密码
+                      </Button>
+                      {!u.is_superuser && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleReject(u.id)}
+                          disabled={actionId === u.id}
+                          className="gap-1 text-danger hover:text-danger hover:bg-danger/10"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                          禁用
+                        </Button>
+                      )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    {/* Create project toggle */}
-                    <button
-                      className="text-xs flex items-center gap-1 text-gray-500 hover:text-primary-600"
-                      onClick={() => handleToggleCreateProject(u.id, u.can_create_project)}
-                      disabled={actionId === u.id}
-                    >
-                      {u.can_create_project ? (
-                        <ToggleRight size={16} className="text-green-500" />
-                      ) : (
-                        <ToggleLeft size={16} />
-                      )}
-                      创建项目
-                    </button>
-                    {/* Reset password */}
-                    <button
-                      className="btn-ghost text-xs flex items-center gap-1"
-                      onClick={() => handleResetPassword(u.id)}
-                      disabled={actionId === u.id}
-                    >
-                      <Key size={13} />
-                      重置密码
-                    </button>
-                    {/* Disable */}
-                    {!u.is_superuser && (
-                      <button
-                        className="btn-ghost text-xs text-red-500 flex items-center gap-1"
-                        onClick={() => handleReject(u.id)}
-                        disabled={actionId === u.id}
-                      >
-                        <X size={13} />
-                        禁用
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
+                </CardContent>
+              </Card>
             ))}
           </div>
         </div>
 
-        {/* Disabled users */}
         {disabledUsers.length > 0 && (
           <div className="mt-8">
-            <h3 className="text-sm font-semibold text-gray-400 mb-3">
+            <h3 className="text-sm font-semibold text-muted-foreground mb-3">
               已禁用 ({disabledUsers.length})
             </h3>
             <div className="space-y-2">
               {disabledUsers.map((u) => (
-                <div key={u.id} className="card p-4 opacity-60 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-sm font-medium">
-                      {(u.display_name || u.username).charAt(0)}
+                <Card key={u.id} className="surface opacity-60">
+                  <CardContent className="flex items-center justify-between p-4">
+                    <div className="flex items-center gap-3">
+                      <Avatar name={u.display_name || u.username} src={u.avatar_url} size="sm" />
+                      <div>
+                        <p className="font-medium text-sm line-through">{u.display_name || u.username}</p>
+                        <p className="text-xs text-muted-foreground">@{u.username}</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-medium text-sm line-through">{u.display_name || u.username}</p>
-                      <p className="text-xs text-gray-400">@{u.username}</p>
-                    </div>
-                  </div>
-                  <button
-                    className="btn-ghost text-xs text-green-600 flex items-center gap-1"
-                    onClick={() => handleActivate(u.id)}
-                    disabled={actionId === u.id}
-                  >
-                    <Check size={13} /> 启用
-                  </button>
-                </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleActivate(u.id)}
+                      disabled={actionId === u.id}
+                      className="gap-1 text-success hover:text-success hover:bg-success/10"
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                      启用
+                    </Button>
+                  </CardContent>
+                </Card>
               ))}
             </div>
           </div>
         )}
-      </div>
     </div>
   )
 }

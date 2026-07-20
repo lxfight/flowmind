@@ -1,65 +1,68 @@
-import { useParams, Link, Outlet, useLocation } from 'react-router-dom'
+import { useParams, Outlet } from 'react-router-dom'
 import { useProjectStore } from '../stores/projectStore'
-import { useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import api from '../utils/api'
-import { KanbanSquare, BookOpen, Users, FileText, Activity } from 'lucide-react'
+import { AlertCircle, Loader2, RefreshCw } from 'lucide-react'
+import { Button } from '../components/ui/Button'
+import { ProjectHeader } from '../components/layout/ProjectHeader'
+import { Card } from '../components/ui/Card'
 
 export default function ProjectPage() {
   const { projectId } = useParams()
   const { currentProject, setCurrentProject } = useProjectStore()
-  const location = useLocation()
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const loadProject = useCallback(async () => {
+    if (!projectId) return
+    setLoading(true)
+    setError(null)
+    setCurrentProject(null)
+    try {
+      const res = await api.get(`/projects/${projectId}`)
+      setCurrentProject(res.data)
+    } catch {
+      setError('项目加载失败')
+    } finally {
+      setLoading(false)
+    }
+  }, [projectId, setCurrentProject])
 
   useEffect(() => {
-    if (projectId) {
-      api.get(`/projects/${projectId}`).then((res) => setCurrentProject(res.data))
-    }
+    loadProject()
     return () => setCurrentProject(null)
-  }, [projectId])
+  }, [loadProject, setCurrentProject])
 
-  if (!currentProject) return null
+  if (loading) {
+    return (
+      <div className="p-2">
+        <Card className="p-10 text-center surface">
+          <Loader2 className="mx-auto h-7 w-7 text-primary animate-spin mb-3" />
+          <p className="body-text">正在加载项目...</p>
+        </Card>
+      </div>
+    )
+  }
 
-  const navItems = [
-    { path: `/project/${projectId}/board`, label: '看板', icon: KanbanSquare },
-    { path: `/project/${projectId}/knowledge`, label: '知识库', icon: BookOpen },
-    { path: `/project/${projectId}/activities`, label: '动态', icon: Activity },
-    { path: `/project/${projectId}/members`, label: '成员', icon: Users },
-    { path: `/project/${projectId}/report`, label: '报告', icon: FileText },
-  ]
+  if (error || !currentProject) {
+    return (
+      <div className="p-2">
+        <Card className="p-10 text-center surface">
+          <AlertCircle className="mx-auto h-8 w-8 text-danger mb-3" />
+          <p className="text-sm text-foreground mb-4">{error || '项目不存在或无权访问'}</p>
+          <Button variant="outline" size="sm" onClick={loadProject} className="gap-1.5">
+            <RefreshCw className="h-4 w-4" />
+            重试
+          </Button>
+        </Card>
+      </div>
+    )
+  }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Project header */}
-      <div className="bg-white border-b dark:bg-gray-800 dark:border-gray-700 px-6 py-3">
-        <div className="flex items-center gap-3">
-          <span
-            className="w-4 h-4 rounded-full"
-            style={{ backgroundColor: currentProject.color }}
-          />
-          <h2 className="text-xl font-bold dark:text-gray-100">{currentProject.name}</h2>
-          <span className="text-sm text-gray-400 dark:text-gray-500 ml-2">{currentProject.description}</span>
-        </div>
-        <nav className="flex gap-1 mt-2">
-          {navItems.map((item) => {
-            const active = location.pathname === item.path
-            return (
-              <Link
-                key={item.path}
-                to={item.path}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                  active
-                    ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300 font-medium'
-                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                }`}
-              >
-                <item.icon size={16} />
-                {item.label}
-              </Link>
-            )
-          })}
-        </nav>
-      </div>
-
-      <div className="flex-1 overflow-auto">
+    <div className="flex flex-col min-h-full">
+      <ProjectHeader project={currentProject} />
+      <div className="flex-1 min-w-0">
         <Outlet />
       </div>
     </div>

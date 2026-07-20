@@ -8,8 +8,8 @@ class Settings(BaseSettings):
     app_name: str = "FlowMind"
     debug: bool = False
 
-    # Database
-    database_url: str = "postgresql+asyncpg://flowmind:flowmind_secret@localhost:5432/flowmind"
+    # Database (defaults to SQLite for local dev; override with DATABASE_URL env)
+    database_url: str = "sqlite+aiosqlite:///./flowmind_dev.db"
 
     # JWT
     jwt_secret: str = ""
@@ -33,6 +33,10 @@ class Settings(BaseSettings):
 
     # Vector dimensions (text-embedding-3-small = 1536)
     vector_dimension: int = 1536
+
+    # File uploads
+    upload_dir: str = "uploads"
+    avatar_max_bytes: int = 2 * 1024 * 1024
 
     class Config:
         env_file = ".env"

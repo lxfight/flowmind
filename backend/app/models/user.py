@@ -29,3 +29,4 @@ class User(Base):
     # Relationships
     project_memberships = relationship("ProjectMember", back_populates="user")
     assigned_tasks = relationship("Task", back_populates="assignee")
+    chat_sessions = relationship("LLMChatSession", back_populates="user")

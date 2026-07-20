@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, EmailStr
 
 
@@ -86,13 +86,14 @@ class ProjectMemberOut(BaseModel):
     role: str
     username: str = ""
     display_name: str = ""
+    avatar_url: str = ""
 
     model_config = {"from_attributes": True}
 
 
 class ProjectMemberAdd(BaseModel):
     user_id: int
-    role: str = "member"
+    role: Literal["admin", "member", "viewer"] = "member"
 
 
 # Task
@@ -158,6 +159,9 @@ class TaskOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     assignee: UserOut | None = None
+    comment_count: int = 0
+    subtask_count: int = 0
+    subtask_done: int = 0
 
     model_config = {"from_attributes": True}
 
@@ -272,3 +276,59 @@ class ActivityLogOut(BaseModel):
 class LLMTaskGenerate(BaseModel):
     project_id: int
     instruction: str  # e.g. "Create tasks for user login module"
+
+
+# LLM Chat
+from app.schemas.llm_chat import (
+    LLMChatSessionCreate,
+    LLMChatSessionUpdate,
+    LLMChatSessionOut,
+    LLMChatSessionDetailOut,
+    LLMChatMessageOut,
+    LLMAgentChatRequest,
+    LLMAgentChatResponse,
+)
+
+__all__ = [
+    "UserCreate",
+    "UserLogin",
+    "Token",
+    "UserProfileUpdate",
+    "PasswordChange",
+    "TokenData",
+    "UserOut",
+    "ProjectCreate",
+    "ProjectUpdate",
+    "ProjectOut",
+    "ProjectMemberOut",
+    "ProjectMemberAdd",
+    "TaskStatusCreate",
+    "TaskStatusUpdate",
+    "TaskStatusOut",
+    "TaskCreate",
+    "TaskUpdate",
+    "TaskOut",
+    "TaskDetailOut",
+    "TaskCommentCreate",
+    "TaskCommentOut",
+    "TaskMove",
+    "KnowledgeDocCreate",
+    "KnowledgeDocUpdate",
+    "KnowledgeDocOut",
+    "KnowledgeQuery",
+    "KnowledgeAnswer",
+    "LLMChatMessage",
+    "LLMChatRequest",
+    "LLMChatResponse",
+    "LLMTaskGenerate",
+    "ProjectStats",
+    "DashboardStats",
+    "ActivityLogOut",
+    "LLMChatSessionCreate",
+    "LLMChatSessionUpdate",
+    "LLMChatSessionOut",
+    "LLMChatSessionDetailOut",
+    "LLMChatMessageOut",
+    "LLMAgentChatRequest",
+    "LLMAgentChatResponse",
+]

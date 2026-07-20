@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react'
 import { Plus, Edit3, Trash2, ArrowRight, FileText, Loader2 } from 'lucide-react'
 import api from '../../utils/api'
+import { Button } from '../ui/Button'
+import { Card, CardContent } from '../ui/Card'
+import { EmptyState } from '../ui/EmptyState'
+import { cn } from '../../utils/cn'
 
 interface Activity {
   id: number
@@ -15,7 +19,7 @@ interface Props {
   projectId: number
 }
 
-const actionIcons: Record<string, React.ComponentType<{ size?: number }>> = {
+const actionIcons: Record<string, React.ComponentType<{ className?: string }>> = {
   create: Plus,
   update: Edit3,
   delete: Trash2,
@@ -23,10 +27,10 @@ const actionIcons: Record<string, React.ComponentType<{ size?: number }>> = {
 }
 
 const actionColors: Record<string, string> = {
-  create: 'text-green-600 bg-green-100 dark:bg-green-900/30',
-  update: 'text-blue-600 bg-blue-100 dark:bg-blue-900/30',
-  delete: 'text-red-600 bg-red-100 dark:bg-red-900/30',
-  move: 'text-purple-600 bg-purple-100 dark:bg-purple-900/30',
+  create: 'bg-success/15 text-success',
+  update: 'bg-info/15 text-info',
+  delete: 'bg-danger/15 text-danger',
+  move: 'bg-primary/15 text-primary',
 }
 
 export function ActivityFeed({ projectId }: Props) {
@@ -45,17 +49,18 @@ export function ActivityFeed({ projectId }: Props) {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <Loader2 size={24} className="animate-spin text-primary-500" />
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
       </div>
     )
   }
 
   if (activities.length === 0) {
     return (
-      <div className="text-center py-12">
-        <FileText size={36} className="mx-auto text-gray-300 dark:text-gray-600 mb-3" />
-        <p className="text-sm text-gray-400 dark:text-gray-500">暂无活动记录</p>
-      </div>
+      <EmptyState
+        icon={FileText}
+        title="暂无活动记录"
+        description="项目中的任务操作将显示在这里"
+      />
     )
   }
 
@@ -72,39 +77,45 @@ export function ActivityFeed({ projectId }: Props) {
   }
 
   return (
-    <div className="space-y-1">
-      <div className="relative pl-6">
-        {/* Timeline line */}
-        <div className="absolute left-[11px] top-2 bottom-2 w-0.5 bg-gray-200 dark:bg-gray-700" />
+    <Card className="overflow-hidden">
+      <CardContent className="p-0">
+        <div className="relative pl-8 pr-4 py-4">
+          <div className="absolute left-[21px] top-3 bottom-3 w-px bg-border" />
 
-        {activities.map((a) => {
-          const Icon = actionIcons[a.action] || FileText
-          const colorClass = actionColors[a.action] || 'text-gray-600 bg-gray-100'
+          {activities.map((a) => {
+            const Icon = actionIcons[a.action] || FileText
+            const colorClass = actionColors[a.action] || 'bg-muted text-muted-foreground'
 
-          return (
-            <div key={a.id} className="relative pb-3 last:pb-0">
-              {/* Dot */}
-              <div className={`absolute left-[-13px] top-1.5 w-[7px] h-[7px] rounded-full border-2 border-white dark:border-gray-800 bg-gray-400`} />
+            return (
+              <div key={a.id} className="relative pb-4 last:pb-0">
+                <div className="absolute left-[-21px] top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-background bg-card">
+                  <div className={cn('h-2.5 w-2.5 rounded-full', colorClass.split(' ')[1]?.replace('text-', 'bg-') || 'bg-muted-foreground')} />
+                </div>
 
-              <div className="ml-2">
-                <p className="text-sm text-gray-700 dark:text-gray-300">{a.summary}</p>
-                <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-                  {a.user_name} · {getRelativeTime(a.created_at)}
-                </p>
+                <div className="flex items-start gap-3">
+                  <div className={cn('rounded-lg p-1.5', colorClass)}>
+                    <Icon className="h-3.5 w-3.5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-foreground">{a.summary}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {a.user_name} · {getRelativeTime(a.created_at)}
+                    </p>
+                  </div>
+                </div>
               </div>
-            </div>
-          )
-        })}
-      </div>
+            )
+          })}
+        </div>
 
-      {!showMore && activities.length >= 15 && (
-        <button
-          className="text-xs text-primary-600 hover:underline w-full text-center py-2"
-          onClick={() => setShowMore(true)}
-        >
-          加载更多
-        </button>
-      )}
-    </div>
+        {!showMore && activities.length >= 15 && (
+          <div className="border-t border-border p-2 text-center">
+            <Button variant="ghost" size="sm" onClick={() => setShowMore(true)}>
+              加载更多
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }

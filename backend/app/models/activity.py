@@ -1,7 +1,7 @@
 """Activity log for tracking project changes."""
 from datetime import datetime, timezone
 from sqlalchemy import String, Text, DateTime, ForeignKey, Integer
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 
 
@@ -19,3 +19,5 @@ class ActivityLog(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
+
+    user = relationship("User")

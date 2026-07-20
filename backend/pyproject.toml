@@ -20,6 +20,8 @@ dependencies = [
     "pgvector>=0.2.0",
     "tiktoken>=0.7.0",
     "markitdown>=0.1",
+    "langgraph>=1.0.0",
+    "langchain-openai>=0.2.0",
 ]
 
 [build-system]
@@ -30,3 +32,9 @@ build-backend = "setuptools.build_meta"
 where = ["."]
 include = ["app*"]
 exclude = ["alembic*", "scripts*", "tests*"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+]
