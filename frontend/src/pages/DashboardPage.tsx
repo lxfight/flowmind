@@ -56,7 +56,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto">
+    <div className="mx-auto w-full max-w-[2000px]">
       <PageHeader
         title="我的项目"
         description="管理你参与的所有项目"
@@ -87,7 +87,7 @@ export default function DashboardPage() {
           }
         />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 min-[1900px]:grid-cols-5 gap-4">
           {projects.map((p) => {
             const stat = stats[p.id]
             const rawProgress = stat && stat.total_tasks > 0

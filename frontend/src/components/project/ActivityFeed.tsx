@@ -42,9 +42,9 @@ export function ActivityFeed({ projectId }: Props) {
   useEffect(() => {
     setLoading(true)
     setError(null)
-    api.get(`/projects/${projectId}/activities`, { params: { limit: showMore ? 50 : 15 } })
+    api.get(`/projects/${projectId}/activities`, { params: { page: 1, page_size: showMore ? 50 : 15 } })
       .then((res) => {
-        setActivities(res.data)
+        setActivities(res.data.items)
         setError(null)
       })
       .catch(() => {

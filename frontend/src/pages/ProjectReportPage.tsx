@@ -97,7 +97,7 @@ export default function ProjectReportPage() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto h-full overflow-y-auto">
+    <div className="mx-auto h-full w-full max-w-[2000px] overflow-y-auto">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <h3 className="section-title">项目报告</h3>
         <div className="flex items-center gap-2">

@@ -14,12 +14,15 @@ import {
 import { useParams } from 'react-router-dom'
 import api from '../../utils/api'
 import { useProjectRole } from '../../hooks/useProjectRole'
+import { useProjectSocket } from '../../hooks/useProjectSocket'
+import { useAuthStore } from '../../stores/authStore'
 import { KanbanColumn } from './KanbanColumn'
 import { KanbanCard } from './KanbanCard'
 import { CreateTaskDialog } from './CreateTaskDialog'
 import { TaskDetailDialog } from './TaskDetailDialog'
 import { StatusManagerDialog } from './StatusManagerDialog'
 import { LLMChatPanel } from '../llm-chat/LLMChatPanel'
+import { loadOpenState, saveOpenState } from '../llm-chat/floatingGeometry'
 import { AlertCircle, Columns3, Filter, Loader2, MessageSquare, Plus, RefreshCw, Search, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '../ui/Button'
@@ -38,7 +41,14 @@ export default function KanbanBoard() {
   const [tasks, setTasks] = useState<TaskSummary[]>([])
   const [activeTask, setActiveTask] = useState<TaskSummary | null>(null)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
-  const [showChat, setShowChat] = useState(false)
+  const [showChat, setShowChatRaw] = useState(() => loadOpenState())
+  const setShowChat = useCallback((open: boolean | ((v: boolean) => boolean)) => {
+    setShowChatRaw((prev) => {
+      const next = typeof open === 'function' ? open(prev) : open
+      saveOpenState(next)
+      return next
+    })
+  }, [])
   const [createStatusId, setCreateStatusId] = useState<number | null>(null)
   const [detailTaskId, setDetailTaskId] = useState<number | null>(null)
   const [boardLoading, setBoardLoading] = useState(true)
@@ -50,6 +60,8 @@ export default function KanbanBoard() {
   const [assigneeFilter, setAssigneeFilter] = useState<number | null>(null)
   const [members, setMembers] = useState<MemberOption[]>([])
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const wsRefreshRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const currentUserId = useAuthStore((s) => s.user?.id)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -59,11 +71,11 @@ export default function KanbanBoard() {
 
   const fetchTasks = useCallback(async (search?: string, assigneeId?: number | null) => {
     if (!projectId) return
-    const params: Record<string, string> = {}
+    const params: Record<string, string> = { page: '1', page_size: '100' }
     if (search) params.search = search
     if (assigneeId) params.assignee_id = String(assigneeId)
     const res = await api.get(`/projects/${projectId}/tasks`, { params })
-    return res.data as TaskSummary[]
+    return res.data.items as TaskSummary[]
   }, [projectId])
 
   const loadTasks = useCallback(async (search?: string, assigneeId?: number | null, showError = true) => {
@@ -107,6 +119,7 @@ export default function KanbanBoard() {
 
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current)
+      if (wsRefreshRef.current) clearTimeout(wsRefreshRef.current)
     }
   }, [projectId, loadBoard])
 
@@ -131,17 +144,39 @@ export default function KanbanBoard() {
 
   const hasActiveFilters = searchQuery || assigneeFilter !== null
 
+  // Real-time sync: refresh the board when other clients mutate the project.
+  // Refetches are idempotent and debounced; events from this client are
+  // ignored because local mutations already update state optimistically.
+  // If the socket is down nothing breaks — the board works as before.
+  useProjectSocket(projectId ? parseInt(projectId) : undefined, (event) => {
+    if (event.actor_id && event.actor_id === currentUserId) return
+    if (wsRefreshRef.current) clearTimeout(wsRefreshRef.current)
+    wsRefreshRef.current = setTimeout(() => {
+      if (event.type.startsWith('status_')) {
+        void loadBoard().catch(() => {})
+      } else {
+        void loadTasks(searchQuery, assigneeFilter, false).catch(() => {})
+      }
+    }, 300)
+  })
+
   const getTasksByStatus = (statusId: number) =>
     tasks.filter((t) => t.status_id === statusId).sort((a, b) => a.order - b.order)
 
+  // Reset board-local UI state only when the project actually changes
+  // (StrictMode-safe: comparing the param survives double-effect replays,
+  // and the persisted "chat open" state survives page reloads)
+  const prevProjectRef = useRef(projectId)
   useEffect(() => {
+    if (prevProjectRef.current === projectId) return
+    prevProjectRef.current = projectId
     setShowCreateDialog(false)
     setShowStatusManager(false)
     setShowChat(false)
     setDetailTaskId(null)
     setActiveTask(null)
     setCreateStatusId(null)
-  }, [projectId, isViewer])
+  }, [projectId, setShowChat])
 
   const handleDragStart = (event: DragStartEvent) => {
     if (isViewer) return
@@ -207,32 +242,27 @@ export default function KanbanBoard() {
     description?: string
     status_id: number
     priority?: number
-    assignee_id?: number | null
+    assignee_ids?: number[]
+    due_date?: string | null
   }) => {
     if (!projectId || isViewer) return
     const res = await api.post(`/projects/${projectId}/tasks`, data)
     setTasks((prev) => [...prev, res.data])
   }
 
-  const handleAssignTask = async (taskId: number, userId: number | null) => {
+  const handleAssignTask = async (taskId: number, userIds: number[]) => {
     if (!projectId || isViewer) return
     const previousTasks = tasks
-    const assignee = userId ? members.find((m) => m.user_id === userId) : null
+    const assignees = members
+      .filter((m) => userIds.includes(m.user_id))
+      .map((m) => ({ id: m.user_id, display_name: m.display_name || m.username, avatar_url: m.avatar_url }))
     setTasks((prev) =>
       prev.map((t) =>
-        t.id === taskId
-          ? {
-              ...t,
-              assignee_id: userId,
-              assignee: assignee
-                ? { id: assignee.user_id, display_name: assignee.display_name || assignee.username, avatar_url: assignee.avatar_url }
-                : null,
-            }
-          : t
+        t.id === taskId ? { ...t, assignees } : t
       )
     )
     try {
-      await api.put(`/projects/${projectId}/tasks/${taskId}`, { assignee_id: userId })
+      await api.put(`/projects/${projectId}/tasks/${taskId}`, { assignee_ids: userIds })
       void loadTasks(searchQuery, assigneeFilter, false).catch(() => {})
     } catch {
       setTasks(previousTasks)
@@ -260,8 +290,8 @@ export default function KanbanBoard() {
   )
 
   return (
-    <div className="flex h-full min-w-0">
-      <div className="flex-1 min-w-0 overflow-auto">
+    <div className="relative h-full min-w-0">
+      <div className="h-full min-w-0 overflow-auto">
         <div className="surface p-4 mb-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
             <h3 className="section-title">任务看板</h3>
@@ -418,13 +448,26 @@ export default function KanbanBoard() {
         )}
       </div>
 
-      {/* LLM Chat Sheet */}
-      {showChat && (
+      {/* LLM Chat floating window (fixed position — board keeps full width) */}
+      {!isViewer && (
         <LLMChatPanel
           projectId={parseInt(projectId!)}
+          open={showChat}
           onClose={() => setShowChat(false)}
           onActions={handleLLMActions}
         />
+      )}
+
+      {/* Floating trigger when the assistant panel is collapsed */}
+      {!showChat && !isViewer && (
+        <button
+          type="button"
+          onClick={() => setShowChat(true)}
+          aria-label="打开 LLM 助手"
+          className="fixed bottom-6 right-6 z-30 flex h-11 w-11 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-md transition-transform duration-200 hover:scale-105"
+        >
+          <MessageSquare className="h-5 w-5" />
+        </button>
       )}
 
       {/* Create Task Dialog */}

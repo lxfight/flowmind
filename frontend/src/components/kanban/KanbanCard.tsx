@@ -16,7 +16,7 @@ interface Props {
   isDragOverlay?: boolean
   readOnly?: boolean
   onClick?: () => void
-  onAssign?: (userId: number | null) => void
+  onAssign?: (userIds: number[]) => void
 }
 
 const priorityConfig = {
@@ -44,7 +44,12 @@ export function KanbanCard({ task, members, isDragOverlay, readOnly = false, onC
 
   const priority = priorityConfig[task.priority as keyof typeof priorityConfig] || priorityConfig[0]
 
-  const isOverdue = task.due_date && new Date(task.due_date) < new Date() && !isDragOverlay
+  const isOverdue = !!task.due_date && !task.is_completed && new Date(task.due_date) < new Date()
+  const isDueSoon =
+    !!task.due_date &&
+    !task.is_completed &&
+    !isOverdue &&
+    new Date(task.due_date).getTime() - Date.now() <= 24 * 60 * 60 * 1000
 
   const subtaskProgress =
     task.subtask_count > 0
@@ -123,14 +128,21 @@ export function KanbanCard({ task, members, isDragOverlay, readOnly = false, onC
           {onAssign && !isDragOverlay && !readOnly ? (
             <AssigneePicker
               members={members}
-              value={task.assignee?.id || null}
+              value={task.assignees.map((a) => a.id)}
               onChange={onAssign}
               size="sm"
             />
-          ) : task.assignee ? (
+          ) : task.assignees.length > 0 ? (
             <div className="flex items-center gap-1.5 min-w-0">
-              <Avatar name={task.assignee.display_name} src={task.assignee.avatar_url} size="sm" />
-              <span className="text-xs text-muted-foreground truncate max-w-[80px]">{task.assignee.display_name}</span>
+              <div className="flex -space-x-1.5">
+                {task.assignees.slice(0, 3).map((a) => (
+                  <Avatar key={a.id} name={a.display_name} src={a.avatar_url} size="sm" className="ring-1 ring-background" />
+                ))}
+              </div>
+              <span className="text-xs text-muted-foreground truncate max-w-[80px]">
+                {task.assignees[0].display_name}
+                {task.assignees.length > 1 && ` +${task.assignees.length - 1}`}
+              </span>
             </div>
           ) : null}
 
@@ -138,10 +150,15 @@ export function KanbanCard({ task, members, isDragOverlay, readOnly = false, onC
             <span
               className={cn(
                 'tnum flex items-center gap-1 text-xs shrink-0',
-                isOverdue ? 'text-danger font-medium' : 'text-muted-foreground'
+                isOverdue
+                  ? 'text-danger font-medium'
+                  : isDueSoon
+                    ? 'text-warning font-medium'
+                    : 'text-muted-foreground'
               )}
             >
               <Clock className="h-3 w-3" aria-hidden="true" />
+              {isOverdue && <span>已逾期</span>}
               {new Date(task.due_date).toLocaleDateString('zh-CN', {
                 month: 'short',
                 day: 'numeric',

@@ -29,6 +29,9 @@ export default function AdminUsersPage() {
   const currentUser = useAuthStore((s) => s.user)
   const navigate = useNavigate()
   const [users, setUsers] = useState<UserInfo[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 20
   const [loading, setLoading] = useState(true)
   const [actionId, setActionId] = useState<number | null>(null)
 
@@ -37,14 +40,16 @@ export default function AdminUsersPage() {
       navigate('/')
       return
     }
-    loadUsers()
+    loadUsers(1)
   }, [currentUser])
 
-  const loadUsers = async () => {
+  const loadUsers = async (p = page) => {
     setLoading(true)
     try {
-      const res = await api.get('/admin/users')
-      setUsers(res.data)
+      const res = await api.get('/admin/users', { params: { page: p, page_size: PAGE_SIZE } })
+      setUsers(res.data.items)
+      setTotal(res.data.total)
+      setPage(res.data.page)
     } catch {
       toast.error('加载用户列表失败')
     }
@@ -125,7 +130,7 @@ export default function AdminUsersPage() {
   const disabledUsers = users.filter(u => !u.is_active)
 
   return (
-    <div className="max-w-5xl mx-auto h-full overflow-y-auto">
+    <div className="mx-auto h-full w-full max-w-[1600px] overflow-y-auto">
       <PageHeader title="用户管理" description="审批、禁用、重置密码及管理项目创建权限" />
 
         {pendingUsers.length > 0 && (
@@ -270,6 +275,30 @@ export default function AdminUsersPage() {
                 </Card>
               ))}
             </div>
+          </div>
+        )}
+
+        {total > PAGE_SIZE && (
+          <div className="mt-6 flex items-center justify-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page <= 1}
+              onClick={() => loadUsers(page - 1)}
+            >
+              上一页
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              第 {page} / {Math.ceil(total / PAGE_SIZE)} 页（共 {total} 人）
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page >= Math.ceil(total / PAGE_SIZE)}
+              onClick={() => loadUsers(page + 1)}
+            >
+              下一页
+            </Button>
           </div>
         )}
     </div>

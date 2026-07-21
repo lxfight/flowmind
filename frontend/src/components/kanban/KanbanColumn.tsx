@@ -17,7 +17,7 @@ interface Props {
   readOnly?: boolean
   onAddTask: () => void
   onTaskClick: (taskId: number) => void
-  onAssignTask?: (taskId: number, userId: number | null) => void
+  onAssignTask?: (taskId: number, userIds: number[]) => void
 }
 
 export function KanbanColumn({ status, tasks, members, readOnly = false, onAddTask, onTaskClick, onAssignTask }: Props) {
@@ -76,7 +76,7 @@ export function KanbanColumn({ status, tasks, members, readOnly = false, onAddTa
                   members={members}
                   readOnly={readOnly}
                   onClick={() => onTaskClick(task.id)}
-                  onAssign={onAssignTask ? (userId) => onAssignTask(task.id, userId) : undefined}
+                  onAssign={onAssignTask ? (userIds) => onAssignTask(task.id, userIds) : undefined}
                 />
               </motion.div>
             ))}

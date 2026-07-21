@@ -99,7 +99,7 @@ export function KnowledgeQueryDialog({ projectId, onClose }: Props) {
               </CardContent>
             </Card>
 
-            {sources.length > 0 && (
+            {sources.length > 0 ? (
               <div>
                 <h4 className="text-sm font-medium mb-2">参考来源</h4>
                 <div className="space-y-1">
@@ -115,6 +115,10 @@ export function KnowledgeQueryDialog({ projectId, onClose }: Props) {
                     </div>
                   ))}
                 </div>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed border-border px-3 py-2 text-sm text-muted-foreground">
+                知识库中未找到相关内容
               </div>
             )}
           </div>

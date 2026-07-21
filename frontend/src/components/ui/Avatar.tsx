@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { cn } from '../../utils/cn'
 
 export interface AvatarProps {
@@ -18,6 +18,11 @@ const sizes = {
 export function Avatar({ name, src, size = 'md', className }: AvatarProps) {
   const [imageError, setImageError] = useState(false)
   const initial = name?.charAt(0)?.toUpperCase() || '?'
+
+  // Reset error state when the image URL changes (e.g. after re-upload)
+  useEffect(() => {
+    setImageError(false)
+  }, [src])
 
   // Generate a consistent hue based on name
   const hue = name

@@ -12,7 +12,7 @@ import { Textarea } from '../ui/Textarea'
 import { Badge } from '../ui/Badge'
 import api from '../../utils/api'
 import toast from 'react-hot-toast'
-import { FileText, Loader2, Pencil, Trash2 } from 'lucide-react'
+import { FileText, Layers, Loader2, Pencil, RefreshCw, Trash2 } from 'lucide-react'
 
 interface Doc {
   id: number
@@ -20,8 +20,17 @@ interface Doc {
   content: string
   file_type: string
   chunk_count: number
+  status: 'parsing' | 'indexing' | 'indexed' | 'failed'
+  error_message: string | null
   created_at: string
   updated_at: string
+}
+
+interface Chunk {
+  id: number
+  seq: number
+  content: string
+  has_embedding: boolean
 }
 
 interface Props {
@@ -41,6 +50,13 @@ export function KnowledgeDocDialog({ projectId, docId, canEdit, onClose, onUpdat
   const [deleting, setDeleting] = useState(false)
   const [editTitle, setEditTitle] = useState('')
   const [editContent, setEditContent] = useState('')
+  const [reindexing, setReindexing] = useState(false)
+  const [showChunks, setShowChunks] = useState(false)
+  const [chunks, setChunks] = useState<Chunk[]>([])
+  const [chunksTotal, setChunksTotal] = useState(0)
+  const [chunksPage, setChunksPage] = useState(1)
+  const [chunksLoading, setChunksLoading] = useState(false)
+  const CHUNKS_PAGE_SIZE = 20
 
   const loadDoc = async () => {
     setLoading(true)
@@ -61,6 +77,46 @@ export function KnowledgeDocDialog({ projectId, docId, canEdit, onClose, onUpdat
   useEffect(() => {
     loadDoc()
   }, [projectId, docId])
+
+  // Poll while the doc is still being parsed/indexed.
+  useEffect(() => {
+    if (!doc || (doc.status !== 'indexing' && doc.status !== 'parsing')) return
+    const timer = setInterval(() => {
+      loadDoc()
+    }, 3000)
+    return () => clearInterval(timer)
+  }, [doc?.status, projectId, docId])
+
+  const loadChunks = async (page = 1) => {
+    setChunksLoading(true)
+    try {
+      const res = await api.get(`/projects/${projectId}/knowledge/${docId}/chunks`, {
+        params: { page, page_size: CHUNKS_PAGE_SIZE },
+      })
+      setChunks(res.data.items)
+      setChunksTotal(res.data.total)
+      setChunksPage(res.data.page)
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || '加载切片失败')
+    } finally {
+      setChunksLoading(false)
+    }
+  }
+
+  const handleReindex = async () => {
+    if (!doc || reindexing) return
+    setReindexing(true)
+    try {
+      const res = await api.post(`/projects/${projectId}/knowledge/${docId}/reindex`)
+      setDoc(res.data as Doc)
+      onUpdated()
+      toast.success('已开始重建索引')
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || '重建索引失败')
+    } finally {
+      setReindexing(false)
+    }
+  }
 
   const handleSave = async () => {
     if (!doc || !editTitle.trim() || saving) return
@@ -132,6 +188,17 @@ export function KnowledgeDocDialog({ projectId, docId, canEdit, onClose, onUpdat
           </div>
         ) : doc ? (
           <div className="space-y-4">
+            {doc.status === 'failed' && (
+              <div className="rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger">
+                索引失败{doc.error_message ? `：${doc.error_message}` : ''}
+              </div>
+            )}
+            {(doc.status === 'indexing' || doc.status === 'parsing') && (
+              <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/50 p-3 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                正在索引，完成后将自动更新…
+              </div>
+            )}
             {isEditing ? (
               <>
                 <Input
@@ -155,6 +222,65 @@ export function KnowledgeDocDialog({ projectId, docId, canEdit, onClose, onUpdat
                 <h3 className="text-lg font-semibold">{doc.title}</h3>
                 <div className="rounded-lg border border-border bg-muted/30 p-4">
                   <pre className="whitespace-pre-wrap text-sm text-foreground font-mono leading-relaxed">{doc.content || '（无内容）'}</pre>
+                </div>
+                <div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => {
+                      const next = !showChunks
+                      setShowChunks(next)
+                      if (next && chunks.length === 0) loadChunks(1)
+                    }}
+                  >
+                    <Layers className="h-4 w-4" />
+                    {showChunks ? '收起切片' : `查看切片（${doc.chunk_count}）`}
+                  </Button>
+                  {showChunks && (
+                    <div className="mt-3 space-y-2">
+                      {chunksLoading ? (
+                        <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          加载切片中...
+                        </div>
+                      ) : chunks.length === 0 ? (
+                        <p className="py-2 text-sm text-muted-foreground">暂无切片</p>
+                      ) : (
+                        <>
+                          {chunks.map((c) => (
+                            <div key={c.id} className="rounded-lg border border-border bg-muted/30 p-3">
+                              <div className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
+                                <span>#{c.seq}</span>
+                                <Badge variant="secondary" className="text-[10px] h-4 px-1">
+                                  {c.has_embedding ? '已向量化' : '纯文本'}
+                                </Badge>
+                              </div>
+                              <pre className="whitespace-pre-wrap text-sm text-foreground font-mono leading-relaxed">{c.content}</pre>
+                            </div>
+                          ))}
+                          {chunksTotal > CHUNKS_PAGE_SIZE && (
+                            <div className="flex items-center justify-center gap-3 pt-1">
+                              <Button variant="outline" size="sm" disabled={chunksPage <= 1} onClick={() => loadChunks(chunksPage - 1)}>
+                                上一页
+                              </Button>
+                              <span className="text-xs text-muted-foreground">
+                                第 {chunksPage} / {Math.ceil(chunksTotal / CHUNKS_PAGE_SIZE)} 页
+                              </span>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={chunksPage >= Math.ceil(chunksTotal / CHUNKS_PAGE_SIZE)}
+                                onClick={() => loadChunks(chunksPage + 1)}
+                              >
+                                下一页
+                              </Button>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               </>
             )}
@@ -186,6 +312,16 @@ export function KnowledgeDocDialog({ projectId, docId, canEdit, onClose, onUpdat
                     删除
                   </Button>
                   <div className="hidden sm:block flex-1" />
+                  <Button
+                    variant="outline"
+                    onClick={handleReindex}
+                    disabled={reindexing || doc.status === 'indexing' || doc.status === 'parsing'}
+                    loading={reindexing}
+                    className="gap-1.5"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    重建索引
+                  </Button>
                   <Button
                     variant="outline"
                     onClick={() => setIsEditing(true)}

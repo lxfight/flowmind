@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Calendar,
   AlertCircle,
@@ -12,10 +12,15 @@ import {
   AlertTriangle,
   RotateCcw,
   Trash2,
+  Sparkles,
+  Paperclip,
+  Download,
 } from 'lucide-react'
 import api from '../../utils/api'
 import toast from 'react-hot-toast'
+import { useAuthStore } from '../../stores/authStore'
 import { useProjectRole } from '../../hooks/useProjectRole'
+import { useProjectSocket } from '../../hooks/useProjectSocket'
 import {
   Dialog,
   DialogDescription,
@@ -30,7 +35,7 @@ import { Select } from '../ui/Select'
 import { Badge } from '../ui/Badge'
 import { Separator } from '../ui/Separator'
 import { AssigneePicker } from './AssigneePicker'
-import type { MemberOption, StatusOption, TaskDetail } from '../../types'
+import type { MemberOption, StatusOption, TaskAttachment, TaskDetail } from '../../types'
 
 interface Props {
   taskId: number
@@ -49,6 +54,7 @@ const priorityOptions = [
 ]
 
 export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdated }: Props) {
+  const currentUser = useAuthStore((s) => s.user)
   const userRole = useProjectRole()
   const isViewer = userRole === 'viewer'
   const canDelete = userRole === 'owner' || userRole === 'admin'
@@ -62,8 +68,20 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('')
   const [addingSubtask, setAddingSubtask] = useState(false)
   const [addingComment, setAddingComment] = useState(false)
+  const [editingCommentId, setEditingCommentId] = useState<number | null>(null)
+  const [editingCommentContent, setEditingCommentContent] = useState('')
+  const [savingComment, setSavingComment] = useState(false)
+  const [deletingCommentId, setDeletingCommentId] = useState<number | null>(null)
+  const [suggestingStatus, setSuggestingStatus] = useState(false)
   const [completing, setCompleting] = useState(false)
   const [deleting, setDeleting] = useState(false)
+
+  // Attachments
+  const [attachments, setAttachments] = useState<TaskAttachment[]>([])
+  const [uploadingAttachment, setUploadingAttachment] = useState(false)
+  const [deletingAttachmentId, setDeletingAttachmentId] = useState<number | null>(null)
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null)
+  const wsRefreshRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Edit mode state
   const [isEditing, setIsEditing] = useState(false)
@@ -104,6 +122,71 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
     }
   }, [refreshTask])
 
+  const loadAttachments = useCallback(async () => {
+    try {
+      const res = await api.get(`/projects/${projectId}/tasks/${taskId}/attachments`)
+      setAttachments(res.data)
+    } catch {
+      setAttachments([])
+    }
+  }, [projectId, taskId])
+
+  const handleUploadAttachment = async (file: File) => {
+    if (uploadingAttachment) return
+    if (file.size > 20 * 1024 * 1024) {
+      toast.error('附件大小不能超过 20MB')
+      return
+    }
+    setUploadingAttachment(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      await api.post(`/projects/${projectId}/tasks/${taskId}/attachments`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      await loadAttachments()
+      toast.success('附件已上传')
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || '附件上传失败')
+    } finally {
+      setUploadingAttachment(false)
+      if (attachmentInputRef.current) attachmentInputRef.current.value = ''
+    }
+  }
+
+  const handleDownloadAttachment = async (attachment: TaskAttachment) => {
+    try {
+      const res = await api.get(
+        `/projects/${projectId}/tasks/${taskId}/attachments/${attachment.id}/download`,
+        { responseType: 'blob' },
+      )
+      const url = URL.createObjectURL(res.data as Blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = attachment.filename
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error('附件下载失败')
+    }
+  }
+
+  const handleDeleteAttachment = async (attachment: TaskAttachment) => {
+    if (!confirm(`确定删除附件「${attachment.filename}」？`)) return
+    setDeletingAttachmentId(attachment.id)
+    try {
+      await api.delete(`/projects/${projectId}/tasks/${taskId}/attachments/${attachment.id}`)
+      await loadAttachments()
+      toast.success('附件已删除')
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || '删除附件失败')
+    } finally {
+      setDeletingAttachmentId(null)
+    }
+  }
+
   const loadMembers = useCallback(async () => {
     setMembersError(false)
     try {
@@ -119,7 +202,26 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
   useEffect(() => {
     loadTaskDetail()
     loadMembers()
-  }, [loadTaskDetail, loadMembers])
+    loadAttachments()
+    return () => {
+      if (wsRefreshRef.current) clearTimeout(wsRefreshRef.current)
+    }
+  }, [loadTaskDetail, loadMembers, loadAttachments])
+
+  // Real-time sync: refresh this dialog when other clients touch the task.
+  useProjectSocket(projectId, (event) => {
+    if (event.actor_id && event.actor_id === currentUser?.id) return
+    const payload = (event.payload || {}) as { task_id?: number }
+    const isTaskEvent = ['task_updated', 'task_moved', 'task_deleted'].includes(event.type)
+    const isChildEvent = ['comment_created', 'comment_updated', 'comment_deleted', 'attachment_added', 'attachment_deleted'].includes(event.type)
+    if ((isTaskEvent && payload.task_id === taskId) || (isChildEvent && payload.task_id === taskId)) {
+      if (wsRefreshRef.current) clearTimeout(wsRefreshRef.current)
+      wsRefreshRef.current = setTimeout(() => {
+        void refreshTask().catch(() => {})
+        void loadAttachments().catch(() => {})
+      }, 300)
+    }
+  })
 
   const handleAddComment = async () => {
     if (!newComment.trim() || !task || addingComment) return
@@ -132,6 +234,63 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
       toast.error('发送评论失败')
     } finally {
       setAddingComment(false)
+    }
+  }
+
+  const handleEditComment = async (commentId: number) => {
+    if (!editingCommentContent.trim() || savingComment) return
+    setSavingComment(true)
+    try {
+      await api.patch(`/projects/${projectId}/tasks/${taskId}/comments/${commentId}`, {
+        content: editingCommentContent.trim(),
+      })
+      setEditingCommentId(null)
+      setEditingCommentContent('')
+      await refreshTask()
+      toast.success('评论已更新')
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || '更新评论失败')
+    } finally {
+      setSavingComment(false)
+    }
+  }
+
+  const handleDeleteComment = async (commentId: number) => {
+    if (!confirm('确定删除这条评论？')) return
+    setDeletingCommentId(commentId)
+    try {
+      await api.delete(`/projects/${projectId}/tasks/${taskId}/comments/${commentId}`)
+      await refreshTask()
+      toast.success('评论已删除')
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || '删除评论失败')
+    } finally {
+      setDeletingCommentId(null)
+    }
+  }
+
+  const handleSuggestStatus = async () => {
+    if (!editTitle.trim() || suggestingStatus) return
+    setSuggestingStatus(true)
+    try {
+      const res = await api.post('/llm/suggest-status', null, {
+        params: {
+          project_id: projectId,
+          task_title: editTitle.trim(),
+          task_description: editDescription,
+        },
+      })
+      const { suggested_status, suggested_name } = res.data
+      if (suggested_status) {
+        setEditStatusId(suggested_status)
+        toast.success(`AI 建议移动到「${suggested_name}」，已为你选中`)
+      } else {
+        toast.error('AI 未能给出状态建议')
+      }
+    } catch {
+      toast.error('获取 AI 状态建议失败')
+    } finally {
+      setSuggestingStatus(false)
     }
   }
 
@@ -149,11 +308,11 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
     }
   }
 
-  const handleAssigneeChange = async (userId: number | null) => {
+  const handleAssigneeChange = async (userIds: number[]) => {
     if (!task) return
     setUpdatingAssignee(true)
     try {
-      await api.put(`/projects/${projectId}/tasks/${taskId}`, { assignee_id: userId })
+      await api.put(`/projects/${projectId}/tasks/${taskId}`, { assignee_ids: userIds })
       await refreshTask()
       onUpdated()
     } catch {
@@ -329,6 +488,18 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
                       <option key={s.id} value={s.id}>{s.name}</option>
                     ))}
                   </Select>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSuggestStatus}
+                    disabled={suggestingStatus || saving || !editTitle.trim()}
+                    loading={suggestingStatus}
+                    className="h-8 gap-1 text-xs"
+                    title="让 AI 根据任务标题和描述建议状态列"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    AI 建议状态
+                  </Button>
                   <Input
                     type="date"
                     value={editDueDate}
@@ -347,7 +518,7 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
                   )}
                   <AssigneePicker
                     members={members}
-                    value={task.assignee?.id || null}
+                    value={task.assignees.map((a) => a.id)}
                     onChange={handleAssigneeChange}
                     disabled={updatingAssignee || isEditing || isViewer}
                   />
@@ -466,6 +637,91 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
 
         <Separator />
 
+        {/* Attachments */}
+        <div className="space-y-3">
+          <h4 className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+            <Paperclip className="h-4 w-4" />
+            附件 ({attachments.length})
+          </h4>
+          <div className="space-y-1.5">
+            {attachments.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-2">暂无附件</p>
+            ) : (
+              attachments.map((a) => {
+                const canDeleteAttachment =
+                  a.uploader_id === currentUser?.id || canDelete || currentUser?.is_superuser
+                return (
+                  <div
+                    key={a.id}
+                    className="group flex items-center gap-3 rounded-lg border border-border p-2.5"
+                  >
+                    <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-foreground truncate">{a.filename}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {a.size < 1024 * 1024
+                          ? `${(a.size / 1024).toFixed(1)} KB`
+                          : `${(a.size / 1024 / 1024).toFixed(1)} MB`}
+                        {' · '}
+                        {new Date(a.created_at).toLocaleString('zh-CN')}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadAttachment(a)}
+                      className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-accent"
+                      aria-label="下载附件"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                    </button>
+                    {canDeleteAttachment && !isViewer && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteAttachment(a)}
+                        disabled={deletingAttachmentId === a.id}
+                        className="rounded p-1 text-muted-foreground hover:text-danger hover:bg-danger/10"
+                        aria-label="删除附件"
+                      >
+                        {deletingAttachmentId === a.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                    )}
+                  </div>
+                )
+              })
+            )}
+          </div>
+          {!isViewer && (
+            <div>
+              <input
+                ref={attachmentInputRef}
+                type="file"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) void handleUploadAttachment(file)
+                }}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => attachmentInputRef.current?.click()}
+                disabled={uploadingAttachment}
+                loading={uploadingAttachment}
+                className="gap-1.5"
+              >
+                <Paperclip className="h-4 w-4" />
+                上传附件（最大 20MB）
+              </Button>
+            </div>
+          )}
+        </div>
+
+        <Separator />
+
         {/* Comments */}
         <div className="space-y-3">
           <h4 className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
@@ -476,17 +732,90 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
             {(task.comments || []).length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-4">暂无评论</p>
             ) : (
-              task.comments!.map((c) => (
-                <div key={c.id} className="rounded-lg border border-border bg-muted/30 p-3">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs font-medium">{c.user?.display_name}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {new Date(c.created_at).toLocaleString('zh-CN')}
-                    </span>
+              task.comments!.map((c) => {
+                const isOwn = currentUser?.id === c.user_id
+                const canDeleteComment = isOwn || canDelete || currentUser?.is_superuser
+                const isEditingComment = editingCommentId === c.id
+                return (
+                  <div key={c.id} className="group rounded-lg border border-border bg-muted/30 p-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-medium">{c.user?.display_name}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(c.created_at).toLocaleString('zh-CN')}
+                      </span>
+                      {c.updated_at && c.updated_at !== c.created_at && (
+                        <span className="text-xs text-muted-foreground/70">（已编辑）</span>
+                      )}
+                      {(isOwn || canDeleteComment) && !isViewer && !isEditingComment && (
+                        <span className="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {isOwn && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingCommentId(c.id)
+                                setEditingCommentContent(c.content)
+                              }}
+                              className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-accent"
+                              aria-label="编辑评论"
+                            >
+                              <Edit2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                          {canDeleteComment && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteComment(c.id)}
+                              disabled={deletingCommentId === c.id}
+                              className="rounded p-1 text-muted-foreground hover:text-danger hover:bg-danger/10"
+                              aria-label="删除评论"
+                            >
+                              {deletingCommentId === c.id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-3.5 w-3.5" />
+                              )}
+                            </button>
+                          )}
+                        </span>
+                      )}
+                    </div>
+                    {isEditingComment ? (
+                      <div className="space-y-2">
+                        <Textarea
+                          rows={3}
+                          value={editingCommentContent}
+                          onChange={(e) => setEditingCommentContent(e.target.value)}
+                          disabled={savingComment}
+                          className="text-sm"
+                        />
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setEditingCommentId(null)
+                              setEditingCommentContent('')
+                            }}
+                            disabled={savingComment}
+                          >
+                            取消
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() => handleEditComment(c.id)}
+                            disabled={savingComment || !editingCommentContent.trim()}
+                            loading={savingComment}
+                          >
+                            保存
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-foreground whitespace-pre-wrap">{c.content}</p>
+                    )}
                   </div>
-                  <p className="text-sm text-foreground">{c.content}</p>
-                </div>
-              ))
+                )
+              })
             )}
           </div>
           {!isViewer && (

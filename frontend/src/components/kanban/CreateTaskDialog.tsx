@@ -26,7 +26,8 @@ interface Props {
     description: string
     status_id: number
     priority: number
-    assignee_id?: number | null
+    assignee_ids?: number[]
+    due_date?: string | null
   }) => Promise<void> | void
 }
 
@@ -35,7 +36,8 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose
   const [description, setDescription] = useState('')
   const [statusId, setStatusId] = useState(defaultStatusId || statuses[0]?.id || 0)
   const [priority, setPriority] = useState(0)
-  const [assigneeId, setAssigneeId] = useState<number | null>(null)
+  const [assigneeIds, setAssigneeIds] = useState<number[]>([])
+  const [dueDate, setDueDate] = useState('')
   const [members, setMembers] = useState<MemberOption[]>([])
   const [llmOpen, setLlmOpen] = useState(false)
   const [llmInstruction, setLlmInstruction] = useState('')
@@ -54,7 +56,14 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose
     if (!title.trim() || manualSubmitting) return
     setManualSubmitting(true)
     try {
-      await onCreate({ title: title.trim(), description, status_id: statusId, priority, assignee_id: assigneeId })
+      await onCreate({
+        title: title.trim(),
+        description,
+        status_id: statusId,
+        priority,
+        assignee_ids: assigneeIds,
+        due_date: dueDate ? new Date(`${dueDate}T23:59:59`).toISOString() : null,
+      })
       toast.success('任务已创建')
       onClose()
     } catch (err: any) {
@@ -301,8 +310,18 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose
             <label className="text-sm font-medium">指派人</label>
             <AssigneePicker
               members={members}
-              value={assigneeId}
-              onChange={setAssigneeId}
+              value={assigneeIds}
+              onChange={setAssigneeIds}
+              disabled={isBusy}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">截止日期</label>
+            <Input
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
               disabled={isBusy}
             />
           </div>

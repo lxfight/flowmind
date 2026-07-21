@@ -140,7 +140,7 @@ export default function ProjectMembersPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="mx-auto w-full max-w-[1600px]">
       <PageHeader
         title="项目成员"
         description="管理项目成员及其权限"
