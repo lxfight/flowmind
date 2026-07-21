@@ -20,6 +20,8 @@ interface Doc {
   content: string
   file_type: string
   chunk_count: number
+  status: 'parsing' | 'indexing' | 'indexed' | 'failed'
+  error_message: string | null
   created_at: string
 }
 
@@ -28,6 +30,9 @@ export default function KnowledgePage() {
   const userRole = useProjectRole()
   const canManageDocs = userRole !== 'viewer'
   const [docs, setDocs] = useState<Doc[]>([])
+  const [docsTotal, setDocsTotal] = useState(0)
+  const [docsPage, setDocsPage] = useState(1)
+  const DOCS_PAGE_SIZE = 20
   const [showCreate, setShowCreate] = useState(false)
   const [showQuery, setShowQuery] = useState(false)
   const [selectedDocId, setSelectedDocId] = useState<number | null>(null)
@@ -41,24 +46,42 @@ export default function KnowledgePage() {
   const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const loadDocs = useCallback(async () => {
+  const loadDocs = useCallback(async (page = docsPage, silent = false) => {
     if (!projectId) return
-    setDocsLoading(true)
-    setDocsError(null)
-    try {
-      const res = await api.get(`/projects/${projectId}/knowledge`)
-      setDocs(res.data)
-    } catch (err: any) {
-      setDocsError('知识库加载失败')
-      toast.error(err.response?.data?.detail || '加载知识库失败')
-    } finally {
-      setDocsLoading(false)
+    if (!silent) {
+      setDocsLoading(true)
+      setDocsError(null)
     }
-  }, [projectId])
+    try {
+      const res = await api.get(`/projects/${projectId}/knowledge`, {
+        params: { page, page_size: DOCS_PAGE_SIZE },
+      })
+      setDocs(res.data.items)
+      setDocsTotal(res.data.total)
+      setDocsPage(res.data.page)
+    } catch (err: any) {
+      if (!silent) {
+        setDocsError('知识库加载失败')
+        toast.error(err.response?.data?.detail || '加载知识库失败')
+      }
+    } finally {
+      if (!silent) setDocsLoading(false)
+    }
+  }, [projectId, docsPage])
 
   useEffect(() => {
     loadDocs()
   }, [loadDocs])
+
+  // Poll while any doc is still being parsed/indexed.
+  useEffect(() => {
+    const hasUnsettled = docs.some((d) => d.status === 'indexing' || d.status === 'parsing')
+    if (!hasUnsettled) return
+    const timer = setInterval(() => {
+      loadDocs(docsPage, true)
+    }, 3000)
+    return () => clearInterval(timer)
+  }, [docs, docsPage, loadDocs])
 
   const resetCreate = () => {
     setNewTitle('')
@@ -75,7 +98,7 @@ export default function KnowledgePage() {
         content: newContent,
       })
       resetCreate()
-      toast.success('文档已添加')
+      toast.success('文档已添加，已开始索引')
       await loadDocs()
     } catch (err: any) {
       toast.error(err.response?.data?.detail || '保存失败')
@@ -99,22 +122,21 @@ export default function KnowledgePage() {
     }
   }
 
-  const handleFileUpload = async (file: File) => {
+  const handleFileUpload = useCallback(async (file: File) => {
     if (!projectId) return
     setUploading(true)
     try {
       const formData = new FormData()
       formData.append('file', file)
       const res = await api.post(`/projects/${projectId}/knowledge/upload`, formData)
-      const chunkCount = res.data?.chunk_count
-      toast.success(chunkCount ? `文件已上传并入库，共 ${chunkCount} 个片段` : '文件已上传并入库')
+      toast.success(res.data?.title ? `「${res.data.title}」已上传，已开始索引` : '文件已上传，已开始索引')
       await loadDocs()
     } catch (err: any) {
       toast.error(err.response?.data?.detail || '文件上传失败')
     } finally {
       setUploading(false)
     }
-  }
+  }, [projectId, loadDocs])
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -142,7 +164,7 @@ export default function KnowledgePage() {
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       handleFileUpload(e.dataTransfer.files[0])
     }
-  }, [projectId])
+  }, [handleFileUpload])
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -152,7 +174,7 @@ export default function KnowledgePage() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto h-full">
+    <div className="mx-auto h-full w-full max-w-[2000px]">
       <div className="flex items-center justify-between mb-6">
         <h3 className="section-title">知识库</h3>
         <div className="flex items-center gap-2">
@@ -213,7 +235,7 @@ export default function KnowledgePage() {
             {uploading ? (
               <>
                 <Loader2 className="h-8 w-8 text-primary animate-spin" />
-                <p className="text-sm text-foreground">正在解析文件...</p>
+                <p className="text-sm text-foreground">正在上传文件...</p>
               </>
             ) : (
               <>
@@ -271,7 +293,7 @@ export default function KnowledgePage() {
         <Card className="p-12 text-center">
           <AlertCircle className="mx-auto h-10 w-10 text-danger mb-4" />
           <p className="text-sm text-foreground mb-4">{docsError}</p>
-          <Button variant="outline" size="sm" onClick={loadDocs} className="gap-1.5">
+          <Button variant="outline" size="sm" onClick={() => loadDocs()} className="gap-1.5">
             <RefreshCw className="h-4 w-4" />
             重试
           </Button>
@@ -311,6 +333,24 @@ export default function KnowledgePage() {
                     <Badge variant="secondary" className="text-[10px] h-5 px-1.5 flex-shrink-0">
                       .{doc.file_type}
                     </Badge>
+                    {doc.status === 'indexing' || doc.status === 'parsing' ? (
+                      <Badge variant="secondary" className="text-[10px] h-5 px-1.5 flex-shrink-0 gap-1">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        索引中
+                      </Badge>
+                    ) : doc.status === 'failed' ? (
+                      <Badge
+                        variant="secondary"
+                        className="text-[10px] h-5 px-1.5 flex-shrink-0 text-danger border-danger/30 bg-danger/10 cursor-help"
+                        title={doc.error_message || '索引失败'}
+                      >
+                        失败
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary" className="text-[10px] h-5 px-1.5 flex-shrink-0 text-green-600 border-green-600/30 bg-green-600/10">
+                        已索引
+                      </Badge>
+                    )}
                   </div>
                   <p className="text-sm text-muted-foreground line-clamp-2">{doc.content}</p>
                   <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
@@ -340,6 +380,29 @@ export default function KnowledgePage() {
               </CardContent>
             </Card>
           ))}
+          {docsTotal > DOCS_PAGE_SIZE && (
+            <div className="flex items-center justify-center gap-3 pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={docsPage <= 1}
+                onClick={() => loadDocs(docsPage - 1)}
+              >
+                上一页
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                第 {docsPage} / {Math.ceil(docsTotal / DOCS_PAGE_SIZE)} 页（共 {docsTotal} 篇）
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={docsPage >= Math.ceil(docsTotal / DOCS_PAGE_SIZE)}
+                onClick={() => loadDocs(docsPage + 1)}
+              >
+                下一页
+              </Button>
+            </div>
+          )}
         </div>
       )}
 

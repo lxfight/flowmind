@@ -18,6 +18,8 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+      - run: npm run lint
+      - run: npm run test
       - run: npm run build
 
   backend:
@@ -58,3 +60,38 @@ jobs:
           assert client.get("/api/health").status_code == 200
           assert client.get("/openapi.json").status_code == 200
           PY
+
+  # Manual e2e/smoke scripts in backend/tests_e2e/. Each script is
+  # self-contained: it creates its own temporary SQLite database; the three
+  # API scripts run against an in-process FastAPI TestClient, and
+  # ws_smoke_test starts its own uvicorn server on 127.0.0.1:8765. No LLM
+  # API key is required. This job is non-blocking (continue-on-error) so a
+  # failure is visible in the check list but never blocks PRs.
+  e2e-smoke:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DATABASE_URL: sqlite+aiosqlite:///./ci-e2e.db
+      JWT_SECRET: ci-e2e-secret
+      FLOWMIND_ADMIN_PASSWORD: adminpass
+      LLM_API_KEY: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e .
+      - name: Run e2e smoke scripts
+        run: |
+          set -o pipefail
+          failed=0
+          for script in test_due_date_e2e test_notifications_e2e test_task_search_e2e test_agent_undo_e2e ws_smoke_test; do
+            echo "=== tests_e2e.$script ==="
+            python -m "tests_e2e.$script" || failed=1
+          done
+          exit "$failed"
