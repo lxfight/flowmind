@@ -383,7 +383,8 @@ async def test_undo_by_non_owner_rejected(client):
         chat_id = await _make_undoable_session(project_id, user.id, "batch-owner")
 
         resp = client.post(f"/api/llm/sessions/{chat_id}/undo", headers=other_headers)
-        assert resp.status_code == 403
+        # 404 (not 403): non-owners must not learn that the session exists
+        assert resp.status_code == 404
     finally:
         await session.close()
 

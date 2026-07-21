@@ -302,7 +302,8 @@ async def get_session(
     if not session:
         raise HTTPException(status_code=404, detail="会话不存在")
     if session.user_id != current_user.id and not current_user.is_superuser:
-        raise HTTPException(status_code=403, detail="无权访问此会话")
+        # 404 rather than 403: do not leak the existence of others' sessions
+        raise HTTPException(status_code=404, detail="会话不存在")
     await ensure_project_member(session.project_id, current_user, db)
     return session
 
@@ -321,7 +322,7 @@ async def update_session(
     if not session:
         raise HTTPException(status_code=404, detail="会话不存在")
     if session.user_id != current_user.id and not current_user.is_superuser:
-        raise HTTPException(status_code=403, detail="无权修改此会话")
+        raise HTTPException(status_code=404, detail="会话不存在")  # 不泄露他人会话存在性
     await ensure_project_member(session.project_id, current_user, db)
     session.title = data.title
     await db.flush()
@@ -342,7 +343,7 @@ async def delete_session(
     if not session:
         raise HTTPException(status_code=404, detail="会话不存在")
     if session.user_id != current_user.id and not current_user.is_superuser:
-        raise HTTPException(status_code=403, detail="无权删除此会话")
+        raise HTTPException(status_code=404, detail="会话不存在")  # 不泄露他人会话存在性
     await ensure_project_member(session.project_id, current_user, db)
     await db.delete(session)
     return {"message": "会话已删除"}
@@ -369,7 +370,7 @@ async def undo_agent_actions(
     if not session:
         raise HTTPException(status_code=404, detail="会话不存在")
     if session.user_id != current_user.id and not current_user.is_superuser:
-        raise HTTPException(status_code=403, detail="无权操作此会话")
+        raise HTTPException(status_code=404, detail="会话不存在")  # 不泄露他人会话存在性
     await ensure_project_member(session.project_id, current_user, db)
 
     # Most recent assistant message with a batch that is not yet undone and
@@ -422,7 +423,8 @@ async def _resolve_chat_session(
         if not session:
             raise HTTPException(status_code=404, detail="会话不存在")
         if session.user_id != current_user.id and not current_user.is_superuser:
-            raise HTTPException(status_code=403, detail="无权访问此会话")
+            # 404 rather than 403: do not leak the existence of others' sessions
+            raise HTTPException(status_code=404, detail="会话不存在")
         if session.project_id != request.project_id:
             raise HTTPException(status_code=403, detail="会话不属于该项目")
     else:
