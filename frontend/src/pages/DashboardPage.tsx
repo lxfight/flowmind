@@ -24,15 +24,15 @@ interface ProjectStat {
 }
 
 export default function DashboardPage() {
-  const { projects, setProjects, setCurrentProject } = useProjectStore()
+  const { projects, setProjects, setCurrentProject, loaded: projectsLoaded } = useProjectStore()
   const user = useAuthStore((s) => s.user)
   const [showCreate, setShowCreate] = useState(false)
-  const [loading, setLoading] = useState(false)
+  const [statsLoading, setStatsLoading] = useState(false)
   const [stats, setStats] = useState<Record<number, ProjectStat>>({})
   const navigate = useNavigate()
 
   useEffect(() => {
-    setLoading(true)
+    setStatsLoading(true)
     api.get('/projects/stats')
       .then((statsRes) => {
         const map: Record<number, ProjectStat> = {}
@@ -40,7 +40,7 @@ export default function DashboardPage() {
         setStats(map)
       })
       .catch(() => toast.error('加载失败'))
-      .finally(() => setLoading(false))
+      .finally(() => setStatsLoading(false))
   }, [])
 
   const handleCreateProject = async (data: { name: string; description: string; color: string }) => {
@@ -70,7 +70,7 @@ export default function DashboardPage() {
         }
       />
 
-      {loading ? (
+      {statsLoading || !projectsLoaded ? (
         <Card className="p-12 text-center">
           <RefreshCw className="mx-auto h-8 w-8 text-primary animate-spin mb-4" />
           <p className="body-text">加载项目列表...</p>

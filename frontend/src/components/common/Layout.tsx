@@ -1,20 +1,20 @@
-import { Outlet, useNavigate } from 'react-router-dom'
+import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect } from 'react'
 import { useAuthStore } from '../../stores/authStore'
 import { useProjectStore } from '../../stores/projectStore'
 import { AppShell } from '../layout/AppShell'
-import api from '../../utils/api'
 
 export default function Layout() {
   const { user, logout } = useAuthStore()
-  const { projects, currentProject, setProjects } = useProjectStore()
+  const { currentProject, loadProjects } = useProjectStore()
   const navigate = useNavigate()
+  const { pathname } = useLocation()
 
+  // Refetch on every route change so membership/project changes made
+  // elsewhere are reflected, without polling.
   useEffect(() => {
-    if (projects.length === 0) {
-      api.get('/projects').then((res) => setProjects(res.data))
-    }
-  }, [setProjects, projects.length])
+    void loadProjects()
+  }, [pathname, loadProjects])
 
   const handleLogout = () => {
     logout()
