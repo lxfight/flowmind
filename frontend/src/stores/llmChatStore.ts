@@ -40,6 +40,8 @@ interface LLMChatState {
   error: string | null
   /** Draft input text (example prompts can prefill it) */
   draft: string
+  /** Project the loaded session list belongs to (sessions are per user+project) */
+  sessionsProjectId: number | null
 
   loadSessions: (projectId: number) => Promise<void>
   createSession: (projectId: number, title?: string) => Promise<number>
@@ -57,6 +59,8 @@ interface LLMChatState {
   undoBatch: (sessionId: number, batchId: string) => Promise<UndoResult | null>
   setDraft: (draft: string) => void
   clearError: () => void
+  /** Clear all chat state (user switch / logout) */
+  reset: () => void
 }
 
 let abortController: AbortController | null = null
@@ -106,11 +110,24 @@ export const useLLMChatStore = create<LLMChatState>((set, get) => ({
   streaming: false,
   error: null,
   draft: '',
+  sessionsProjectId: null,
 
   loadSessions: async (projectId) => {
+    // Sessions are scoped to (user, project): when the project changes, drop
+    // the previous project's list and selection before loading the new one.
+    if (get().sessionsProjectId !== projectId) {
+      set({ sessions: [], currentSessionId: null, messages: [], sessionsProjectId: projectId })
+    }
     try {
       const res = await api.get('/llm/sessions', { params: { project_id: projectId } })
-      set({ sessions: res.data as ChatSession[] })
+      const sessions = res.data as ChatSession[]
+      set((state) => ({
+        sessions,
+        // Drop a stale selection that is not part of this project (anymore)
+        currentSessionId: sessions.some((s) => s.id === state.currentSessionId)
+          ? state.currentSessionId
+          : null,
+      }))
     } catch {
       set({ error: '加载会话列表失败' })
     }
@@ -349,4 +366,28 @@ export const useLLMChatStore = create<LLMChatState>((set, get) => ({
   setDraft: (draft) => set({ draft }),
 
   clearError: () => set({ error: null }),
+
+  reset: () => {
+    abortController?.abort()
+    abortController = null
+    set({
+      sessions: [],
+      currentSessionId: null,
+      messages: [],
+      loading: false,
+      streaming: false,
+      error: null,
+      draft: '',
+      sessionsProjectId: null,
+    })
+  },
 }))
+
+// Chat history is private to the authenticated user: whenever the token
+// changes (login as another user / logout), drop all cached chat state so
+// the previous user's sessions never flash on screen.
+useAuthStore.subscribe((state, prev) => {
+  if (state.token !== prev.token) {
+    useLLMChatStore.getState().reset()
+  }
+})
