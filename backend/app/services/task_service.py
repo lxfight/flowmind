@@ -1,6 +1,5 @@
 import contextvars
 import json
-import re
 from datetime import UTC, datetime
 
 from fastapi import HTTPException
@@ -35,6 +34,7 @@ from app.schemas import (
     TaskStatusUpdate,
     TaskUpdate,
 )
+from app.services.mention_service import notify_mentions
 
 # ---------------------------------------------------------------------------
 # Agent action batching (undo support)
@@ -559,30 +559,16 @@ async def add_comment(
     actor_name = user.display_name or user.username
     link = _board_link(project_id)
     excerpt = data.content.strip().replace("\n", " ")[:100]
-    mentioned_usernames = set(re.findall(r"@([A-Za-z0-9_.-]+)", data.content))
-    mentioned_ids: set[int] = set()
-    if mentioned_usernames:
-        # Only resolve mentions to members of this project
-        result = await db.execute(
-            select(User)
-            .join(ProjectMember, ProjectMember.user_id == User.id)
-            .where(
-                User.username.in_(mentioned_usernames),
-                ProjectMember.project_id == project_id,
-            )
-        )
-        for mentioned in result.scalars().all():
-            if mentioned.id == user.id:
-                continue
-            mentioned_ids.add(mentioned.id)
-            await create_notification(
-                db,
-                user_id=mentioned.id,
-                type="mention",
-                title=f"{actor_name} 在评论中提到了你",
-                body=f"任务「{task.title}」：{excerpt}",
-                link=link,
-            )
+    # Only resolves mentions to members of this project; actor is skipped.
+    mentioned_ids = await notify_mentions(
+        db,
+        project_id=project_id,
+        actor=user,
+        text=data.content,
+        title=f"{actor_name} 在评论中提到了你",
+        body=f"任务「{task.title}」：{excerpt}",
+        link=link,
+    )
 
     recipients: set[int] = {u.id for u in task.assignees}
     creator_id = await _get_task_creator_id(task_id, db)
