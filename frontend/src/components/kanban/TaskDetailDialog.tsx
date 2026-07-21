@@ -8,7 +8,6 @@ import {
   Loader2,
   Edit2,
   Save,
-  X,
   AlertTriangle,
   RotateCcw,
   Trash2,
@@ -35,6 +34,7 @@ import { Select } from '../ui/Select'
 import { Badge } from '../ui/Badge'
 import { Separator } from '../ui/Separator'
 import { AssigneePicker } from './AssigneePicker'
+import { cn } from '../../utils/cn'
 import type { MemberOption, StatusOption, TaskAttachment, TaskDetail } from '../../types'
 
 interface Props {
@@ -52,6 +52,9 @@ const priorityOptions = [
   { value: 3, label: '高', variant: 'danger' as const },
   { value: 4, label: '紧急', variant: 'danger' as const },
 ]
+
+/** Consistent section header style across description/subtasks/attachments/comments */
+const SECTION_TITLE = 'text-xs font-semibold uppercase tracking-wider text-muted-foreground'
 
 export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdated }: Props) {
   const currentUser = useAuthStore((s) => s.user)
@@ -73,7 +76,6 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
   const [savingComment, setSavingComment] = useState(false)
   const [deletingCommentId, setDeletingCommentId] = useState<number | null>(null)
   const [suggestingStatus, setSuggestingStatus] = useState(false)
-  const [completing, setCompleting] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
   // Attachments
@@ -294,20 +296,6 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
     }
   }
 
-  const handleComplete = async () => {
-    if (!task) return
-    setCompleting(true)
-    try {
-      await api.put(`/projects/${projectId}/tasks/${taskId}`, { is_completed: !task.is_completed })
-      onUpdated()
-      onClose()
-    } catch {
-      toast.error('更新任务状态失败')
-    } finally {
-      setCompleting(false)
-    }
-  }
-
   const handleAssigneeChange = async (userIds: number[]) => {
     if (!task) return
     setUpdatingAssignee(true)
@@ -440,13 +428,6 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
     <Dialog open onClose={onClose} className="max-w-2xl">
       <DialogHeader className="pb-2">
         <div className="flex items-start gap-3">
-          <input
-            type="checkbox"
-            checked={task.is_completed}
-            onChange={handleComplete}
-            disabled={completing || isEditing || isViewer}
-            className="mt-1.5 h-4 w-4 rounded border-border text-primary focus:ring-primary"
-          />
           <div className="flex-1 min-w-0">
             {isEditing ? (
               <Input
@@ -510,6 +491,11 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
                 </>
               ) : (
                 <>
+                  {task.is_completed && (
+                    <Badge variant="success" className="gap-1">
+                      已完成
+                    </Badge>
+                  )}
                   {task.priority > 0 && (
                     <Badge variant={priority.variant}>
                       <AlertCircle className="mr-1 h-3 w-3" />
@@ -556,7 +542,7 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
       <div className="px-6 pb-6 max-h-[60vh] overflow-y-auto space-y-6">
         {/* Description */}
         <div className="space-y-2">
-          <h4 className="text-sm font-medium text-muted-foreground">描述</h4>
+          <h4 className={SECTION_TITLE}>描述</h4>
           {isEditing ? (
             <Textarea
               rows={5}
@@ -566,7 +552,10 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
               placeholder="任务描述..."
             />
           ) : (
-            <p className="text-sm text-foreground whitespace-pre-wrap rounded-md bg-muted/30 p-3">
+            <p className={task.description
+              ? 'text-sm leading-relaxed text-foreground whitespace-pre-wrap rounded-lg bg-muted/30 px-4 py-3'
+              : 'text-sm italic text-muted-foreground/70 px-1'
+            }>
               {task.description || '无描述'}
             </p>
           )}
@@ -576,7 +565,7 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
 
         {/* Subtasks */}
         <div className="space-y-3">
-          <h4 className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+          <h4 className={cn(SECTION_TITLE, 'flex items-center gap-1.5')}>
             <ListTodo className="h-4 w-4" />
             子任务 ({task.subtasks?.length || 0})
             {task.subtasks && task.subtasks.length > 0 && (
@@ -639,7 +628,7 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
 
         {/* Attachments */}
         <div className="space-y-3">
-          <h4 className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+          <h4 className={cn(SECTION_TITLE, 'flex items-center gap-1.5')}>
             <Paperclip className="h-4 w-4" />
             附件 ({attachments.length})
           </h4>
@@ -724,7 +713,7 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
 
         {/* Comments */}
         <div className="space-y-3">
-          <h4 className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+          <h4 className={cn(SECTION_TITLE, 'flex items-center gap-1.5')}>
             <MessageSquare className="h-4 w-4" />
             评论 ({task.comments?.length || 0})
           </h4>
