@@ -380,8 +380,8 @@ async def test_retrieve_context_similarity_threshold(monkeypatch):
     # Keyword scan finds nothing (query absent from all chunks), so the
     # threshold alone decides: 0.9 kept, 0.1 filtered.
     db = FakeDB(
-        keyword_rows=[("高相关", "文档A"), ("低相关", "文档A")],
-        vector_rows=[("高相关", "文档A", 0.9), ("低相关", "文档A", 0.1)],
+        keyword_rows=[("高相关", "文档A", 1), ("低相关", "文档A", 1)],
+        vector_rows=[("高相关", "文档A", 1, 0.9), ("低相关", "文档A", 1, 0.1)],
     )
     results = await rag_service.retrieve_context("查询", 1, db)
     assert len(results) == 1
@@ -392,8 +392,8 @@ async def test_retrieve_context_similarity_threshold(monkeypatch):
     # Everything below threshold → empty list ("no relevant knowledge").
     monkeypatch.setattr(rag_module.settings, "similarity_threshold", 0.95)
     db = FakeDB(
-        keyword_rows=[("高相关", "文档A"), ("低相关", "文档A")],
-        vector_rows=[("高相关", "文档A", 0.9), ("低相关", "文档A", 0.1)],
+        keyword_rows=[("高相关", "文档A", 1), ("低相关", "文档A", 1)],
+        vector_rows=[("高相关", "文档A", 1, 0.9), ("低相关", "文档A", 1, 0.1)],
     )
     results = await rag_service.retrieve_context("查询", 1, db)
     assert results == []
@@ -423,9 +423,9 @@ async def test_retrieve_context_keyword_hit_survives_low_vector_score(monkeypatc
             self.calls += 1
             if self.calls == 1:
                 # Keyword scan: the chunk contains the query term.
-                return FakeResult([("看板拖拽操作指南", "产品FAQ")])
+                return FakeResult([("看板拖拽操作指南", "产品FAQ", 1)])
             # Vector scan: same chunk, but a below-threshold score.
-            return FakeResult([("看板拖拽操作指南", "产品FAQ", 0.05)])
+            return FakeResult([("看板拖拽操作指南", "产品FAQ", 1, 0.05)])
 
     async def fake_embed(text):
         return [0.0] * 1536

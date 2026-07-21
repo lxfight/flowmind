@@ -13,8 +13,10 @@ class LLMChatSession(Base):
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    project_id: Mapped[int] = mapped_column(
-        ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    # Nullable: NULL marks a cross-project session (scope = all of the
+    # user's projects). Single-project sessions keep their project id.
+    project_id: Mapped[int | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), nullable=True, index=True
     )
     title: Mapped[str] = mapped_column(String(256), default="新会话")
     awaiting_input: Mapped[bool] = mapped_column(default=False, server_default=false())

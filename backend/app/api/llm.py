@@ -26,6 +26,7 @@ from app.schemas import (
     LLMChatSessionOut,
     LLMChatSessionUpdate,
     LLMTaskGenerate,
+    SessionScope,
 )
 from app.services.agent_service import run_agent, run_agent_stream
 from app.services.llm_service import llm_service
@@ -254,19 +255,28 @@ async def llm_report(
 # ---------------------------------------------------------------------------
 @router.get("/sessions", response_model=list[LLMChatSessionOut])
 async def list_sessions(
-    project_id: int,
+    project_id: int | None = None,
+    scope: SessionScope = "project",
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await ensure_project_member(project_id, current_user, db)
-    result = await db.execute(
-        select(LLMChatSession)
-        .where(
-            LLMChatSession.project_id == project_id,
-            LLMChatSession.user_id == current_user.id,
-        )
-        .order_by(LLMChatSession.updated_at.desc())
-    )
+    """List the current user's chat sessions.
+
+    ``scope=project`` (default) requires ``project_id`` and returns that
+    project's sessions; ``scope=all_my_projects`` returns cross-project
+    sessions (``project_id`` is NULL on those).
+    """
+    stmt = select(LLMChatSession).where(LLMChatSession.user_id == current_user.id)
+    if scope == "all_my_projects":
+        stmt = stmt.where(LLMChatSession.project_id.is_(None))
+    else:
+        if project_id is None:
+            raise HTTPException(
+                status_code=422, detail="scope=project 时 project_id 必填"
+            )
+        await ensure_project_member(project_id, current_user, db)
+        stmt = stmt.where(LLMChatSession.project_id == project_id)
+    result = await db.execute(stmt.order_by(LLMChatSession.updated_at.desc()))
     return result.scalars().all()
 
 
@@ -276,7 +286,10 @@ async def create_session(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await ensure_project_member(data.project_id, current_user, db)
+    # project_id=None creates a cross-project session (no membership check —
+    # the scope is resolved per run from the user's current memberships).
+    if data.project_id is not None:
+        await ensure_project_member(data.project_id, current_user, db)
     session = LLMChatSession(
         user_id=current_user.id,
         project_id=data.project_id,
@@ -305,7 +318,8 @@ async def get_session(
     if session.user_id != current_user.id and not current_user.is_superuser:
         # 404 rather than 403: do not leak the existence of others' sessions
         raise HTTPException(status_code=404, detail="会话不存在")
-    await ensure_project_member(session.project_id, current_user, db)
+    if session.project_id is not None:  # cross-project sessions have no project
+        await ensure_project_member(session.project_id, current_user, db)
     return session
 
 
@@ -324,7 +338,8 @@ async def update_session(
         raise HTTPException(status_code=404, detail="会话不存在")
     if session.user_id != current_user.id and not current_user.is_superuser:
         raise HTTPException(status_code=404, detail="会话不存在")  # 不泄露他人会话存在性
-    await ensure_project_member(session.project_id, current_user, db)
+    if session.project_id is not None:  # cross-project sessions have no project
+        await ensure_project_member(session.project_id, current_user, db)
     session.title = data.title
     await db.flush()
     await db.refresh(session)
@@ -345,7 +360,8 @@ async def delete_session(
         raise HTTPException(status_code=404, detail="会话不存在")
     if session.user_id != current_user.id and not current_user.is_superuser:
         raise HTTPException(status_code=404, detail="会话不存在")  # 不泄露他人会话存在性
-    await ensure_project_member(session.project_id, current_user, db)
+    if session.project_id is not None:  # cross-project sessions have no project
+        await ensure_project_member(session.project_id, current_user, db)
     await db.delete(session)
     return {"message": "会话已删除"}
 
@@ -372,7 +388,8 @@ async def undo_agent_actions(
         raise HTTPException(status_code=404, detail="会话不存在")
     if session.user_id != current_user.id and not current_user.is_superuser:
         raise HTTPException(status_code=404, detail="会话不存在")  # 不泄露他人会话存在性
-    await ensure_project_member(session.project_id, current_user, db)
+    if session.project_id is not None:  # cross-project sessions have no project
+        await ensure_project_member(session.project_id, current_user, db)
 
     # Most recent assistant message with a batch that is not yet undone and
     # actually produced activity rows.
@@ -412,8 +429,25 @@ async def _resolve_chat_session(
     current_user: User,
     db: AsyncSession,
 ) -> LLMChatSession:
-    """Resolve or create the chat session for an agent-chat request."""
-    await ensure_project_member(request.project_id, current_user, db)
+    """Resolve or create the chat session for an agent-chat request.
+
+    scope="project" requires project_id (with membership check) and a
+    matching single-project session; scope="all_my_projects" uses / creates
+    a cross-project session (project_id NULL).
+    """
+    if request.scope == "all_my_projects":
+        if request.project_id is not None:
+            raise HTTPException(
+                status_code=422, detail="scope=all_my_projects 时不能传 project_id"
+            )
+        expected_pid: int | None = None
+    else:
+        if request.project_id is None:
+            raise HTTPException(
+                status_code=422, detail="scope=project 时 project_id 必填"
+            )
+        await ensure_project_member(request.project_id, current_user, db)
+        expected_pid = request.project_id
 
     session: LLMChatSession | None = None
     if request.session_id:
@@ -426,13 +460,14 @@ async def _resolve_chat_session(
         if session.user_id != current_user.id and not current_user.is_superuser:
             # 404 rather than 403: do not leak the existence of others' sessions
             raise HTTPException(status_code=404, detail="会话不存在")
-        if session.project_id != request.project_id:
-            raise HTTPException(status_code=403, detail="会话不属于该项目")
+        if session.project_id != expected_pid:
+            detail = "会话不属于该项目" if expected_pid is not None else "该会话不是跨项目会话"
+            raise HTTPException(status_code=403, detail=detail)
     else:
         title = request.message.strip()[:20] or "新会话"
         session = LLMChatSession(
             user_id=current_user.id,
-            project_id=request.project_id,
+            project_id=expected_pid,
             title=title,
         )
         db.add(session)
@@ -651,7 +686,7 @@ async def agent_chat(
     result = await run_agent(
         db=db,
         user=current_user,
-        project_id=request.project_id,
+        project_id=session.project_id,
         user_message=llm_message,
         history_messages=history,
     )
@@ -726,7 +761,7 @@ async def agent_chat_stream(
                 async for evt in run_agent_stream(
                     db=db,
                     user=current_user,
-                    project_id=request.project_id,
+                    project_id=session.project_id,
                     user_message=llm_message,
                     history_messages=history,
                 ):

@@ -11,6 +11,7 @@ from app.schemas.llm_chat import (
     LLMChatSessionDetailOut,
     LLMChatSessionOut,
     LLMChatSessionUpdate,
+    SessionScope,
 )
 
 
@@ -463,6 +464,7 @@ __all__ = [
     "ActivityLogOut",
     "LLMChatSessionCreate",
     "LLMChatSessionUpdate",
+    "SessionScope",
     "LLMChatSessionOut",
     "LLMChatSessionDetailOut",
     "LLMChatMessageOut",

@@ -99,22 +99,24 @@ def rrf_fuse(
 ) -> list[dict]:
     """Reciprocal Rank Fusion of two ranked hit lists.
 
-    Each hit is keyed by its chunk content (identical chunk text in both
-    lists refers to the same chunk). The fused score for a chunk is
+    Each hit is keyed by (project_id, chunk content) — identical chunk text
+    in both lists refers to the same chunk, and the same text in two
+    different projects stays distinct. The fused score for a chunk is
     ``sum(1 / (k + rank))`` over the lists it appears in, which avoids
     comparing raw vector similarities with keyword scores directly.
 
     Returns a list sorted by fused score (desc), each item carrying
-    ``content`` / ``doc_title`` / ``vector_score`` (None when the chunk
-    was not in the vector list) / ``keyword_score`` (0.0 when absent) /
-    ``fused_score``.
+    ``content`` / ``doc_title`` / ``project_id`` / ``vector_score`` (None
+    when the chunk was not in the vector list) / ``keyword_score`` (0.0
+    when absent) / ``fused_score``.
     """
-    merged: dict[str, dict] = {}
+    merged: dict[tuple, dict] = {}
 
     for rank, hit in enumerate(vector_hits):
-        entry = merged.setdefault(hit["content"], {
+        entry = merged.setdefault((hit.get("project_id"), hit["content"]), {
             "content": hit["content"],
             "doc_title": hit["doc_title"],
+            "project_id": hit.get("project_id"),
             "vector_score": None,
             "keyword_score": 0.0,
             "fused_score": 0.0,
@@ -123,9 +125,10 @@ def rrf_fuse(
         entry["fused_score"] += 1.0 / (k + rank + 1)
 
     for rank, hit in enumerate(keyword_hits):
-        entry = merged.setdefault(hit["content"], {
+        entry = merged.setdefault((hit.get("project_id"), hit["content"]), {
             "content": hit["content"],
             "doc_title": hit["doc_title"],
+            "project_id": hit.get("project_id"),
             "vector_score": None,
             "keyword_score": 0.0,
             "fused_score": 0.0,
@@ -242,21 +245,26 @@ class RAGService:
     async def _retrieve_keyword(
         self,
         query: str,
-        project_id: int,
+        project_id: int | list[int],
         db: AsyncSession,
         candidate_limit: int,
     ) -> list[dict]:
-        """Keyword retrieval over all indexed chunks of a project.
+        """Keyword retrieval over all indexed chunks of one or more projects.
 
         Scores every chunk with ``keyword_score`` and returns the top
         candidates with score > 0, best first. No match means an empty
         list ("no relevant knowledge") — it deliberately does NOT fall
         back to the first N chunks.
         """
+        project_filter = (
+            KnowledgeDoc.project_id.in_(project_id)
+            if isinstance(project_id, list)
+            else KnowledgeDoc.project_id == project_id
+        )
         result = await db.execute(
-            select(DocChunk.content, KnowledgeDoc.title)
+            select(DocChunk.content, KnowledgeDoc.title, KnowledgeDoc.project_id)
             .join(KnowledgeDoc)
-            .where(KnowledgeDoc.project_id == project_id)
+            .where(project_filter)
             .where(KnowledgeDoc.status == DOC_STATUS_INDEXED)
         )
         rows = result.all()
@@ -265,9 +273,10 @@ class RAGService:
             {
                 "content": content,
                 "doc_title": title,
+                "project_id": pid,
                 "keyword_score": keyword_score(query, content, title),
             }
-            for content, title in rows
+            for content, title, pid in rows
         ]
         hits = [h for h in scored if h["keyword_score"] > 0]
         hits.sort(key=lambda h: h["keyword_score"], reverse=True)
@@ -276,7 +285,7 @@ class RAGService:
     async def _retrieve_vector(
         self,
         query: str,
-        project_id: int,
+        project_id: int | list[int],
         db: AsyncSession,
         candidate_limit: int,
     ) -> list[dict]:
@@ -289,23 +298,32 @@ class RAGService:
         """
         query_embedding = await self.embed_text(query)
         query_embedding_str = str(query_embedding)
+        if isinstance(project_id, list):
+            if not project_id:
+                return []
+            project_clause = "kd.project_id = ANY(:project_ids)"
+            params: dict = {"project_ids": project_id}
+        else:
+            project_clause = "kd.project_id = :project_id"
+            params = {"project_id": project_id}
         result = await db.execute(
-            text("""
+            text(f"""
                 SELECT
                     dc.content,
                     kd.title as doc_title,
+                    kd.project_id as project_id,
                     1 - (dce.embedding <=> CAST(:query_embedding AS vector)) as similarity
                 FROM doc_chunk_embeddings dce
                 JOIN doc_chunks dc ON dc.id = dce.chunk_id
                 JOIN knowledge_docs kd ON kd.id = dc.doc_id
-                WHERE kd.project_id = :project_id
+                WHERE {project_clause}
                   AND kd.status = :doc_status
                 ORDER BY dce.embedding <=> CAST(:query_embedding AS vector)
                 LIMIT :candidate_limit
             """),
             {
+                **params,
                 "query_embedding": query_embedding_str,
-                "project_id": project_id,
                 "candidate_limit": candidate_limit,
                 "doc_status": DOC_STATUS_INDEXED,
             },
@@ -314,7 +332,8 @@ class RAGService:
             {
                 "content": row[0],
                 "doc_title": row[1],
-                "vector_score": float(row[2]),
+                "project_id": row[2],
+                "vector_score": float(row[3]),
             }
             for row in result.fetchall()
         ]
@@ -331,6 +350,7 @@ class RAGService:
         return {
             "content": item["content"],
             "doc_title": item["doc_title"],
+            "project_id": item.get("project_id"),
             "similarity": vector_score if vector_score is not None else keyword_score,
             "vector_score": vector_score,
             "keyword_score": keyword_score,
@@ -340,11 +360,15 @@ class RAGService:
     async def retrieve_context(
         self,
         query: str,
-        project_id: int,
+        project_id: int | list[int],
         db: AsyncSession,
         top_k: int | None = None,
     ) -> list[dict]:
         """Hybrid retrieval: vector search + keyword search, RRF-fused.
+
+        ``project_id`` may be a single project id or a list of ids
+        (cross-project assistant); hits always carry their ``project_id``
+        so callers can annotate the source project.
 
         - Keyword retrieval always runs (substring/n-gram scorer).
         - Vector retrieval runs when possible (PostgreSQL + embedding
@@ -355,6 +379,9 @@ class RAGService:
         result_limit = top_k if top_k is not None else await config_service.get("top_k_retrieval")
         threshold = await config_service.get("similarity_threshold")
         candidate_limit = max(result_limit * 4, 20)
+
+        if isinstance(project_id, list) and not project_id:
+            return []
 
         keyword_hits = await self._retrieve_keyword(query, project_id, db, candidate_limit)
 
