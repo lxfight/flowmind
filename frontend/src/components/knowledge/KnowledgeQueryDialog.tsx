@@ -20,6 +20,19 @@ interface Props {
 interface Source {
   title: string
   relevance: number
+  vector_score: number | null
+  keyword_score: number | null
+}
+
+function scoreText(s: Source): string {
+  const parts: string[] = []
+  if (s.vector_score !== null && s.vector_score !== undefined) {
+    parts.push(`向量 ${(s.vector_score * 100).toFixed(0)}%`)
+  }
+  if (s.keyword_score !== null && s.keyword_score !== undefined) {
+    parts.push(`关键词 ${(s.keyword_score * 100).toFixed(0)}%`)
+  }
+  return parts.length > 0 ? parts.join(' · ') : `相关度 ${(s.relevance * 100).toFixed(0)}%`
 }
 
 const SUGGESTIONS = [
@@ -110,7 +123,7 @@ export function KnowledgeQueryDialog({ projectId, onClose }: Props) {
                     >
                       <span className="truncate pr-2">{s.title}</span>
                       <Badge variant="secondary" className="text-[10px] h-5 flex-shrink-0">
-                        相关度: {(s.relevance * 100).toFixed(0)}%
+                        {scoreText(s)}
                       </Badge>
                     </div>
                   ))}
