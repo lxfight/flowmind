@@ -159,7 +159,7 @@ class TaskCreate(BaseModel):
     title: str = Field(min_length=1, max_length=512)
     description: str = Field(default="", max_length=50000)
     status_id: int
-    assignee_id: int | None = None
+    assignee_ids: list[int] = []
     priority: int = Field(default=0, ge=0, le=4)
     due_date: datetime | None = None
     parent_task_id: int | None = None
@@ -169,7 +169,7 @@ class TaskUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=512)
     description: str | None = Field(default=None, max_length=50000)
     status_id: int | None = None
-    assignee_id: int | None = None
+    assignee_ids: list[int] | None = None
     priority: int | None = Field(default=None, ge=0, le=4)
     order: float | None = None
     due_date: datetime | None = None
@@ -180,7 +180,6 @@ class TaskOut(BaseModel):
     id: int
     project_id: int
     status_id: int
-    assignee_id: int | None = None
     parent_task_id: int | None = None
     title: str
     description: str
@@ -191,7 +190,7 @@ class TaskOut(BaseModel):
     completed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
-    assignee: UserBriefOut | None = None
+    assignees: list[UserBriefOut] = []
     comment_count: int = 0
     subtask_count: int = 0
     subtask_done: int = 0
@@ -210,20 +209,77 @@ class TaskCommentCreate(BaseModel):
     content: str = Field(min_length=1, max_length=10000)
 
 
+class TaskCommentUpdate(BaseModel):
+    content: str = Field(min_length=1, max_length=10000)
+
+
 class TaskCommentOut(BaseModel):
     id: int
     task_id: int
     user_id: int
     content: str
     created_at: datetime
+    updated_at: datetime
     user: UserBriefOut | None = None
 
     model_config = {"from_attributes": True}
 
 
+class TaskAttachmentOut(BaseModel):
+    id: int
+    task_id: int
+    uploader_id: int
+    filename: str
+    content_type: str
+    size: int
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# Generic paginated envelope
+class PageOut(BaseModel):
+    total: int
+    page: int
+    page_size: int
+
+
+class TaskListOut(PageOut):
+    items: list[TaskOut]
+
+
+class UserListOut(PageOut):
+    items: list[UserOut]
+
+
 class TaskMove(BaseModel):
     status_id: int
     order: float
+
+
+# Cross-project task search
+class TaskSearchItemOut(BaseModel):
+    id: int
+    project_id: int
+    project_name: str = ""
+    project_color: str = "#6366f1"
+    status_id: int
+    status_name: str = ""
+    status_color: str = "#6b7280"
+    title: str
+    description: str
+    priority: int
+    is_completed: bool
+    due_date: datetime | None = None
+    updated_at: datetime
+    assignees: list[UserBriefOut] = []
+
+    model_config = {"from_attributes": True}
+
+
+class TaskSearchListOut(BaseModel):
+    tasks: list[TaskSearchItemOut]
+    total: int
 
 
 # Knowledge
@@ -244,12 +300,31 @@ class KnowledgeDocOut(BaseModel):
     title: str
     content: str
     file_type: str
+    status: str = "indexed"
+    error_message: str | None = None
     created_by: int
     created_at: datetime
     updated_at: datetime
     chunk_count: int = 0
 
     model_config = {"from_attributes": True}
+
+
+class KnowledgeDocListOut(PageOut):
+    items: list[KnowledgeDocOut]
+
+
+class KnowledgeChunkOut(BaseModel):
+    id: int
+    seq: int
+    content: str
+    has_embedding: bool = False
+
+    model_config = {"from_attributes": True}
+
+
+class KnowledgeChunkListOut(PageOut):
+    items: list[KnowledgeChunkOut]
 
 
 class KnowledgeQuery(BaseModel):
@@ -308,9 +383,32 @@ class ActivityLogOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ActivityListOut(PageOut):
+    items: list[ActivityLogOut]
+
+
 class LLMTaskGenerate(BaseModel):
     project_id: int
     instruction: str = Field(min_length=1, max_length=10000)
+
+
+# Notification
+class NotificationOut(BaseModel):
+    id: int
+    user_id: int
+    type: str
+    title: str
+    body: str = ""
+    link: str = ""
+    is_read: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class NotificationListOut(PageOut):
+    items: list[NotificationOut]
+    unread_count: int
 
 
 __all__ = [
@@ -337,11 +435,22 @@ __all__ = [
     "TaskOut",
     "TaskDetailOut",
     "TaskCommentCreate",
+    "TaskCommentUpdate",
     "TaskCommentOut",
+    "TaskAttachmentOut",
     "TaskMove",
+    "PageOut",
+    "TaskListOut",
+    "ActivityListOut",
+    "KnowledgeDocListOut",
+    "UserListOut",
+    "TaskSearchItemOut",
+    "TaskSearchListOut",
     "KnowledgeDocCreate",
     "KnowledgeDocUpdate",
     "KnowledgeDocOut",
+    "KnowledgeChunkOut",
+    "KnowledgeChunkListOut",
     "KnowledgeQuery",
     "KnowledgeAnswer",
     "LLMChatMessage",
@@ -358,4 +467,6 @@ __all__ = [
     "LLMChatMessageOut",
     "LLMAgentChatRequest",
     "LLMAgentChatResponse",
+    "NotificationOut",
+    "NotificationListOut",
 ]

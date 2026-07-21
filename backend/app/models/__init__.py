@@ -4,6 +4,7 @@ from app.models.task import Task, TaskStatus, TaskComment
 from app.models.knowledge import KnowledgeDoc, DocChunk, DocChunkEmbedding
 from app.models.activity import ActivityLog
 from app.models.llm_chat import LLMChatSession, LLMChatMessage
+from app.models.notification import Notification
 
 __all__ = [
     "User",
@@ -18,4 +19,5 @@ __all__ = [
     "ActivityLog",
     "LLMChatSession",
     "LLMChatMessage",
+    "Notification",
 ]

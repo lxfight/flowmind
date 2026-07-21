@@ -27,13 +27,21 @@ class Settings(BaseSettings):
     llm_base_url: str = ""
     llm_model: str = "gpt-4o-mini"
     llm_embedding_model: str = "text-embedding-3-small"
+    # Embedding vector dimension. Single source of truth for the pgvector
+    # column size (DocChunkEmbedding.embedding). NOTE: changing this on an
+    # existing deployment requires a manual migration to resize the column.
+    llm_embedding_dim: int = 1536
 
     # RAG
     chunk_size: int = 512
     chunk_overlap: int = 64
     top_k_retrieval: int = 5
+    # Minimum cosine similarity (1 - cosine distance) for a retrieved chunk
+    # to be considered relevant. Results below this are filtered out.
+    similarity_threshold: float = 0.35
 
     # Vector dimensions (text-embedding-3-small = 1536)
+    # Deprecated: kept for backward compatibility; use llm_embedding_dim.
     vector_dimension: int = 1536
 
     # File uploads

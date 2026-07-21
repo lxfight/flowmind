@@ -1,15 +1,20 @@
 from datetime import datetime
 from typing import Any
+import uuid
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 
 from app.core.config import get_settings
+from app.models.task import Task, TaskStatus
 from app.models.user import User
+from app.models.knowledge import KnowledgeDoc, DocChunk
 from app.schemas import TaskCreate, TaskUpdate, TaskMove, TaskCommentCreate, TaskStatusCreate, TaskStatusUpdate
 from app.services import task_service
+from app.services.rag_service import rag_service
 from langchain_openai import ChatOpenAI
+from sqlalchemy import func, select
 
 settings = get_settings()
 
@@ -32,6 +37,13 @@ def _record_action(config: RunnableConfig, action: dict) -> None:
     actions = cfg.get("actions")
     if actions is not None:
         actions.append(action)
+
+
+def _record_pending_question(config: RunnableConfig, question: dict) -> None:
+    cfg = config.get("configurable", {})
+    pending = cfg.get("pending_question")
+    if pending is not None:
+        pending.update(question)
 
 
 def _format_result(ok: bool, message: str = "", action: dict | None = None) -> str:
@@ -71,14 +83,15 @@ async def list_tasks(config: RunnableConfig, status_id: int | None = None, assig
     """列出当前项目的任务。"""
     db, user, project_id = _get_deps(config)
     try:
-        tasks = await task_service.list_tasks(project_id, user, db, status_id=status_id, assignee_id=assignee_id)
+        result = await task_service.list_tasks(project_id, user, db, status_id=status_id, assignee_id=assignee_id, page=1, page_size=100)
+        tasks = result.items
         if not tasks:
             return "当前没有符合条件的任务。"
         lines = []
         for t in tasks:
             lines.append(
                 f"- [{t.id}] {t.title} (状态id={t.status_id}, 优先级={t.priority}, 完成={t.is_completed}, "
-                f"指派={t.assignee.display_name if t.assignee else '未指派'})"
+                f"指派={('、'.join(a.display_name or a.username for a in t.assignees)) or '未指派'})"
             )
         return "\n".join(lines)
     except Exception as e:
@@ -110,7 +123,7 @@ async def get_task(task_id: int, config: RunnableConfig) -> str:
             f"描述：{t.description or '无'}\n"
             f"状态id：{t.status_id}\n"
             f"优先级：{t.priority}\n"
-            f"指派人：{t.assignee.display_name if t.assignee else '未指派'}\n"
+            f"指派人：{('、'.join(a.display_name or a.username for a in t.assignees)) or '未指派'}\n"
             f"截止日期：{t.due_date}\n"
             f"完成：{t.is_completed}\n"
             f"子任务：{t.subtask_done}/{t.subtask_count}\n"
@@ -140,7 +153,7 @@ async def create_task(
     description: str = "",
     status_id: int | None = None,
     priority: int = 0,
-    assignee_id: int | None = None,
+    assignee_ids: list[int] | None = None,
     due_date: str | None = None,
     config: RunnableConfig = None,
 ) -> str:
@@ -150,8 +163,8 @@ async def create_task(
         return "创建任务必须提供 status_id，请先调用 get_project_info 获取状态列 ID。"
     try:
         data = TaskCreate(title=title, description=description, status_id=status_id, priority=priority)
-        if assignee_id is not None:
-            data.assignee_id = assignee_id
+        if assignee_ids:
+            data.assignee_ids = assignee_ids
         if due_date:
             data.due_date = datetime.fromisoformat(due_date)
         t = await task_service.create_task(project_id, data, user, db)
@@ -170,7 +183,7 @@ async def update_task(
     title: str | None = None,
     description: str | None = None,
     status_id: int | None = None,
-    assignee_id: int | None = None,
+    assignee_ids: list[int] | None = None,
     priority: int | None = None,
     due_date: str | None = None,
     is_completed: bool | None = None,
@@ -186,8 +199,8 @@ async def update_task(
             payload["description"] = description
         if status_id is not None:
             payload["status_id"] = status_id
-        if assignee_id is not None:
-            payload["assignee_id"] = assignee_id
+        if assignee_ids is not None:
+            payload["assignee_ids"] = assignee_ids
         if priority is not None:
             payload["priority"] = priority
         if due_date is not None:
@@ -311,10 +324,26 @@ async def update_status(status_id: int, name: str | None = None, color: str | No
 
 
 @tool
-async def delete_status(status_id: int, config: RunnableConfig = None) -> str:
-    """删除状态列（需要管理员权限）。"""
+async def delete_status(status_id: int, confirmed: bool = False, config: RunnableConfig = None) -> str:
+    """删除状态列（需要管理员权限）。这是破坏性操作：默认 confirmed=False 时不会真正删除，
+    只会返回待确认信息；必须先向用户说明影响并获得明确同意后，再以 confirmed=True 调用。"""
     db, user, project_id = _get_deps(config)
     try:
+        if not confirmed:
+            status = await db.get(TaskStatus, status_id)
+            if status is None or status.project_id != project_id:
+                return _format_result(False, message=f"状态列 {status_id} 不存在。")
+            result = await db.execute(
+                select(func.count(Task.id)).where(Task.status_id == status_id)
+            )
+            task_count = result.scalar() or 0
+            return _format_result(
+                False,
+                message=(
+                    f"此操作将删除状态列「{status.name}」（含 {task_count} 个任务），且不可自动恢复。"
+                    "请先向用户说明影响并获得明确同意，然后使用 confirmed=true 重新调用本工具。"
+                ),
+            )
         await task_service.delete_status(project_id, status_id, user, db)
         return _format_result(
             True,
@@ -323,6 +352,92 @@ async def delete_status(status_id: int, config: RunnableConfig = None) -> str:
         )
     except Exception as e:
         return _format_result(False, message=str(e))
+
+
+@tool
+async def search_knowledge(query: str, config: RunnableConfig) -> str:
+    """在项目知识库中语义检索相关文档片段，返回来源文档与相似度。"""
+    db, user, project_id = _get_deps(config)
+    try:
+        hits = await rag_service.retrieve_context(query, project_id, db, top_k=5)
+        if not hits:
+            return f"知识库中没有找到与「{query}」相关的内容"
+        blocks = []
+        for h in hits:
+            content = h["content"]
+            if len(content) > 300:
+                content = content[:300] + "…"
+            blocks.append(
+                f"《{h['doc_title']}》(相似度 {h['similarity'] * 100:.0f}%)\n{content}"
+            )
+        return "\n\n".join(blocks)
+    except Exception as e:
+        return _format_result(False, message=str(e))
+
+
+@tool
+async def list_knowledge_docs(config: RunnableConfig) -> str:
+    """列出当前项目知识库中的文档（标题、类型、索引状态、分块数）。"""
+    db, user, project_id = _get_deps(config)
+    try:
+        result = await db.execute(
+            select(KnowledgeDoc, func.count(DocChunk.id).label("chunk_count"))
+            .outerjoin(DocChunk, DocChunk.doc_id == KnowledgeDoc.id)
+            .where(KnowledgeDoc.project_id == project_id)
+            .group_by(KnowledgeDoc.id)
+            .order_by(KnowledgeDoc.updated_at.desc())
+            .limit(50)
+        )
+        rows = result.all()
+        if not rows:
+            return "当前项目还没有知识库文档。"
+        lines = [
+            f"- [id={doc.id}] {doc.title} (类型={doc.file_type}, 状态={doc.status}, "
+            f"分块数={chunk_count}, 更新于={doc.updated_at})"
+            for doc, chunk_count in rows
+        ]
+        return "\n".join(lines)
+    except Exception as e:
+        return _format_result(False, message=str(e))
+
+
+@tool
+async def get_doc_content(
+    doc_id: int | None = None,
+    title: str | None = None,
+    config: RunnableConfig = None,
+) -> str:
+    """按 doc_id 或标题获取知识库文档的完整内容（超长会截断）。"""
+    db, user, project_id = _get_deps(config)
+    if doc_id is None and not title:
+        return "请提供 doc_id 或文档标题。"
+    try:
+        stmt = select(KnowledgeDoc).where(KnowledgeDoc.project_id == project_id)
+        if doc_id is not None:
+            stmt = stmt.where(KnowledgeDoc.id == doc_id)
+        else:
+            stmt = stmt.where(KnowledgeDoc.title == title)
+        result = await db.execute(stmt)
+        doc = result.scalars().first()
+        if doc is None:
+            return f"未找到文档（doc_id={doc_id}, title={title}）。请先用 list_knowledge_docs 确认。"
+        content = doc.content or ""
+        truncated = len(content) > 4000
+        if truncated:
+            content = content[:4000]
+        header = f"《{doc.title}》 (id={doc.id}, 类型={doc.file_type}, 状态={doc.status})"
+        note = "\n…（内容过长，已截断至 4000 字符）" if truncated else ""
+        return f"{header}\n{content}{note}"
+    except Exception as e:
+        return _format_result(False, message=str(e))
+
+
+@tool
+async def ask_user(question: str, options: list[str] | None = None, config: RunnableConfig = None) -> str:
+    """当关键信息缺失且无法从上下文或知识库推断时，向用户提问澄清。
+    可附 2-4 个 options 供用户快速选择。调用后必须立即结束本轮回复。"""
+    _record_pending_question(config, {"question": question, "options": options or None})
+    return "已向用户提问，请结束本轮回复，不要自行假设答案。"
 
 
 # ---------------------------------------------------------------------------
@@ -343,6 +458,10 @@ tools = [
     create_status,
     update_status,
     delete_status,
+    search_knowledge,
+    list_knowledge_docs,
+    get_doc_content,
+    ask_user,
 ]
 
 
@@ -355,8 +474,25 @@ def _build_system_prompt(project_summary: dict) -> str:
         "可用工具说明：\n"
         "- 查询：get_project_info / list_tasks / search_tasks / get_task / get_members\n"
         "- 操作：create_task / update_task / move_task / add_comment / add_subtask / update_subtask\n"
-        "- 管理：create_status / update_status / delete_status（需要管理员权限）\n\n"
-        "工作方式：先调用查询工具确认事实，再执行操作。对模糊请求，先询问用户或调用 get_project_info。"
+        "- 管理：create_status / update_status / delete_status（需要管理员权限）\n"
+        "- 知识库：search_knowledge / list_knowledge_docs / get_doc_content\n"
+        "- 提问：ask_user（向用户澄清关键信息）\n\n"
+        "知识库使用规则：\n"
+        "- 项目有知识库文档时，创建、拆分或规划任务前先用 search_knowledge 检索相关背景。\n"
+        "- 引用知识库信息时，在回复中注明来源文档名。\n"
+        "- search_knowledge 返回“没有找到”时，不得编造知识库内容。\n"
+        "- 不确定项目约定或背景时，优先查知识库，再决定是否向用户提问。\n\n"
+        "澄清提问规则：\n"
+        "- 当用户需求的关键信息缺失时——例如建看板/列但列名或流程不明、创建任务但指派人/"
+        "截止日期/优先级无法从上下文或知识库推断——必须先 search_knowledge 查证；"
+        "知识库也没有时，调用 ask_user 提问，可附 2-4 个 options 供快速选择。\n"
+        "- 能合理推断的直接执行，并在回复中说明所做的假设。\n"
+        "- 调用 ask_user 后立即结束本轮回复：不要再调用其他工具，也不要自行假设或编造答案。\n\n"
+        "破坏性操作确认规则：\n"
+        "- delete_status 是破坏性操作。首次调用不要传 confirmed；工具会返回待确认信息。\n"
+        "- 随后必须向用户说明将删除的状态列及其影响并获得明确同意（可直接在回复中询问），"
+        "用户同意后再以 confirmed=true 调用 delete_status 完成删除。\n\n"
+        "工作方式：先调用查询工具确认事实，再执行操作。"
         "用中文回答，保持专业友好。"
     )
 
@@ -393,16 +529,30 @@ def _convert_db_messages_to_lc(messages: list[dict]) -> list:
     return lc_messages
 
 
-async def run_agent(
-    db,
-    user: User,
-    project_id: int,
-    user_message: str,
-    history_messages: list[dict] | None = None,
-) -> dict:
-    """Run the LangGraph ReAct agent and return assistant message + actions + all messages."""
+def _content_to_text(content) -> str:
+    """Normalize LangChain message content (str or block list) to plain text."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                parts.append(block.get("text", ""))
+        return "".join(parts)
+    return ""
+
+
+async def _build_agent_run(db, user: User, project_id: int, user_message: str,
+                           history_messages: list[dict] | None):
+    """Shared setup for run_agent / run_agent_stream.
+
+    Returns (agent, input_messages, config, actions, pending_question, action_batch_id)
+    or None when LLM is not configured.
+    """
     if not settings.llm_api_key:
-        return {"message": "LLM 未配置，请在环境变量中设置 LLM_API_KEY。", "actions": [], "messages": []}
+        return None
 
     project_summary = await task_service.get_project_summary(project_id, user, db)
     system_prompt = _build_system_prompt(project_summary)
@@ -413,32 +563,136 @@ async def run_agent(
         model=settings.llm_model,
         temperature=0.2,
         max_tokens=4096,
+        streaming=True,
     )
 
     agent = create_react_agent(llm, tools, prompt=SystemMessage(content=system_prompt))
 
     actions: list[dict] = []
+    pending_question: dict = {}
     config: RunnableConfig = {
         "configurable": {
             "db": db,
             "user": user,
             "project_id": project_id,
             "actions": actions,
+            "pending_question": pending_question,
         }
     }
 
     history = _convert_db_messages_to_lc(history_messages or [])
     input_messages = history + [HumanMessage(content=user_message)]
+    # One batch id per run; mutations stamp it on their ActivityLog rows so
+    # the whole run can be undone as a unit.
+    action_batch_id = uuid.uuid4().hex
+    return agent, input_messages, config, actions, pending_question, action_batch_id
 
+
+def _finalize_result(all_messages: list, actions: list[dict], pending_question: dict | None = None,
+                     action_batch_id: str | None = None) -> dict:
+    final_message = all_messages[-1]
+    return {
+        "message": _content_to_text(final_message.content),
+        "actions": actions,
+        "messages": all_messages,
+        "pending_question": pending_question or None,
+        "action_batch_id": action_batch_id,
+    }
+
+
+def _error_result(message: str) -> dict:
+    return {"message": message, "actions": [], "messages": [], "pending_question": None, "action_batch_id": None}
+
+
+async def run_agent(
+    db,
+    user: User,
+    project_id: int,
+    user_message: str,
+    history_messages: list[dict] | None = None,
+) -> dict:
+    """Run the LangGraph ReAct agent and return assistant message + actions + all messages."""
+    built = await _build_agent_run(db, user, project_id, user_message, history_messages)
+    if built is None:
+        return _error_result("LLM 未配置，请在环境变量中设置 LLM_API_KEY。")
+    agent, input_messages, config, actions, pending_question, action_batch_id = built
+
+    token = task_service.set_agent_batch(action_batch_id)
     try:
         result = await agent.ainvoke({"messages": input_messages}, config=config)
     except Exception as e:
-        return {"message": f"抱歉，LLM 调用失败：{str(e)}", "actions": [], "messages": []}
+        return _error_result(f"抱歉，LLM 调用失败：{str(e)}")
+    finally:
+        task_service.reset_agent_batch(token)
 
-    all_messages = result["messages"]
-    final_message = all_messages[-1]
-    return {
-        "message": final_message.content or "",
-        "actions": actions,
-        "messages": all_messages,
-    }
+    return _finalize_result(result["messages"], actions, pending_question, action_batch_id)
+
+
+async def run_agent_stream(
+    db,
+    user: User,
+    project_id: int,
+    user_message: str,
+    history_messages: list[dict] | None = None,
+):
+    """Async generator streaming the agent run.
+
+    Yields dict events:
+      {"type": "token", "text": str}
+      {"type": "tool_start", "name": str, "args": dict}
+      {"type": "tool_end", "name": str}
+      {"type": "result", "result": <same dict shape as run_agent>}
+    """
+    built = await _build_agent_run(db, user, project_id, user_message, history_messages)
+    if built is None:
+        yield {
+            "type": "result",
+            "result": _error_result("LLM 未配置，请在环境变量中设置 LLM_API_KEY。"),
+        }
+        return
+    agent, input_messages, config, actions, pending_question, action_batch_id = built
+
+    final_messages: list | None = None
+    batch_token = task_service.set_agent_batch(action_batch_id)
+    try:
+        async for event in agent.astream_events(
+            {"messages": input_messages}, config=config, version="v2"
+        ):
+            kind = event.get("event")
+            if kind == "on_chat_model_stream":
+                chunk = event.get("data", {}).get("chunk")
+                if chunk is not None:
+                    text = _content_to_text(getattr(chunk, "content", ""))
+                    if text:
+                        yield {"type": "token", "text": text}
+            elif kind == "on_tool_start":
+                name = event.get("name", "")
+                args = event.get("data", {}).get("input")
+                yield {
+                    "type": "tool_start",
+                    "name": name,
+                    "args": args if isinstance(args, dict) else {},
+                }
+            elif kind == "on_tool_end":
+                yield {"type": "tool_end", "name": event.get("name", "")}
+            elif kind == "on_chain_end":
+                output = event.get("data", {}).get("output")
+                if isinstance(output, dict) and "messages" in output:
+                    final_messages = output["messages"]
+    except Exception as e:
+        yield {
+            "type": "result",
+            "result": _error_result(f"抱歉，LLM 调用失败：{str(e)}"),
+        }
+        return
+    finally:
+        task_service.reset_agent_batch(batch_token)
+
+    if not final_messages:
+        yield {
+            "type": "result",
+            "result": _error_result("抱歉，LLM 调用失败：未收到响应。"),
+        }
+        return
+
+    yield {"type": "result", "result": _finalize_result(final_messages, actions, pending_question, action_batch_id)}

@@ -16,6 +16,8 @@ class ActivityLog(Base):
     target_id: Mapped[int] = mapped_column(Integer, nullable=False)
     summary: Mapped[str] = mapped_column(String(512), default="")
     metadata_json: Mapped[str] = mapped_column(Text, default="{}")
+    # Agent run batch this row belongs to (NULL for non-agent mutations).
+    action_batch_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

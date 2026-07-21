@@ -28,5 +28,5 @@ class User(Base):
 
     # Relationships
     project_memberships = relationship("ProjectMember", back_populates="user")
-    assigned_tasks = relationship("Task", back_populates="assignee")
+    assigned_tasks = relationship("Task", secondary="task_assignees", back_populates="assignees")
     chat_sessions = relationship("LLMChatSession", back_populates="user")

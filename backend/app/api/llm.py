@@ -1,7 +1,8 @@
 from datetime import datetime, timezone, timedelta
 import json
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, func
+from fastapi.responses import StreamingResponse
+from sqlalchemy import select, func, Integer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from app.core.database import get_db
@@ -23,8 +24,16 @@ from app.schemas import (
     LLMAgentChatResponse,
 )
 from app.services.llm_service import llm_service
+from app.services.report_service import (
+    ACTIVITY_WINDOW_DAYS,
+    ReportTask,
+    build_report_prompt,
+    compute_report_stats,
+    format_stats_text,
+)
 from app.services.rag_service import rag_service
-from app.services.agent_service import run_agent
+from app.services.agent_service import run_agent, run_agent_stream
+from app.services.undo_service import undo_batch
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 
 router = APIRouter(prefix="/api/llm", tags=["llm"])
@@ -161,51 +170,74 @@ async def llm_report(
     if not project:
         raise HTTPException(status_code=404, detail="项目不存在")
 
-    # Get all tasks with status names
+    # Get all top-level tasks with status names, assignees and subtask counts
     result = await db.execute(
-        select(Task, TaskStatus.name)
+        select(Task, TaskStatus.name, TaskStatus.is_done)
         .join(TaskStatus, Task.status_id == TaskStatus.id)
         .where(Task.project_id == project_id, Task.parent_task_id.is_(None))
+        .options(selectinload(Task.assignees))
         .order_by(TaskStatus.order, Task.order)
     )
     rows = result.all()
 
-    # Get activity logs from the past 7 days
+    # Subtask counts per parent task
+    subtask_counts: dict[int, tuple[int, int]] = {}
+    if rows:
+        result = await db.execute(
+            select(
+                Task.parent_task_id,
+                func.count(Task.id),
+                func.coalesce(func.sum(Task.is_completed.cast(Integer)), 0),
+            )
+            .where(
+                Task.project_id == project_id,
+                Task.parent_task_id.is_not(None),
+            )
+            .group_by(Task.parent_task_id)
+        )
+        subtask_counts = {pid: (total, done) for pid, total, done in result.all()}
+
+    # Get activity logs from the recent window
     from app.models.activity import ActivityLog
-    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    window_start = datetime.now(timezone.utc) - timedelta(days=ACTIVITY_WINDOW_DAYS)
     result = await db.execute(
         select(ActivityLog)
         .where(
             ActivityLog.project_id == project_id,
-            ActivityLog.created_at >= week_ago,
+            ActivityLog.created_at >= window_start,
         )
         .order_by(ActivityLog.created_at.desc())
     )
     logs = result.scalars().all()
 
-    # Build task summary
-    status_counts: dict[str, int] = {}
-    task_details: list[str] = []
-    for t, sname in rows:
-        status_counts[sname] = status_counts.get(sname, 0) + 1
-        task_details.append(f"- [{sname}] {t.title} (优先级:{t.priority})")
-
-    tasks_data = f"总计 {len(rows)} 个任务\n"
-    for sname, count in status_counts.items():
-        tasks_data += f"  {sname}: {count} 个\n"
-    tasks_data += "\n任务列表:\n" + "\n".join(task_details) if task_details else "暂无任务"
-
-    log_data = ""
-    if logs:
-        log_data = "\n近7天动态:\n" + "\n".join(
-            f"- {log.summary}" for log in logs[:20]
+    now = datetime.now(timezone.utc)
+    report_tasks = [
+        ReportTask(
+            title=t.title,
+            status_name=sname,
+            status_is_done=is_done,
+            priority=t.priority,
+            is_completed=t.is_completed,
+            due_date=t.due_date,
+            updated_at=t.updated_at,
+            assignees=[u.display_name or u.username for u in t.assignees],
+            subtask_total=subtask_counts.get(t.id, (0, 0))[0],
+            subtask_done=subtask_counts.get(t.id, (0, 0))[1],
         )
+        for t, sname, is_done in rows
+    ]
 
-    report = await llm_service.generate_report(
-        tasks_data + log_data, project.name
+    # Precompute all statistics in Python — never ask the LLM to count.
+    stats = compute_report_stats(report_tasks, now=now)
+    activity_lines = [log.summary for log in logs[:20]]
+    stats_text = format_stats_text(stats, report_tasks, activity_lines, now=now)
+    prompt = build_report_prompt(
+        project.name, project.description or "", stats_text
     )
 
-    return {"report": report, "generated_at": datetime.now(timezone.utc).isoformat()}
+    report = await llm_service.generate_report(prompt)
+
+    return {"report": report, "generated_at": now.isoformat()}
 
 
 # ---------------------------------------------------------------------------
@@ -309,14 +341,68 @@ async def delete_session(
 
 
 # ---------------------------------------------------------------------------
-# Agent chat
+# Undo of agent action batches
 # ---------------------------------------------------------------------------
-@router.post("/agent-chat", response_model=LLMAgentChatResponse)
-async def agent_chat(
-    request: LLMAgentChatRequest,
+@router.post("/sessions/{session_id}/undo")
+async def undo_agent_actions(
+    session_id: int,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Undo the most recent undoable agent action batch in this session.
+
+    Only the session owner may undo; each batch can be undone once. Entries
+    whose target entity has since vanished are skipped and reported.
+    """
+    result = await db.execute(
+        select(LLMChatSession).where(LLMChatSession.id == session_id)
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    if session.user_id != current_user.id and not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="无权操作此会话")
+    await ensure_project_member(session.project_id, current_user, db)
+
+    # Most recent assistant message with a batch that is not yet undone and
+    # actually produced activity rows.
+    result = await db.execute(
+        select(LLMChatMessage)
+        .where(
+            LLMChatMessage.session_id == session.id,
+            LLMChatMessage.role == "assistant",
+            LLMChatMessage.action_batch_id.is_not(None),
+            LLMChatMessage.undone_at.is_(None),
+        )
+        .order_by(LLMChatMessage.ordinal.desc())
+    )
+    from app.models.activity import ActivityLog
+
+    target: LLMChatMessage | None = None
+    for candidate in result.scalars().all():
+        rows = await db.execute(
+            select(ActivityLog.id)
+            .where(ActivityLog.action_batch_id == candidate.action_batch_id)
+            .limit(1)
+        )
+        if rows.first() is not None:
+            target = candidate
+            break
+    if target is None:
+        raise HTTPException(status_code=404, detail="没有可撤销的操作")
+
+    return await undo_batch(db, target, current_user)
+
+
+# ---------------------------------------------------------------------------
+# Agent chat
+# ---------------------------------------------------------------------------
+async def _resolve_chat_session(
+    request: LLMAgentChatRequest,
+    current_user: User,
+    db: AsyncSession,
+) -> LLMChatSession:
+    """Resolve or create the chat session for an agent-chat request."""
     await ensure_project_member(request.project_id, current_user, db)
 
     session: LLMChatSession | None = None
@@ -342,13 +428,17 @@ async def agent_chat(
         await db.flush()
         await db.refresh(session)
 
-    # Load history as plain dicts
+    return session
+
+
+async def _load_history(session: LLMChatSession, db: AsyncSession) -> list[dict]:
+    """Load session history as plain dicts."""
     result = await db.execute(
         select(LLMChatMessage)
         .where(LLMChatMessage.session_id == session.id)
         .order_by(LLMChatMessage.ordinal)
     )
-    history = [
+    return [
         {
             "role": m.role,
             "content": m.content,
@@ -358,14 +448,50 @@ async def agent_chat(
         for m in result.scalars().all()
     ]
 
-    result = await run_agent(
-        db=db,
-        user=current_user,
-        project_id=request.project_id,
-        user_message=request.message,
-        history_messages=history,
-    )
 
+async def _consume_pending_answer_context(
+    session: LLMChatSession, db: AsyncSession, user_message: str
+) -> str:
+    """When the session is awaiting an answer to a pending question, wrap the
+    user message with the question context for the LLM and clear the flag.
+
+    The raw user text stays untouched in the DB; only the LLM-bound message
+    is annotated.
+    """
+    if not session.awaiting_input:
+        return user_message
+    question = None
+    result = await db.execute(
+        select(LLMChatMessage)
+        .where(
+            LLMChatMessage.session_id == session.id,
+            LLMChatMessage.role == "assistant",
+            LLMChatMessage.pending_question.is_not(None),
+        )
+        .order_by(LLMChatMessage.ordinal.desc())
+        .limit(1)
+    )
+    msg = result.scalars().first()
+    if msg and isinstance(msg.pending_question, dict):
+        question = msg.pending_question.get("question")
+    session.awaiting_input = False
+    await db.flush()
+    if question:
+        return f"[用户在回答助手的问题：{question}] 用户回答：{user_message}"
+    return user_message
+
+
+async def _persist_agent_run(
+    db: AsyncSession,
+    session: LLMChatSession,
+    result: dict,
+    history_len: int,
+    user_message: str,
+) -> list[dict]:
+    """Persist new messages from an agent run and return deduplicated actions.
+
+    Shared by the buffered and streaming agent-chat endpoints.
+    """
     # Persist only new messages returned by the agent run (skip replayed history)
     max_ordinal_result = await db.execute(
         select(func.max(LLMChatMessage.ordinal)).where(LLMChatMessage.session_id == session.id)
@@ -374,11 +500,11 @@ async def agent_chat(
 
     persisted_messages = []
     returned_messages = result.get("messages", [])
-    new_messages = returned_messages[len(history):]
+    new_messages = returned_messages[history_len:]
     if not new_messages:
         # Configuration and provider errors still belong to the visible session history.
         new_messages = [
-            HumanMessage(content=request.message),
+            HumanMessage(content=user_message),
             AIMessage(content=result.get("message", "")),
         ]
     for msg in new_messages:
@@ -465,8 +591,155 @@ async def agent_chat(
                 db_msg.actions = unique_actions
                 break
 
+    # Persist a pending clarifying question on the final assistant message and
+    # mark the session as awaiting the user's answer.
+    pending_question = result.get("pending_question")
+    if pending_question:
+        for db_msg in reversed(persisted_messages):
+            if db_msg.role == "assistant":
+                db_msg.pending_question = pending_question
+                break
+        session.awaiting_input = True
+        await db.flush()
+
+    # Stamp the run's action batch id on the final assistant message so the
+    # whole run can be undone via /sessions/{id}/undo.
+    action_batch_id = result.get("action_batch_id")
+    if action_batch_id:
+        for db_msg in reversed(persisted_messages):
+            if db_msg.role == "assistant":
+                db_msg.action_batch_id = action_batch_id
+                break
+        await db.flush()
+
+    return unique_actions
+
+
+@router.post("/agent-chat", response_model=LLMAgentChatResponse)
+async def agent_chat(
+    request: LLMAgentChatRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    session = await _resolve_chat_session(request, current_user, db)
+    history = await _load_history(session, db)
+    llm_message = await _consume_pending_answer_context(session, db, request.message)
+
+    result = await run_agent(
+        db=db,
+        user=current_user,
+        project_id=request.project_id,
+        user_message=llm_message,
+        history_messages=history,
+    )
+
+    unique_actions = await _persist_agent_run(db, session, result, len(history), request.message)
+
     return LLMAgentChatResponse(
         session_id=session.id,
         message=result.get("message", ""),
         actions=unique_actions,
+        pending_question=result.get("pending_question"),
+        action_batch_id=result.get("action_batch_id"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Agent chat (SSE streaming)
+# ---------------------------------------------------------------------------
+_SSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
+
+
+def _sse(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+@router.post("/agent-chat/stream")
+async def agent_chat_stream(
+    request: LLMAgentChatRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Stream an agent run as Server-Sent Events.
+
+    Events: token {text} / tool_start {name, args} / tool_end {name} /
+    done {session_id, message, actions} / error {message}.
+    Comment lines (": ping") are emitted as a ~15s heartbeat while the run
+    is busy without producing tokens.
+    """
+    try:
+        session = await _resolve_chat_session(request, current_user, db)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    history = await _load_history(session, db)
+    llm_message = await _consume_pending_answer_context(session, db, request.message)
+
+    async def event_source():
+        import asyncio
+
+        queue: asyncio.Queue = asyncio.Queue()
+
+        async def produce():
+            try:
+                async for evt in run_agent_stream(
+                    db=db,
+                    user=current_user,
+                    project_id=request.project_id,
+                    user_message=llm_message,
+                    history_messages=history,
+                ):
+                    await queue.put(evt)
+            except Exception as e:  # pragma: no cover - defensive
+                await queue.put({"type": "result", "result": {
+                    "message": f"抱歉，LLM 调用失败：{str(e)}", "actions": [], "messages": [],
+                }})
+            finally:
+                await queue.put(None)
+
+        task = asyncio.create_task(produce())
+        try:
+            while True:
+                try:
+                    evt = await asyncio.wait_for(queue.get(), timeout=15)
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"
+                    continue
+                if evt is None:
+                    break
+                etype = evt.get("type")
+                if etype == "token":
+                    yield _sse("token", {"text": evt.get("text", "")})
+                elif etype == "tool_start":
+                    yield _sse("tool_start", {
+                        "name": evt.get("name", ""),
+                        "args": evt.get("args", {}),
+                    })
+                elif etype == "tool_end":
+                    yield _sse("tool_end", {"name": evt.get("name", "")})
+                elif etype == "result":
+                    result = evt.get("result") or {}
+                    try:
+                        actions = await _persist_agent_run(
+                            db, session, result, len(history), request.message
+                        )
+                        await db.commit()
+                        yield _sse("done", {
+                            "session_id": session.id,
+                            "message": result.get("message", ""),
+                            "actions": actions,
+                            "pending_question": result.get("pending_question"),
+                            "action_batch_id": result.get("action_batch_id"),
+                        })
+                    except Exception as e:
+                        yield _sse("error", {"message": f"保存会话失败：{str(e)}"})
+        finally:
+            if not task.done():
+                task.cancel()
+
+    return StreamingResponse(event_source(), media_type="text/event-stream", headers=_SSE_HEADERS)

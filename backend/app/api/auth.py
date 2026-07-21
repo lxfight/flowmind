@@ -13,8 +13,8 @@ from app.core.security import (
 from app.models.user import User
 from app.schemas import PasswordChange, Token, UserCreate, UserOut, UserProfileUpdate
 from app.core.config import get_settings
+from app.core.paths import get_avatars_dir
 import uuid
-from pathlib import Path
 import asyncio
 import time
 
@@ -177,11 +177,7 @@ async def upload_avatar(
     if ext == "jpeg":
         ext = "jpg"
     filename = f"{uuid.uuid4().hex}.{ext}"
-    avatars_dir = Path(settings.upload_dir)
-    if not avatars_dir.is_absolute():
-        avatars_dir = Path(__file__).resolve().parent.parent / avatars_dir
-    avatars_dir = avatars_dir / "avatars"
-    avatars_dir.mkdir(parents=True, exist_ok=True)
+    avatars_dir = get_avatars_dir()
     file_path = avatars_dir / filename
 
     await asyncio.to_thread(file_path.write_bytes, contents)

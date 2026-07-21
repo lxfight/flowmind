@@ -3,7 +3,7 @@ import logging
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
-from app.models.knowledge import KnowledgeDoc, DocChunk, DocChunkEmbedding
+from app.models.knowledge import KnowledgeDoc, DocChunk, DocChunkEmbedding, DOC_STATUS_INDEXED
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -48,15 +48,9 @@ class RAGService:
             return
 
         for doc_chunk in stored_chunks:
-            try:
-                embedding = await self.embed_text(doc_chunk.content)
-            except Exception as exc:
-                logger.warning(
-                    "Embedding generation failed for document %s; keeping plain-text chunks: %s",
-                    doc_id,
-                    exc,
-                )
-                return
+            # Embedding failures propagate so the indexing pipeline can mark
+            # the document as failed with an error message.
+            embedding = await self.embed_text(doc_chunk.content)
             if _is_sqlite:
                 # SQLite: store embedding as JSON string for dev/testing
                 import json
@@ -78,34 +72,40 @@ class RAGService:
         db: AsyncSession,
         result_limit: int,
     ) -> list[dict]:
+        """Keyword fallback retrieval (SQLite dev / no LLM key).
+
+        Only actual substring matches are returned, ranked by match count
+        with a boost for title hits. Deliberately does NOT fall back to the
+        first N chunks: no match means an empty list ("no relevant knowledge").
+        Similarity is reported as 0.0 since there is no vector score.
+        """
         result = await db.execute(
             select(DocChunk.content, KnowledgeDoc.title)
             .join(KnowledgeDoc)
             .where(KnowledgeDoc.project_id == project_id)
-            .where(
-                DocChunk.content.ilike(f"%{query}%")
-                | KnowledgeDoc.title.ilike(f"%{query}%")
-            )
-            .order_by(DocChunk.chunk_index)
-            .limit(result_limit)
+            .where(KnowledgeDoc.status == DOC_STATUS_INDEXED)
         )
         rows = result.all()
-        if not rows:
-            result = await db.execute(
-                select(DocChunk.content, KnowledgeDoc.title)
-                .join(KnowledgeDoc)
-                .where(KnowledgeDoc.project_id == project_id)
-                .order_by(DocChunk.chunk_index)
-                .limit(result_limit)
-            )
-            rows = result.all()
+
+        needle = query.lower()
+        scored = []
+        for content, title in rows:
+            content_hits = content.lower().count(needle)
+            title_hits = title.lower().count(needle)
+            if content_hits == 0 and title_hits == 0:
+                continue
+            # Title matches are a stronger signal; boost them.
+            score = content_hits + title_hits * 3
+            scored.append((score, content, title))
+
+        scored.sort(key=lambda item: item[0], reverse=True)
         return [
             {
                 "content": content,
                 "doc_title": title,
                 "similarity": 0.0,
             }
-            for content, title in rows
+            for _, content, title in scored[:result_limit]
         ]
 
     async def retrieve_context(
@@ -138,6 +138,7 @@ class RAGService:
                 JOIN doc_chunks dc ON dc.id = dce.chunk_id
                 JOIN knowledge_docs kd ON kd.id = dc.doc_id
                 WHERE kd.project_id = :project_id
+                  AND kd.status = :doc_status
                 ORDER BY dce.embedding <=> :query_embedding::vector
                 LIMIT :top_k
             """),
@@ -145,10 +146,16 @@ class RAGService:
                 "query_embedding": query_embedding_str,
                 "project_id": project_id,
                 "top_k": result_limit,
+                "doc_status": DOC_STATUS_INDEXED,
             },
         )
 
         rows = result.fetchall()
+        # The SQL computes similarity = 1 - cosine_distance (range roughly
+        # [-1, 1], higher is better). Filter out chunks below the configured
+        # similarity threshold; if everything is filtered, return an empty
+        # list so callers treat it as "no relevant knowledge".
+        threshold = settings.similarity_threshold
         return [
             {
                 "content": row[0],
@@ -156,6 +163,7 @@ class RAGService:
                 "similarity": float(row[3]),
             }
             for row in rows
+            if float(row[3]) >= threshold
         ]
 
     async def query_with_context(
@@ -170,8 +178,23 @@ class RAGService:
         contexts = await self.retrieve_context(query, project_id, db, top_k=top_k)
 
         if not contexts:
+            # Explicitly tell the LLM there is no relevant knowledge so it
+            # says so instead of hallucinating sources.
+            answer = await llm_service.chat(
+                messages=[{
+                    "role": "user",
+                    "content": (
+                        f"用户问题：{query}\n\n"
+                        "（系统提示：知识库检索没有找到任何相关内容。）"
+                    ),
+                }],
+                system_prompt=(
+                    "你是一个知识库助手。知识库中没有检索到与用户问题相关的内容。"
+                    "请明确告知用户知识库中未找到相关内容，不要编造来源或文档。"
+                ),
+            )
             return {
-                "answer": "知识库中未找到相关文档。",
+                "answer": answer,
                 "sources": [],
             }
 

@@ -102,7 +102,7 @@ async def test_subtasks_are_not_top_level_or_counted(client):
     assert response.status_code == 201
 
     response = client.get(f"/api/projects/{project_id}/tasks", headers=admin_headers)
-    assert [task["title"] for task in response.json()] == ["父任务"]
+    assert [task["title"] for task in response.json()["items"]] == ["父任务"]
 
     response = client.get("/api/projects/stats", headers=admin_headers)
     project_stats = next(item for item in response.json()["projects"] if item["project_id"] == project_id)
@@ -202,7 +202,7 @@ async def test_assignee_and_member_role_must_respect_project(client):
         json={
             "title": "错误指派",
             "status_id": statuses[0]["id"],
-            "assignee_id": outsider_id,
+            "assignee_ids": [outsider_id],
         },
     )
     assert response.status_code == 400
@@ -220,12 +220,20 @@ def test_llm_and_knowledge_input_limits():
 
 @pytest.mark.asyncio
 async def test_knowledge_creation_survives_embedding_failure(client, monkeypatch):
+    """Embedding failure no longer fails the request: the doc is created and
+    the background indexing pipeline marks it 'failed' with an error."""
+    from app.api import knowledge as knowledge_api
+    from app.services.knowledge_indexing import index_document
+
     admin_headers = _login(client, "admin", "testadmin")
     project_id, _ = _create_project(client, admin_headers)
 
     async def fail_embedding(_text: str):
         raise RuntimeError("embedding provider unavailable")
 
+    # Drive indexing explicitly (the TestClient defers BackgroundTasks and
+    # may run them concurrently on separate loops, which is racy on SQLite).
+    monkeypatch.setattr(knowledge_api, "index_document", lambda *a, **k: None)
     monkeypatch.setattr(rag_settings, "llm_api_key", "configured")
     monkeypatch.setattr(rag_service, "embed_text", fail_embedding)
     response = client.post(
@@ -235,4 +243,13 @@ async def test_knowledge_creation_survives_embedding_failure(client, monkeypatch
     )
 
     assert response.status_code == 201, response.text
-    assert response.json()["chunk_count"] == 1
+    assert response.json()["status"] == "indexing"
+
+    client.portal.call(index_document, response.json()["id"])
+    settled = client.get(
+        f"/api/projects/{project_id}/knowledge/{response.json()['id']}",
+        headers=admin_headers,
+    )
+    assert settled.status_code == 200
+    assert settled.json()["status"] == "failed"
+    assert "embedding provider unavailable" in settled.json()["error_message"]

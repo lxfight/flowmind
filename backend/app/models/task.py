@@ -1,7 +1,17 @@
 from datetime import datetime, timezone
-from sqlalchemy import String, Text, DateTime, ForeignKey, Integer, Boolean
+from sqlalchemy import String, Text, DateTime, ForeignKey, Integer, Boolean, Column, Table
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
+
+
+# Many-to-many association between tasks and their assignees.
+task_assignees = Table(
+    "task_assignees",
+    Base.metadata,
+    Column("task_id", Integer, ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True),
+    Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    Column("assigned_at", DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)),
+)
 
 
 class TaskStatus(Base):
@@ -25,13 +35,14 @@ class Task(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     status_id: Mapped[int] = mapped_column(ForeignKey("task_statuses.id", ondelete="CASCADE"), nullable=False)
-    assignee_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     parent_task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), nullable=True)
     title: Mapped[str] = mapped_column(String(512), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="")
     priority: Mapped[int] = mapped_column(Integer, default=0)  # 0=none, 1=low, 2=medium, 3=high, 4=urgent
     order: Mapped[float] = mapped_column(default=0.0)  # for drag & drop ordering
     due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    due_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    due_overdue_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_completed: Mapped[bool] = mapped_column(Boolean, default=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -46,11 +57,13 @@ class Task(Base):
     # Relationships
     project = relationship("Project", back_populates="tasks")
     status = relationship("TaskStatus", back_populates="tasks")
-    assignee = relationship("User", back_populates="assigned_tasks")
+    assignees = relationship("User", secondary=task_assignees, back_populates="assigned_tasks")
     comments = relationship("TaskComment", back_populates="task", cascade="all, delete-orphan",
                             order_by="TaskComment.created_at")
     subtasks = relationship("Task", back_populates="parent_task", cascade="all, delete-orphan")
     parent_task = relationship("Task", back_populates="subtasks", remote_side=[id])
+    attachments = relationship("TaskAttachment", back_populates="task", cascade="all, delete-orphan",
+                               order_by="TaskAttachment.created_at")
 
 
 class TaskComment(Base):
@@ -63,7 +76,31 @@ class TaskComment(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
     # Relationships
     task = relationship("Task", back_populates="comments")
     user = relationship("User")
+
+
+class TaskAttachment(Base):
+    __tablename__ = "task_attachments"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False)
+    uploader_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    filename: Mapped[str] = mapped_column(String(512), nullable=False)  # original display name
+    stored_name: Mapped[str] = mapped_column(String(128), nullable=False)  # randomized on-disk name
+    content_type: Mapped[str] = mapped_column(String(255), default="application/octet-stream")
+    size: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    # Relationships
+    task = relationship("Task", back_populates="attachments")
+    uploader = relationship("User")

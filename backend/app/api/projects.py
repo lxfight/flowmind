@@ -1,16 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from datetime import datetime, timezone
-from sqlalchemy import select, func, update
+from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from app.core.database import get_db
+from app.core.notify import create_notification
 from app.core.security import get_current_user
 from app.api.permissions import ensure_project_admin, ensure_project_member
 from app.models.user import User
 from app.models.project import Project, ProjectMember
-from app.models.task import Task, TaskStatus
+from app.models.task import Task, TaskStatus, task_assignees
 from app.models.activity import ActivityLog
 from app.schemas import (
+    ActivityListOut,
     ActivityLogOut,
     DashboardStats,
     ProjectCreate,
@@ -337,6 +339,21 @@ async def add_member(
         target_id=data.user_id,
         summary=f"添加项目成员: {target_user.display_name or target_user.username}",
     ))
+    if data.user_id != current_user.id:
+        project_result = await db.execute(select(Project).where(Project.id == project_id))
+        project = project_result.scalar_one_or_none()
+        project_name = project.name if project else f"#{project_id}"
+        inviter_name = current_user.display_name or current_user.username
+        role_labels = {"owner": "所有者", "admin": "管理员", "member": "成员", "viewer": "查看者"}
+        role_label = role_labels.get(data.role, data.role)
+        await create_notification(
+            db,
+            user_id=data.user_id,
+            type="member_added",
+            title=f"{inviter_name} 邀请你加入项目「{project_name}」",
+            body=f"你的角色：{role_label}",
+            link=f"/project/{project_id}/board",
+        )
     return {"message": "成员添加成功"}
 
 
@@ -421,29 +438,38 @@ async def remove_member(
         summary=f"移除项目成员: {removed_name}",
     ))
     await db.execute(
-        update(Task)
-        .where(Task.project_id == project_id, Task.assignee_id == user_id)
-        .values(assignee_id=None)
+        delete(task_assignees).where(
+            task_assignees.c.user_id == user_id,
+            task_assignees.c.task_id.in_(
+                select(Task.id).where(Task.project_id == project_id)
+            ),
+        )
     )
     await db.delete(member)
     return {"message": "成员已移除"}
 
 
-@router.get("/{project_id}/activities", response_model=list[ActivityLogOut])
+@router.get("/{project_id}/activities", response_model=ActivityListOut)
 async def list_activities(
     project_id: int,
-    limit: int = Query(default=30, ge=1, le=100),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get recent activity logs for a project."""
+    """Get activity logs for a project (paginated, latest first)."""
     await ensure_project_member(project_id, current_user, db)
+    count_result = await db.execute(
+        select(func.count(ActivityLog.id)).where(ActivityLog.project_id == project_id)
+    )
+    total = count_result.scalar() or 0
     result = await db.execute(
         select(ActivityLog)
         .options(selectinload(ActivityLog.user))
         .where(ActivityLog.project_id == project_id)
         .order_by(ActivityLog.created_at.desc())
-        .limit(limit)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
     )
     logs = result.scalars().all()
     output = []
@@ -453,4 +479,4 @@ async def list_activities(
         if log.user:
             out.user_name = log.user.display_name or log.user.username
         output.append(out)
-    return output
+    return ActivityListOut(items=output, total=total, page=page, page_size=page_size)

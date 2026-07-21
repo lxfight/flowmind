@@ -5,6 +5,19 @@ from app.core.database import Base
 
 from pgvector.sqlalchemy import Vector
 
+from app.core.config import get_settings
+
+# Single source of truth for the pgvector column size.
+# Changing llm_embedding_dim on an existing deployment requires a manual
+# migration to resize the embedding column.
+EMBEDDING_DIM = get_settings().llm_embedding_dim
+
+# KnowledgeDoc indexing status values.
+DOC_STATUS_PARSING = "parsing"
+DOC_STATUS_INDEXING = "indexing"
+DOC_STATUS_INDEXED = "indexed"
+DOC_STATUS_FAILED = "failed"
+
 
 class KnowledgeDoc(Base):
     __tablename__ = "knowledge_docs"
@@ -14,6 +27,9 @@ class KnowledgeDoc(Base):
     title: Mapped[str] = mapped_column(String(256), nullable=False)
     content: Mapped[str] = mapped_column(Text, default="")
     file_type: Mapped[str] = mapped_column(String(16), default="text")  # text, markdown, pdf
+    # Indexing pipeline status: parsing | indexing | indexed | failed
+    status: Mapped[str] = mapped_column(String(16), default=DOC_STATUS_INDEXING, nullable=False)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
@@ -48,7 +64,7 @@ class DocChunkEmbedding(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     chunk_id: Mapped[int] = mapped_column(ForeignKey("doc_chunks.id", ondelete="CASCADE"), nullable=False, unique=True)
-    embedding: Mapped[list[float]] = mapped_column(Vector(1536), nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIM), nullable=False)
 
     # Relationships
     chunk = relationship("DocChunk", back_populates="embedding")

@@ -1,15 +1,44 @@
+import asyncio
 import os
 import secrets
 from contextlib import asynccontextmanager
-from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text, select
 
-from app.api import auth, admin, projects, tasks, statuses, knowledge, llm
+from app.api import auth, admin, projects, tasks, statuses, knowledge, llm, notifications, task_search, attachments, ws
 from app.core.database import engine, Base, async_session_factory
-from app.core.config import get_settings
+
+# Columns that older SQLite dev databases may be missing; create_all never
+# alters existing tables, so add them manually.
+_SQLITE_COLUMN_FALLBACKS = {
+    "tasks": [
+        ("due_date", "DATETIME"),
+        ("due_notified_at", "DATETIME"),
+        ("due_overdue_notified_at", "DATETIME"),
+    ],
+    "llm_chat_sessions": [
+        ("awaiting_input", "BOOLEAN NOT NULL DEFAULT 0"),
+    ],
+    "llm_chat_messages": [
+        ("pending_question", "JSON"),
+    ],
+}
+
+
+async def _ensure_sqlite_columns(conn) -> None:
+    """Best-effort ALTER TABLE ADD COLUMN for SQLite dev databases."""
+    if conn.dialect.name != "sqlite":
+        return
+    for table, columns in _SQLITE_COLUMN_FALLBACKS.items():
+        rows = await conn.execute(text(f"PRAGMA table_info({table})"))
+        existing = {row[1] for row in rows.fetchall()}
+        if not existing:
+            continue  # table doesn't exist yet; create_all will handle it
+        for name, ddl in columns:
+            if name not in existing:
+                await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
 
 
 @asynccontextmanager
@@ -20,11 +49,12 @@ async def lifespan(app: FastAPI):
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         except Exception:
             pass  # ignore if not PostgreSQL (e.g. SQLite dev mode)
+        await _ensure_sqlite_columns(conn)
         await conn.run_sync(Base.metadata.create_all)
 
     # Ensure upload directories exist
-    settings = get_settings()
-    os.makedirs(os.path.join(settings.upload_dir, "avatars"), exist_ok=True)
+    from app.core.paths import get_avatars_dir
+    get_avatars_dir()
 
     # Auto-create default superuser if no users exist
     async with async_session_factory() as db:
@@ -54,10 +84,18 @@ async def lifespan(app: FastAPI):
             print("  请登录后立即修改密码!")
             print(f"{'='*60}\n")
 
+    # Start hourly due-date reminder background task
+    from app.services.due_reminder import due_reminder_loop
+    reminder_task = asyncio.create_task(due_reminder_loop(async_session_factory))
+
     yield
     # Shutdown
+    reminder_task.cancel()
+    try:
+        await reminder_task
+    except asyncio.CancelledError:
+        pass
     await engine.dispose()
-
 
 app = FastAPI(
     title="FlowMind API",
@@ -82,13 +120,16 @@ app.include_router(tasks.router)
 app.include_router(statuses.router)
 app.include_router(knowledge.router)
 app.include_router(llm.router)
+app.include_router(notifications.router)
+app.include_router(task_search.router)
+app.include_router(attachments.router)
+app.include_router(ws.router)
 
 # Serve uploaded files (avatars, etc.)
-settings = get_settings()
-upload_dir_path = Path(settings.upload_dir)
-if not upload_dir_path.is_absolute():
-    upload_dir_path = Path(__file__).resolve().parent.parent / upload_dir_path
-os.makedirs(upload_dir_path / "avatars", exist_ok=True)
+from app.core.paths import get_upload_dir
+
+upload_dir_path = get_upload_dir()
+(upload_dir_path / "avatars").mkdir(parents=True, exist_ok=True)
 app.mount("/api/uploads", StaticFiles(directory=str(upload_dir_path)), name="uploads")
 
 

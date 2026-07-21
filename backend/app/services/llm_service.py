@@ -68,19 +68,18 @@ class LLMService:
         )
         return result.strip()
 
-    async def generate_report(self, tasks_data: str, project_name: str) -> str:
-        """Generate a project status report."""
-        prompt = f"""项目：{project_name}
-任务数据：{tasks_data}
+    async def generate_report(self, prompt: str) -> str:
+        """Generate a project status report from a fully-built report prompt.
 
-请生成一份简洁的项目状态报告，包含：
-1. 总体进度
-2. 各状态任务分布
-3. 高风险/延迟任务提醒
-4. 建议"""
+        The prompt (built by report_service.build_report_prompt) already
+        contains the project context, precomputed statistics, the required
+        output skeleton, and anti-hallucination instructions.
+        """
+        from app.services.report_service import REPORT_SYSTEM_PROMPT
+
         return await self.chat(
             messages=[{"role": "user", "content": prompt}],
-            system_prompt="你是一个项目管理助手。请生成专业、简洁的项目报告。",
+            system_prompt=REPORT_SYSTEM_PROMPT,
         )
 
     def _parse_json_result(self, text: str) -> list[dict]:

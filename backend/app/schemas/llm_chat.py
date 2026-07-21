@@ -17,6 +17,7 @@ class LLMChatSessionOut(BaseModel):
     id: int
     project_id: int
     title: str
+    awaiting_input: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -31,6 +32,9 @@ class LLMChatMessageOut(BaseModel):
     tool_calls: list[dict] | None = None
     tool_results: list[dict] | None = None
     actions: list[dict] | None = None
+    pending_question: dict | None = None
+    action_batch_id: str | None = None
+    undone_at: datetime | None = None
     ordinal: int
     created_at: datetime
 
@@ -49,3 +53,5 @@ class LLMAgentChatResponse(BaseModel):
     session_id: int
     message: str
     actions: list[dict] = Field(default_factory=list)
+    pending_question: dict | None = None
+    action_batch_id: str | None = None
