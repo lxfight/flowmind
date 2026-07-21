@@ -553,6 +553,7 @@ export default function KanbanBoard() {
           open={showChat}
           onClose={() => setShowChat(false)}
           onActions={handleLLMActions}
+          members={members}
         />
       )}
 

@@ -6,12 +6,15 @@ import { cn } from '../../utils/cn'
 import { toolLabel } from '../../stores/llmChatStore'
 import { Button } from '../ui/Button'
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/Dialog'
-import type { ChatMessage } from '../../types'
+import { MentionText } from '../kanban/MentionText'
+import type { ChatMessage, MemberOption } from '../../types'
 
 interface Props {
   message: ChatMessage
   /** True while the question is unanswered and latest — chips are clickable */
   questionActive?: boolean
+  /** 项目成员，用于用户消息中的 @mention 高亮 */
+  members?: MemberOption[]
   onAnswerQuestion?: (answer: string) => void
   /** Undo the agent action batch attached to this message */
   onUndoBatch?: (batchId: string) => void
@@ -181,7 +184,7 @@ function UndoBatchControl({
   )
 }
 
-export function LLMChatMessage({ message, questionActive = false, onAnswerQuestion, onUndoBatch }: Props) {
+export function LLMChatMessage({ message, questionActive = false, members, onAnswerQuestion, onUndoBatch }: Props) {
   const isUser = message.role === 'user'
   const isTool = message.role === 'tool'
 
@@ -192,7 +195,13 @@ export function LLMChatMessage({ message, questionActive = false, onAnswerQuesti
       <div className="flex w-full justify-end">
         <div className="max-w-[80%]">
           <div className="rounded-2xl bg-muted px-3.5 py-2.5 text-sm leading-relaxed text-foreground">
-            <div className="whitespace-pre-wrap">{message.content}</div>
+            <div className="whitespace-pre-wrap">
+              {members && members.length > 0 ? (
+                <MentionText content={message.content} members={members} />
+              ) : (
+                message.content
+              )}
+            </div>
           </div>
           <div className="text-right">
             <Timestamp value={message.created_at} />

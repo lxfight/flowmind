@@ -6,7 +6,7 @@ import { LLMChatSessionList } from './LLMChatSessionList'
 import { LLMChatMessageList } from './LLMChatMessageList'
 import { LLMChatInput } from './LLMChatInput'
 import { useLLMChatStore } from '../../stores/llmChatStore'
-import type { ActionSummary } from '../../types'
+import type { ActionSummary, MemberOption } from '../../types'
 import { cn } from '../../utils/cn'
 import {
   clampPosition,
@@ -30,9 +30,11 @@ interface Props {
   open: boolean
   onClose: () => void
   onActions?: (actions: ActionSummary[]) => void
+  /** 项目成员，用于输入框 @ 补全与消息 mention 高亮 */
+  members?: MemberOption[]
 }
 
-export function LLMChatPanel({ projectId, open, onClose, onActions }: Props) {
+export function LLMChatPanel({ projectId, open, onClose, onActions, members }: Props) {
   const {
     sessions,
     currentSessionId,
@@ -303,6 +305,7 @@ export function LLMChatPanel({ projectId, open, onClose, onActions }: Props) {
         <LLMChatMessageList
           messages={messages}
           streaming={streaming}
+          members={members}
           onExampleClick={setDraft}
           onAnswerQuestion={handleSend}
           onUndoBatch={handleUndoBatch}
@@ -318,6 +321,7 @@ export function LLMChatPanel({ projectId, open, onClose, onActions }: Props) {
           onStop={stopStreaming}
           streaming={streaming}
           sessionTitle={currentSessionId ? currentTitle : undefined}
+          members={members}
         />
       </div>
 

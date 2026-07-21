@@ -1,11 +1,13 @@
 import { useEffect, useRef } from 'react'
 import { Sparkles } from 'lucide-react'
 import { LLMChatMessage } from './LLMChatMessage'
-import type { ChatMessage } from '../../types'
+import type { ChatMessage, MemberOption } from '../../types'
 
 interface Props {
   messages: ChatMessage[]
   streaming?: boolean
+  /** 项目成员，用于用户消息中的 @mention 高亮 */
+  members?: MemberOption[]
   onExampleClick?: (prompt: string) => void
   /** Send a quick-reply option from a pending-question card */
   onAnswerQuestion?: (answer: string) => void
@@ -19,7 +21,7 @@ const EXAMPLE_PROMPTS = [
   '总结一下当前项目进度',
 ]
 
-export function LLMChatMessageList({ messages, streaming, onExampleClick, onAnswerQuestion, onUndoBatch }: Props) {
+export function LLMChatMessageList({ messages, streaming, members, onExampleClick, onAnswerQuestion, onUndoBatch }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -65,6 +67,7 @@ export function LLMChatMessageList({ messages, streaming, onExampleClick, onAnsw
                 <LLMChatMessage
                   message={msg}
                   questionActive={questionActive}
+                  members={members}
                   onAnswerQuestion={onAnswerQuestion}
                   onUndoBatch={onUndoBatch}
                 />
