@@ -12,7 +12,7 @@ import { Textarea } from '../ui/Textarea'
 import { Switch } from '../ui/Switch'
 import api, { errDetail } from '../../utils/api'
 import toast from 'react-hot-toast'
-import { cn } from '../../utils/cn'
+import { ProjectColorPicker } from './ProjectColorPicker'
 import type { Project } from '../../stores/projectStore'
 
 interface Props {
@@ -20,8 +20,6 @@ interface Props {
   onClose: () => void
   onUpdated: (updated: Project) => void
 }
-
-const COLORS = ['#6366f1', '#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#ec4899', '#8b5cf6', '#14b8a6']
 
 export function EditProjectDialog({ project, onClose, onUpdated }: Props) {
   const [name, setName] = useState(project.name)
@@ -92,23 +90,7 @@ export function EditProjectDialog({ project, onClose, onUpdated }: Props) {
 
           <div className="space-y-2">
             <label className="text-sm font-medium">颜色</label>
-            <div className="flex flex-wrap gap-2">
-              {COLORS.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => setColor(c)}
-                  disabled={saving}
-                  aria-label={`选择颜色 ${c}`}
-                  aria-pressed={color === c}
-                  className={cn(
-                    'w-8 h-8 rounded-full transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-                    color === c && 'ring-2 ring-offset-2 ring-foreground scale-110'
-                  )}
-                  style={{ backgroundColor: c }}
-                />
-              ))}
-            </div>
+            <ProjectColorPicker value={color} onChange={setColor} disabled={saving} projectName={name} />
           </div>
 
           <div className="flex items-center justify-between rounded-lg border border-border p-3">

@@ -9,19 +9,19 @@ import {
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
 import { Textarea } from '../ui/Textarea'
-import { cn } from '../../utils/cn'
+import { ProjectColorPicker } from './ProjectColorPicker'
 
 interface Props {
   onClose: () => void
   onCreate: (data: { name: string; description: string; color: string }) => Promise<void> | void
 }
 
-const COLORS = ['#6366f1', '#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#ec4899', '#8b5cf6']
+const DEFAULT_COLOR = '#6366F1'
 
 export function CreateProjectDialog({ onClose, onCreate }: Props) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [color, setColor] = useState(COLORS[0])
+  const [color, setColor] = useState(DEFAULT_COLOR)
   const [submitting, setSubmitting] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -72,23 +72,7 @@ export function CreateProjectDialog({ onClose, onCreate }: Props) {
 
           <div className="space-y-2">
             <label className="text-sm font-medium">颜色</label>
-            <div className="flex gap-2">
-              {COLORS.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => setColor(c)}
-                  disabled={submitting}
-                  aria-label={`选择颜色 ${c}`}
-                  aria-pressed={color === c}
-                  className={cn(
-                    'w-8 h-8 rounded-full transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-                    color === c && 'ring-2 ring-offset-2 ring-foreground scale-110'
-                  )}
-                  style={{ backgroundColor: c }}
-                />
-              ))}
-            </div>
+            <ProjectColorPicker value={color} onChange={setColor} disabled={submitting} projectName={name} />
           </div>
         </div>
 
