@@ -1,5 +1,12 @@
 // ===== 看板任务 =====
 
+/** 任务指派人精简信息 */
+export interface AssigneeBrief {
+  id: number
+  display_name: string
+  avatar_url: string
+}
+
 /** KanbanBoard 使用的任务摘要 */
 export interface TaskSummary {
   id: number
@@ -8,10 +15,9 @@ export interface TaskSummary {
   status_id: number
   priority: number
   order: number
-  assignee_id: number | null
   due_date: string | null
   is_completed: boolean
-  assignee?: { id: number; display_name: string; avatar_url: string } | null
+  assignees: AssigneeBrief[]
   comment_count: number
   subtask_count: number
   subtask_done: number
@@ -24,7 +30,7 @@ export interface TaskCard {
   id: number
   title: string
   priority: number
-  assignee?: { id: number; display_name: string; avatar_url: string } | null
+  assignees: AssigneeBrief[]
   due_date: string | null
   is_completed?: boolean
   subtask_count: number
@@ -62,7 +68,7 @@ export interface TaskDetail {
   description: string
   status_id: number
   priority: number
-  assignee: { id: number; display_name: string; avatar_url: string } | null
+  assignees: AssigneeBrief[]
   due_date: string | null
   is_completed: boolean
   created_at: string
@@ -84,9 +90,22 @@ export interface SubTask {
 /** 任务评论 */
 export interface TaskComment {
   id: number
+  task_id: number
+  user_id: number
   content: string
   created_at: string
+  updated_at: string
   user: { id: number; display_name: string }
+}
+
+export interface TaskAttachment {
+  id: number
+  task_id: number
+  uploader_id: number
+  filename: string
+  content_type: string
+  size: number
+  created_at: string
 }
 
 // ===== 成员 =====
@@ -136,6 +155,8 @@ export interface ChatSession {
   id: number
   project_id: number
   title: string
+  /** True while the assistant is waiting for the user to answer a question */
+  awaiting_input?: boolean
   created_at: string
   updated_at: string
 }
@@ -170,6 +191,12 @@ export interface ActionSummary {
   detail?: string
 }
 
+export interface UndoResult {
+  batch_id: string
+  undone: string[]
+  skipped: { summary: string; reason: string }[]
+}
+
 export interface ChatMessage {
   id?: number
   role: 'user' | 'assistant' | 'tool'
@@ -177,5 +204,20 @@ export interface ChatMessage {
   tool_calls?: ToolCall[]
   tool_results?: ToolResult[]
   actions?: ActionSummary[]
+  /** Clarifying question the assistant is waiting for the user to answer */
+  pending_question?: { question: string; options?: string[] | null } | null
+  /** Agent run batch id — present on assistant messages that can be undone */
+  action_batch_id?: string | null
+  /** Set once this message's action batch has been undone */
+  undone_at?: string | null
+  created_at?: string
   loading?: boolean
+  /** True while the assistant message is streaming token-by-token */
+  streaming?: boolean
+  /** Compact status line shown while a tool runs (streaming) */
+  toolStatus?: string | null
+  /** Streaming was aborted by the user — partial content kept */
+  stopped?: boolean
+  /** Inline error text for a failed assistant message */
+  error?: string
 }

@@ -1,22 +1,35 @@
-import { useState, useRef, useEffect } from 'react'
-import { Send, Loader2, Square } from 'lucide-react'
-import { Button } from '../ui/Button'
+import { useRef, useEffect } from 'react'
+import { Send, Square } from 'lucide-react'
+import { cn } from '../../utils/cn'
+import { useLLMChatStore } from '../../stores/llmChatStore'
 
 interface Props {
   onSend: (content: string) => void
-  loading?: boolean
+  onStop: () => void
+  streaming?: boolean
+  disabled?: boolean
+  disabledHint?: string
   placeholder?: string
+  sessionTitle?: string
 }
 
-export function LLMChatInput({ onSend, loading = false, placeholder = '输入消息...' }: Props) {
-  const [input, setInput] = useState('')
+export function LLMChatInput({
+  onSend,
+  onStop,
+  streaming = false,
+  disabled = false,
+  disabledHint,
+  placeholder = '输入消息，Enter 发送，Shift+Enter 换行',
+  sessionTitle,
+}: Props) {
+  const { draft, setDraft } = useLLMChatStore()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const handleSend = () => {
-    const trimmed = input.trim()
-    if (!trimmed || loading) return
+    const trimmed = draft.trim()
+    if (!trimmed || streaming || disabled) return
     onSend(trimmed)
-    setInput('')
+    setDraft('')
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
   }
 
@@ -32,39 +45,54 @@ export function LLMChatInput({ onSend, loading = false, placeholder = '输入消
     if (!el) return
     el.style.height = 'auto'
     el.style.height = `${Math.min(el.scrollHeight, 120)}px`
-  }, [input])
+  }, [draft])
 
   return (
-    <div className="border-t border-border p-3">
-      <div className="flex items-end gap-2">
+    <div className="shrink-0 px-3 pb-3 pt-2">
+      <div
+        className={cn(
+          'rounded-2xl border border-input bg-background transition-shadow duration-200',
+          'focus-within:shadow-[0_2px_12px_-4px_hsl(var(--foreground)/0.12)] focus-within:border-foreground/25',
+          disabled && 'opacity-70'
+        )}
+      >
         <textarea
           ref={textareaRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           aria-label="消息内容"
           rows={1}
-          disabled={loading}
-          className="flex-1 min-w-0 resize-none rounded-xl border border-input bg-background px-3 py-2.5 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-70 max-h-[120px]"
+          disabled={disabled}
+          className="block w-full resize-none bg-transparent px-3.5 pt-3 text-sm placeholder:text-muted-foreground focus:outline-none disabled:cursor-not-allowed max-h-[120px]"
         />
-        <Button
-          onClick={handleSend}
-          disabled={loading || !input.trim()}
-          size="icon"
-          aria-label="发送消息"
-          className="h-10 w-10 shrink-0 rounded-xl"
-        >
-          {loading ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
+        <div className="flex items-center justify-between gap-2 px-2.5 pb-2 pt-1">
+          <div className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
+            {disabledHint || (sessionTitle ? `当前会话：${sessionTitle}` : 'Enter 发送 · Shift+Enter 换行')}
+          </div>
+          {streaming ? (
+            <button
+              type="button"
+              onClick={onStop}
+              aria-label="停止生成"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity duration-150 hover:opacity-85"
+            >
+              <Square className="h-3.5 w-3.5 fill-current" />
+            </button>
           ) : (
-            <Send className="h-4 w-4" />
+            <button
+              type="button"
+              onClick={handleSend}
+              disabled={disabled || !draft.trim()}
+              aria-label="发送消息"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity duration-150 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Send className="h-3.5 w-3.5" />
+            </button>
           )}
-        </Button>
+        </div>
       </div>
-      <p className="mt-1.5 text-center text-[10px] text-muted-foreground">
-        Enter 发送，Shift+Enter 换行
-      </p>
     </div>
   )
 }

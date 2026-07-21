@@ -86,6 +86,13 @@ export function LLMChatSessionList({
             ) : (
               <>
                 <span className="flex-1 truncate text-xs font-medium">{session.title}</span>
+                {session.awaiting_input && (
+                  <span
+                    className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary"
+                    title="助手正在等待你的回答"
+                    aria-label="待回答"
+                  />
+                )}
                 <DropdownMenu
                   align="end"
                   trigger={
