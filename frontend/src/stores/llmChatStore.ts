@@ -31,8 +31,12 @@ export const useLLMChatStore = create<LLMChatState>((set, get) => ({
   error: null,
 
   loadSessions: async (projectId) => {
-    const res = await api.get('/llm/sessions', { params: { project_id: projectId } })
-    set({ sessions: res.data as ChatSession[] })
+    try {
+      const res = await api.get('/llm/sessions', { params: { project_id: projectId } })
+      set({ sessions: res.data as ChatSession[] })
+    } catch {
+      set({ error: '加载会话列表失败' })
+    }
   },
 
   createSession: async (projectId, title) => {
