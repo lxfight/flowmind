@@ -33,23 +33,41 @@ router = APIRouter(prefix="/api/projects", tags=["projects"])
 @router.get("/users/search", response_model=list[UserSearchOut])
 async def search_users(
     q: str = Query(default="", max_length=128),
+    exclude_project_id: int | None = Query(default=None),
+    limit: int = Query(default=10, ge=1, le=50),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Search users by username or display_name."""
+    """Search users by username or display_name.
+
+    With ``exclude_project_id`` the members of that project are filtered out
+    and the ``q`` minimum-length rule is lifted, so an empty/short query
+    returns an initial candidate list (ordered by name) for "add member"
+    pickers.
+    """
     q = q.strip()
-    if len(q) < 2:
+    if len(q) < 2 and exclude_project_id is None:
         return []
-    escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+    conditions = [User.is_active.is_(True), User.is_approved.is_(True)]
+    if q:
+        escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        conditions.append(
+            (User.username.ilike(f"%{escaped}%", escape="\\"))
+            | (User.display_name.ilike(f"%{escaped}%", escape="\\"))
+        )
+    if exclude_project_id is not None:
+        member_ids = select(ProjectMember.user_id).where(
+            ProjectMember.project_id == exclude_project_id
+        )
+        conditions.append(User.id.notin_(member_ids))
+
+    display = func.lower(func.nullif(User.display_name, ""))
     result = await db.execute(
         select(User)
-        .where(
-            User.is_active.is_(True),
-            User.is_approved.is_(True),
-            (User.username.ilike(f"%{escaped}%", escape="\\"))
-            | (User.display_name.ilike(f"%{escaped}%", escape="\\")),
-        )
-        .limit(10)
+        .where(*conditions)
+        .order_by(func.coalesce(display, func.lower(User.username)), func.lower(User.username))
+        .limit(limit)
     )
     return [UserSearchOut.model_validate(u) for u in result.scalars().all()]
 

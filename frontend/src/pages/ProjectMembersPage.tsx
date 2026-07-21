@@ -45,16 +45,20 @@ export default function ProjectMembersPage() {
     loadMembers()
   }, [loadMembers])
 
+  // 打开添加面板即加载候选列表（排除已是成员者，默认 10 条，按姓名排序）；
+  // 输入关键词后同一接口实时过滤（exclude_project_id 由后端排除成员）
   useEffect(() => {
-    if (!searchQuery.trim()) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- clearing stale search results when the query is emptied
-      setSearchResults([])
-      return
-    }
-    const timer = setTimeout(async () => {
+    if (!showAdd || !projectId) return
+    const fetchUsers = async () => {
       setSearching(true)
       try {
-        const res = await api.get(`/projects/users/search?q=${encodeURIComponent(searchQuery)}`)
+        const res = await api.get('/projects/users/search', {
+          params: {
+            q: searchQuery.trim(),
+            exclude_project_id: projectId,
+            limit: 10,
+          },
+        })
         setSearchResults(
           res.data.filter((u: UserInfo) => !members.find((m) => m.user_id === u.id))
         )
@@ -62,9 +66,14 @@ export default function ProjectMembersPage() {
         setSearchResults([])
       }
       setSearching(false)
-    }, 300)
+    }
+    if (!searchQuery.trim()) {
+      fetchUsers()
+      return
+    }
+    const timer = setTimeout(fetchUsers, 300)
     return () => clearTimeout(timer)
-  }, [searchQuery, members])
+  }, [searchQuery, members, showAdd, projectId])
 
   const handleAddMember = async (userId: number) => {
     if (!projectId) return
@@ -178,32 +187,40 @@ export default function ProjectMembersPage() {
                 <X className="h-4 w-4" />
               </Button>
             </div>
-            {searching && <p className="text-sm text-muted-foreground">搜索中...</p>}
-            {searchResults.length > 0 && (
-              <div className="space-y-1">
-                {searchResults.map((u) => (
-                  <div key={u.id} className="flex items-center justify-between rounded-lg p-2 hover:bg-accent">
-                    <div className="flex items-center gap-2">
-                      <Avatar name={u.display_name || u.username} src={u.avatar_url} size="sm" />
-                      <div>
-                        <p className="text-sm font-medium">{u.display_name || u.username}</p>
-                        <p className="text-xs text-muted-foreground">@{u.username}</p>
+            {searching && <p className="text-sm text-muted-foreground">{searchQuery.trim() ? '搜索中...' : '加载候选用户...'}</p>}
+            {!searching && searchResults.length > 0 && (
+              <div>
+                <p className="text-xs text-muted-foreground mb-1.5">
+                  {searchQuery.trim() ? '搜索结果' : '候选用户（点击添加）'}
+                </p>
+                <div className="space-y-1">
+                  {searchResults.map((u) => (
+                    <div key={u.id} className="flex items-center justify-between rounded-lg p-2 hover:bg-accent">
+                      <div className="flex items-center gap-2">
+                        <Avatar name={u.display_name || u.username} src={u.avatar_url} size="sm" />
+                        <div>
+                          <p className="text-sm font-medium">{u.display_name || u.username}</p>
+                          <p className="text-xs text-muted-foreground">@{u.username}</p>
+                        </div>
                       </div>
+                      <Button
+                        size="sm"
+                        onClick={() => handleAddMember(u.id)}
+                        disabled={adding}
+                        loading={adding}
+                      >
+                        添加
+                      </Button>
                     </div>
-                    <Button
-                      size="sm"
-                      onClick={() => handleAddMember(u.id)}
-                      disabled={adding}
-                      loading={adding}
-                    >
-                      添加
-                    </Button>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             )}
             {searchQuery && !searching && searchResults.length === 0 && (
               <p className="text-sm text-muted-foreground">未找到用户</p>
+            )}
+            {!searchQuery && !searching && searchResults.length === 0 && (
+              <p className="text-sm text-muted-foreground">暂无可添加的用户</p>
             )}
           </CardContent>
         </Card>
