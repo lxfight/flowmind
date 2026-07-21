@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 from helpers import admin_login, create_project
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 
 
 def parse_sse(body: str) -> list[tuple[str, dict]]:
@@ -44,6 +44,7 @@ async def test_stream_happy_path_with_mocked_agent(client):
     project_id, _ = create_project(client, headers, name="流式项目")
 
     async def fake_stream(**kwargs):
+        yield {"type": "status", "stage": "thinking", "message": "正在思考…"}
         yield {"type": "token", "text": "好的，"}
         yield {"type": "tool_start", "name": "create_task", "args": {"title": "任务A"}}
         yield {"type": "tool_end", "name": "create_task"}
@@ -72,7 +73,11 @@ async def test_stream_happy_path_with_mocked_agent(client):
 
     events = parse_sse(resp.text)
     kinds = [e for e, _ in events]
-    assert kinds == ["token", "tool_start", "tool_end", "token", "done"]
+    assert kinds == ["status", "token", "tool_start", "tool_end", "token", "done"]
+
+    status = next(d for e, d in events if e == "status")
+    assert status["stage"] == "thinking"
+    assert status["message"] == "正在思考…"
 
     tokens = [d["text"] for e, d in events if e == "token"]
     assert "".join(tokens) == "好的，已创建。"
@@ -118,3 +123,45 @@ async def test_stream_agent_error_yields_done_with_message(client):
     events = parse_sse(resp.text)
     assert [e for e, _ in events] == ["done"]
     assert "LLM 未配置" in events[0][1]["message"]
+
+
+@pytest.mark.asyncio
+async def test_run_agent_stream_yields_status_first():
+    """run_agent_stream must emit a status event before any LLM output so the
+    client is never fully silent during the first tool-decision call."""
+    from app.services import agent_service
+
+    class FakeAgent:
+        async def astream_events(self, input, config=None, version=None):
+            yield {
+                "event": "on_tool_start",
+                "name": "search_knowledge",
+                "data": {"input": {"query": "AI 新闻"}},
+            }
+            yield {"event": "on_tool_end", "name": "search_knowledge", "data": {}}
+            yield {
+                "event": "on_chat_model_stream",
+                "data": {"chunk": AIMessageChunk(content="你好")},
+            }
+            yield {
+                "event": "on_chain_end",
+                "data": {"output": {"messages": [HumanMessage(content="hi"), AIMessage(content="你好")]}},
+            }
+
+    built = (FakeAgent(), [HumanMessage(content="hi")], {}, [], None, "batch-1")
+
+    async def fake_build(*args, **kwargs):
+        return built
+
+    with patch.object(agent_service, "_build_agent_run", side_effect=fake_build):
+        events = [
+            evt
+            async for evt in agent_service.run_agent_stream(
+                db=None, user=None, project_id=1, user_message="hi"
+            )
+        ]
+
+    assert events[0] == {"type": "status", "stage": "thinking", "message": "正在思考…"}
+    kinds = [e["type"] for e in events]
+    assert kinds == ["status", "tool_start", "tool_end", "token", "result"]
+    assert events[-1]["result"]["message"] == "你好"

@@ -9,15 +9,13 @@ from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 from sqlalchemy import func, select
 
-from app.core.config import get_settings
 from app.models.knowledge import DocChunk, KnowledgeDoc
 from app.models.task import Task, TaskStatus
 from app.models.user import User
 from app.schemas import TaskCommentCreate, TaskCreate, TaskMove, TaskStatusCreate, TaskStatusUpdate, TaskUpdate
 from app.services import task_service
+from app.services.config_service import config_service
 from app.services.rag_service import rag_service
-
-settings = get_settings()
 
 
 # ---------------------------------------------------------------------------
@@ -378,8 +376,12 @@ async def search_knowledge(query: str, config: RunnableConfig) -> str:
             content = h["content"]
             if len(content) > 300:
                 content = content[:300] + "…"
+            score_parts = []
+            if h.get("vector_score") is not None:
+                score_parts.append(f"向量 {h['vector_score'] * 100:.0f}%")
+            score_parts.append(f"关键词 {h.get('keyword_score', 0.0) * 100:.0f}%")
             blocks.append(
-                f"《{h['doc_title']}》(相似度 {h['similarity'] * 100:.0f}%)\n{content}"
+                f"《{h['doc_title']}》({' / '.join(score_parts)})\n{content}"
             )
         return "\n\n".join(blocks)
     except Exception as e:
@@ -388,11 +390,15 @@ async def search_knowledge(query: str, config: RunnableConfig) -> str:
 
 @tool
 async def list_knowledge_docs(config: RunnableConfig) -> str:
-    """列出当前项目知识库中的文档（标题、类型、索引状态、分块数）。"""
+    """列出当前项目知识库中的文档（标题、类型、索引状态、分块数、内容长度）。"""
     db, user, project_id = _get_deps(config)
     try:
         result = await db.execute(
-            select(KnowledgeDoc, func.count(DocChunk.id).label("chunk_count"))
+            select(
+                KnowledgeDoc,
+                func.count(DocChunk.id).label("chunk_count"),
+                func.length(KnowledgeDoc.content).label("content_length"),
+            )
             .outerjoin(DocChunk, DocChunk.doc_id == KnowledgeDoc.id)
             .where(KnowledgeDoc.project_id == project_id)
             .group_by(KnowledgeDoc.id)
@@ -404,10 +410,76 @@ async def list_knowledge_docs(config: RunnableConfig) -> str:
             return "当前项目还没有知识库文档。"
         lines = [
             f"- [id={doc.id}] {doc.title} (类型={doc.file_type}, 状态={doc.status}, "
-            f"分块数={chunk_count}, 更新于={doc.updated_at})"
-            for doc, chunk_count in rows
+            f"分块数={chunk_count}, 内容长度={content_length or 0} 字符, 更新于={doc.updated_at})"
+            for doc, chunk_count, content_length in rows
         ]
         return "\n".join(lines)
+    except Exception as e:
+        return _format_result(False, message=str(e))
+
+
+# read_knowledge_doc pagination defaults: sized to sit comfortably in the
+# model context window while leaving room for the conversation.
+READ_DOC_DEFAULT_LIMIT = 10000
+READ_DOC_MAX_LIMIT = 20000
+
+
+@tool
+async def read_knowledge_doc(
+    doc_id: int,
+    offset: int = 0,
+    limit: int = READ_DOC_DEFAULT_LIMIT,
+    config: RunnableConfig = None,
+) -> str:
+    """通读知识库文档全文（按字符分页读取）。
+
+    用于需要基于完整文档内容工作的场景——例如通读整份方案文档后创建
+    详细的看板任务计划。按问题检索相关片段请改用 search_knowledge。
+    长文档一次只返回一页（默认 10000 字符），返回头会标明全文总长度、
+    当前区间与下一页 offset，可多次调用翻页直到读完。
+    """
+    db, user, project_id = _get_deps(config)
+    try:
+        result = await db.execute(
+            select(KnowledgeDoc).where(
+                KnowledgeDoc.id == doc_id,
+                KnowledgeDoc.project_id == project_id,
+            )
+        )
+        doc = result.scalar_one_or_none()
+        if doc is None:
+            return (
+                f"未找到文档 id={doc_id}（不存在或不属于当前项目）。"
+                "请先用 list_knowledge_docs 确认文档 id。"
+            )
+
+        content = doc.content or ""
+        total = len(content)
+        if total == 0:
+            detail = f"，错误={doc.error_message}" if doc.error_message else ""
+            return (
+                f"《{doc.title}》(id={doc.id}) 没有可读内容（状态={doc.status}{detail}）。"
+                "若状态为 failed 请先重建索引；若仍在 indexing/parsing 请稍后再试。"
+            )
+
+        offset = max(0, offset)
+        limit = max(1, min(limit, READ_DOC_MAX_LIMIT))
+        if offset >= total:
+            return (
+                f"《{doc.title}》(id={doc.id}) 全文共 {total} 字符，"
+                f"offset={offset} 超出范围（有效起始 0，最大 {total - 1}），已到末尾。"
+            )
+
+        end = min(offset + limit, total)
+        page = content[offset:end]
+        if end < total:
+            header = (
+                f"《{doc.title}》(id={doc.id}, 全文 {total} 字符, "
+                f"当前 {offset}-{end}, 后续还有内容，下一页 offset={end})"
+            )
+        else:
+            header = f"《{doc.title}》(id={doc.id}, 全文 {total} 字符, 当前 {offset}-{end}, 已到末尾)"
+        return f"{header}\n{page}"
     except Exception as e:
         return _format_result(False, message=str(e))
 
@@ -468,6 +540,7 @@ tools = [
     delete_status,
     search_knowledge,
     list_knowledge_docs,
+    read_knowledge_doc,
     get_doc_content,
     ask_user,
 ]
@@ -483,10 +556,13 @@ def _build_system_prompt(project_summary: dict) -> str:
         "- 查询：get_project_info / list_tasks / search_tasks / get_task / get_members\n"
         "- 操作：create_task / update_task / move_task / add_comment / add_subtask / update_subtask\n"
         "- 管理：create_status / update_status / delete_status（需要管理员权限）\n"
-        "- 知识库：search_knowledge / list_knowledge_docs / get_doc_content\n"
+        "- 知识库：search_knowledge / list_knowledge_docs / read_knowledge_doc / get_doc_content\n"
         "- 提问：ask_user（向用户澄清关键信息）\n\n"
         "知识库使用规则：\n"
         "- 项目有知识库文档时，创建、拆分或规划任务前先用 search_knowledge 检索相关背景。\n"
+        "- search_knowledge 用于按问题找相关片段；需要基于某份文档的完整内容工作时"
+        "（例如通读整份方案后创建详细任务计划），先用 list_knowledge_docs 找到文档，"
+        "再用 read_knowledge_doc 分页通读全文（长文档按返回的下一页 offset 多次调用）。\n"
         "- 引用知识库信息时，在回复中注明来源文档名。\n"
         "- search_knowledge 返回“没有找到”时，不得编造知识库内容。\n"
         "- 不确定项目约定或背景时，优先查知识库，再决定是否向用户提问。\n\n"
@@ -559,16 +635,17 @@ async def _build_agent_run(db, user: User, project_id: int, user_message: str,
     Returns (agent, input_messages, config, actions, pending_question, action_batch_id)
     or None when LLM is not configured.
     """
-    if not settings.llm_api_key:
+    api_key = await config_service.get("llm_api_key")
+    if not api_key:
         return None
 
     project_summary = await task_service.get_project_summary(project_id, user, db)
     system_prompt = _build_system_prompt(project_summary)
 
     llm = ChatOpenAI(
-        base_url=settings.llm_base_url,
-        api_key=settings.llm_api_key,
-        model=settings.llm_model,
+        base_url=await config_service.get("llm_base_url"),
+        api_key=api_key,
+        model=await config_service.get("llm_model"),
         temperature=0.2,
         max_tokens=4096,
         streaming=True,
@@ -646,6 +723,7 @@ async def run_agent_stream(
     """Async generator streaming the agent run.
 
     Yields dict events:
+      {"type": "status", "stage": str, "message": str}
       {"type": "token", "text": str}
       {"type": "tool_start", "name": str, "args": dict}
       {"type": "tool_end", "name": str}
@@ -659,6 +737,10 @@ async def run_agent_stream(
         }
         return
     agent, input_messages, config, actions, pending_question, action_batch_id = built
+
+    # Emit an immediate status so the client never sits in total silence while
+    # the first LLM call decides on tool calls (it produces no tokens).
+    yield {"type": "status", "stage": "thinking", "message": "正在思考…"}
 
     final_messages: list | None = None
     batch_token = task_service.set_agent_batch(action_batch_id)

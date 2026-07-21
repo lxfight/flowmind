@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -40,6 +41,8 @@ from app.services.undo_service import undo_batch
 
 router = APIRouter(prefix="/api/llm", tags=["llm"])
 
+logger = logging.getLogger(__name__)
+
 
 @router.post("/chat", response_model=LLMChatResponse)
 async def llm_chat(
@@ -69,8 +72,11 @@ async def llm_chat(
                     f"- [{c['doc_title']}] {c['content'][:200]}"
                     for c in contexts
                 )
-        except Exception:
-            pass
+        except Exception as exc:
+            # Retrieval failure must not break chat; log it for diagnosis.
+            logger.warning(
+                "知识库检索失败（已跳过上下文增强，继续聊天）: %s", exc, exc_info=True
+            )
 
     system_prompt = (
         "你是 FlowMind 智能助手，帮助用户管理任务和项目。"
@@ -668,8 +674,10 @@ async def agent_chat_stream(
 ):
     """Stream an agent run as Server-Sent Events.
 
-    Events: token {text} / tool_start {name, args} / tool_end {name} /
-    done {session_id, message, actions} / error {message}.
+    Events: status {stage, message} / token {text} / tool_start {name, args} /
+    tool_end {name} / done {session_id, message, actions} / error {message}.
+    A ``status`` event with stage "thinking" is emitted immediately so the
+    client is never fully silent while the first LLM call picks tools.
     Comment lines (": ping") are emitted as a ~15s heartbeat while the run
     is busy without producing tokens.
     """
@@ -715,7 +723,12 @@ async def agent_chat_stream(
                 if evt is None:
                     break
                 etype = evt.get("type")
-                if etype == "token":
+                if etype == "status":
+                    yield _sse("status", {
+                        "stage": evt.get("stage", ""),
+                        "message": evt.get("message", ""),
+                    })
+                elif etype == "token":
                     yield _sse("token", {"text": evt.get("text", "")})
                 elif etype == "tool_start":
                     yield _sse("tool_start", {

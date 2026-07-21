@@ -17,6 +17,7 @@ from app.services import agent_service
 from app.services.agent_service import (
     get_doc_content,
     list_knowledge_docs,
+    read_knowledge_doc,
     search_knowledge,
 )
 
@@ -69,8 +70,16 @@ async def test_search_knowledge_formats_hits(client, monkeypatch):
                 "content": "A" * 400,
                 "doc_title": "部署手册",
                 "similarity": 0.86,
+                "vector_score": 0.86,
+                "keyword_score": 0.5,
             },
-            {"content": "短内容", "doc_title": "FAQ", "similarity": 0.42},
+            {
+                "content": "短内容",
+                "doc_title": "FAQ",
+                "similarity": 0.42,
+                "vector_score": None,
+                "keyword_score": 0.42,
+            },
         ]
 
     monkeypatch.setattr(agent_service.rag_service, "retrieve_context", fake_retrieve)
@@ -80,11 +89,11 @@ async def test_search_knowledge_formats_hits(client, monkeypatch):
     finally:
         await session.close()
 
-    assert "《部署手册》(相似度 86%)" in result
+    assert "《部署手册》(向量 86% / 关键词 50%)" in result
     assert "A" * 300 in result
     assert "A" * 301 not in result  # each chunk truncated to ~300 chars
     assert "…" in result
-    assert "《FAQ》(相似度 42%)" in result
+    assert "《FAQ》(关键词 42%)" in result
     assert "短内容" in result
 
 
@@ -235,4 +244,132 @@ def test_system_prompt_contains_knowledge_policy():
 
 def test_knowledge_tools_registered_in_tools_list():
     names = {t.name for t in agent_service.tools}
-    assert {"search_knowledge", "list_knowledge_docs", "get_doc_content"} <= names
+    assert {"search_knowledge", "list_knowledge_docs", "read_knowledge_doc", "get_doc_content"} <= names
+
+
+# ---------------------------------------------------------------------------
+# read_knowledge_doc
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_read_knowledge_doc_pagination(client):
+    """Long doc: first page reports total + next offset; second page ends."""
+    headers = admin_login(client)
+    project_id, _ = create_project(client, headers)
+    content = "字" * 12000
+    doc = _create_doc(client, headers, project_id, title="长方案", content=content)
+
+    config, session = await _tool_config(project_id)
+    try:
+        page1 = await read_knowledge_doc.ainvoke(
+            {"doc_id": doc["id"], "limit": 5000}, config=config
+        )
+        assert "全文 12000 字符" in page1
+        assert "当前 0-5000" in page1
+        assert "下一页 offset=5000" in page1
+        assert "字" * 5000 in page1
+        assert "字" * 5001 not in page1
+
+        page2 = await read_knowledge_doc.ainvoke(
+            {"doc_id": doc["id"], "offset": 5000, "limit": 5000}, config=config
+        )
+        assert "当前 5000-10000" in page2
+        assert "下一页 offset=10000" in page2
+
+        page3 = await read_knowledge_doc.ainvoke(
+            {"doc_id": doc["id"], "offset": 10000, "limit": 5000}, config=config
+        )
+        assert "当前 10000-12000" in page3
+        assert "已到末尾" in page3
+        assert "下一页" not in page3
+    finally:
+        await session.close()
+
+
+@pytest.mark.asyncio
+async def test_read_knowledge_doc_default_limit(client):
+    """Omitted limit returns at most READ_DOC_DEFAULT_LIMIT chars."""
+    headers = admin_login(client)
+    project_id, _ = create_project(client, headers)
+    doc = _create_doc(
+        client, headers, project_id, title="超长文档", content="文" * 15000
+    )
+
+    config, session = await _tool_config(project_id)
+    try:
+        result = await read_knowledge_doc.ainvoke({"doc_id": doc["id"]}, config=config)
+    finally:
+        await session.close()
+
+    assert "当前 0-10000" in result
+    assert "下一页 offset=10000" in result
+
+
+@pytest.mark.asyncio
+async def test_read_knowledge_doc_cross_project_forbidden(client):
+    """A doc from another project must not be readable."""
+    headers = admin_login(client)
+    project_id, _ = create_project(client, headers)
+    other_project_id, _ = create_project(client, headers)
+    other_doc = _create_doc(client, headers, other_project_id, title="他项目文档")
+
+    config, session = await _tool_config(project_id)
+    try:
+        result = await read_knowledge_doc.ainvoke(
+            {"doc_id": other_doc["id"]}, config=config
+        )
+    finally:
+        await session.close()
+
+    assert "未找到文档" in result
+    assert "list_knowledge_docs" in result
+    assert "他项目文档" not in result.split("未找到文档")[0]  # no content leaked
+
+
+@pytest.mark.asyncio
+async def test_read_knowledge_doc_empty_content(client):
+    """Docs with no parsed content get an explicit, status-aware message."""
+    headers = admin_login(client)
+    project_id, _ = create_project(client, headers)
+    doc = _create_doc(client, headers, project_id, title="空文档", content="")
+
+    config, session = await _tool_config(project_id)
+    try:
+        result = await read_knowledge_doc.ainvoke({"doc_id": doc["id"]}, config=config)
+    finally:
+        await session.close()
+
+    assert "没有可读内容" in result
+    assert "状态=" in result
+
+
+@pytest.mark.asyncio
+async def test_read_knowledge_doc_offset_out_of_range(client):
+    headers = admin_login(client)
+    project_id, _ = create_project(client, headers)
+    doc = _create_doc(client, headers, project_id, content="短内容")
+
+    config, session = await _tool_config(project_id)
+    try:
+        result = await read_knowledge_doc.ainvoke(
+            {"doc_id": doc["id"], "offset": 99999}, config=config
+        )
+    finally:
+        await session.close()
+
+    assert "超出范围" in result
+    assert "全文共" in result
+
+
+@pytest.mark.asyncio
+async def test_list_knowledge_docs_includes_content_length(client):
+    headers = admin_login(client)
+    project_id, _ = create_project(client, headers)
+    _create_doc(client, headers, project_id, content="一二三四五六七八九十")
+
+    config, session = await _tool_config(project_id)
+    try:
+        result = await list_knowledge_docs.ainvoke({}, config=config)
+    finally:
+        await session.close()
+
+    assert "内容长度=10 字符" in result
