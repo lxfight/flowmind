@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
 import { Search, UserPlus, X, Trash2, Users } from 'lucide-react'
-import api from '../utils/api'
+import api, { errDetail } from '../utils/api'
 import { useProjectRole } from '../hooks/useProjectRole'
 import { useAuthStore } from '../stores/authStore'
 import toast from 'react-hot-toast'
@@ -102,7 +102,7 @@ export default function ProjectMembersPage() {
       toast.success('角色已更新')
       loadMembers()
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || '更新角色失败')
+      toast.error(errDetail(err, '更新角色失败'))
     } finally {
       setUpdatingUserId(null)
     }

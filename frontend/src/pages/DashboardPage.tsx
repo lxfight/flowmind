@@ -8,7 +8,7 @@ import { Button } from '../components/ui/Button'
 import { Card, CardContent } from '../components/ui/Card'
 import { Badge } from '../components/ui/Badge'
 import { EmptyState } from '../components/ui/EmptyState'
-import api from '../utils/api'
+import api, { errDetail } from '../utils/api'
 import { useAuthStore } from '../stores/authStore'
 import toast from 'react-hot-toast'
 
@@ -50,7 +50,7 @@ export default function DashboardPage() {
       toast.success('项目创建成功')
       navigate(`/project/${res.data.id}/board`)
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || '创建失败')
+      toast.error(errDetail(err, '创建失败'))
       throw err
     }
   }

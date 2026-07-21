@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAuthStore } from '../stores/authStore'
 import { User, Mail, Lock, Save, Key, Camera, Link2 } from 'lucide-react'
-import api from '../utils/api'
+import api, { errDetail } from '../utils/api'
 import toast from 'react-hot-toast'
 import { PageHeader } from '../components/layout/PageHeader'
 import { Button } from '../components/ui/Button'
@@ -42,7 +42,7 @@ export default function ProfilePage() {
       await loadUser()
       toast.success('资料已更新')
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || '保存失败')
+      toast.error(errDetail(err, '保存失败'))
     } finally {
       setSavingProfile(false)
     }
@@ -68,7 +68,7 @@ export default function ProfilePage() {
       await loadUser()
       toast.success('头像已上传')
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || '头像上传失败')
+      toast.error(errDetail(err, '头像上传失败'))
     } finally {
       setUploadingAvatar(false)
     }
@@ -95,7 +95,7 @@ export default function ProfilePage() {
       setConfirmPassword('')
       toast.success('密码修改成功，请牢记新密码')
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || '密码修改失败')
+      toast.error(errDetail(err, '密码修改失败'))
     } finally {
       setChangingPassword(false)
     }

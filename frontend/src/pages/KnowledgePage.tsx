@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
 import { useProjectRole } from '../hooks/useProjectRole'
 import { AlertCircle, FileText, Loader2, MessageSquare, Plus, RefreshCw, Trash2, Upload, X } from 'lucide-react'
-import api from '../utils/api'
+import api, { errDetail } from '../utils/api'
 import { KnowledgeQueryDialog } from '../components/knowledge/KnowledgeQueryDialog'
 import { KnowledgeDocDialog } from '../components/knowledge/KnowledgeDocDialog'
 import { Button } from '../components/ui/Button'
@@ -62,7 +62,7 @@ export default function KnowledgePage() {
     } catch (err: any) {
       if (!silent) {
         setDocsError('知识库加载失败')
-        toast.error(err.response?.data?.detail || '加载知识库失败')
+        toast.error(errDetail(err, '加载知识库失败'))
       }
     } finally {
       if (!silent) setDocsLoading(false)
@@ -102,7 +102,7 @@ export default function KnowledgePage() {
       toast.success('文档已添加，已开始索引')
       await loadDocs()
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || '保存失败')
+      toast.error(errDetail(err, '保存失败'))
     } finally {
       setLoading(false)
     }
@@ -117,7 +117,7 @@ export default function KnowledgePage() {
       toast.success('文档已删除')
       await loadDocs()
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || '删除失败')
+      toast.error(errDetail(err, '删除失败'))
     } finally {
       setDeletingId(null)
     }
@@ -133,7 +133,7 @@ export default function KnowledgePage() {
       toast.success(res.data?.title ? `「${res.data.title}」已上传，已开始索引` : '文件已上传，已开始索引')
       await loadDocs()
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || '文件上传失败')
+      toast.error(errDetail(err, '文件上传失败'))
     } finally {
       setUploading(false)
     }

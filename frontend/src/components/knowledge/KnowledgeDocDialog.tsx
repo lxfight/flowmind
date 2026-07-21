@@ -10,7 +10,7 @@ import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
 import { Textarea } from '../ui/Textarea'
 import { Badge } from '../ui/Badge'
-import api from '../../utils/api'
+import api, { errDetail } from '../../utils/api'
 import toast from 'react-hot-toast'
 import { FileText, Layers, Loader2, Pencil, RefreshCw, Trash2 } from 'lucide-react'
 
@@ -68,7 +68,7 @@ export function KnowledgeDocDialog({ projectId, docId, canEdit, onClose, onUpdat
       setEditTitle(data.title)
       setEditContent(data.content)
     } catch (err: any) {
-      setError(err.response?.data?.detail || '加载文档失败')
+      setError(errDetail(err, '加载文档失败'))
     } finally {
       setLoading(false)
     }
@@ -98,7 +98,7 @@ export function KnowledgeDocDialog({ projectId, docId, canEdit, onClose, onUpdat
       setChunksTotal(res.data.total)
       setChunksPage(res.data.page)
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || '加载切片失败')
+      toast.error(errDetail(err, '加载切片失败'))
     } finally {
       setChunksLoading(false)
     }
@@ -113,7 +113,7 @@ export function KnowledgeDocDialog({ projectId, docId, canEdit, onClose, onUpdat
       onUpdated()
       toast.success('已开始重建索引')
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || '重建索引失败')
+      toast.error(errDetail(err, '重建索引失败'))
     } finally {
       setReindexing(false)
     }
@@ -132,7 +132,7 @@ export function KnowledgeDocDialog({ projectId, docId, canEdit, onClose, onUpdat
       onUpdated()
       toast.success('文档已保存')
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || '保存文档失败')
+      toast.error(errDetail(err, '保存文档失败'))
     } finally {
       setSaving(false)
     }
@@ -148,7 +148,7 @@ export function KnowledgeDocDialog({ projectId, docId, canEdit, onClose, onUpdat
       onUpdated()
       onClose()
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || '删除文档失败')
+      toast.error(errDetail(err, '删除文档失败'))
       setDeleting(false)
     }
   }

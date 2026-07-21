@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import api from '../utils/api'
+import api, { detailToText } from '../utils/api'
 import { useAuthStore } from './authStore'
 import type { ChatSession, ChatMessage, ActionSummary, UndoResult } from '../types'
 
@@ -20,7 +20,8 @@ export const TOOL_LABELS: Record<string, string> = {
   update_status: '更新状态列',
   delete_status: '删除状态列',
   search_knowledge: '检索知识库',
-  list_knowledge_docs: '查看知识库文档',
+  list_knowledge_docs: '列出知识库文档',
+  read_knowledge_doc: '阅读知识库文档',
   get_doc_content: '阅读文档',
   ask_user: '向你提问',
 }
@@ -222,13 +223,17 @@ export const useLLMChatStore = create<LLMChatState>((set, get) => ({
         let detail = '请求失败，请检查 LLM 配置'
         try {
           const data = await res.json()
-          if (data?.detail) detail = data.detail
+          if (data?.detail) detail = detailToText(data.detail, detail)
         } catch { /* non-JSON error */ }
         throw new Error(detail)
       }
 
       await readSSE(res, (event, data) => {
-        if (event === 'token') {
+        if (event === 'status') {
+          // 后端在 agent 首轮工具决策期（无 token）会先推 status，
+          // 立即把占位文案换成后端给的状态消息；未来新 stage 也通用展示
+          patchAssistant({ toolStatus: data.message || '正在思考…' })
+        } else if (event === 'token') {
           patchAssistant({ toolStatus: null })
           set((state) => {
             const messages = [...state.messages]

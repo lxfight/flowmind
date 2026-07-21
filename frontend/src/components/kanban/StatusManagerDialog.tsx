@@ -9,7 +9,7 @@ import {
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
 import { Switch } from '../ui/Switch'
-import api from '../../utils/api'
+import api, { errDetail } from '../../utils/api'
 import toast from 'react-hot-toast'
 import { cn } from '../../utils/cn'
 import type { TaskStatus } from '../../types'
@@ -51,7 +51,7 @@ export function StatusManagerDialog({ projectId, onClose, onUpdated }: Props) {
       data.forEach((s) => (map[s.id] = s.name))
       setEditingNames(map)
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || '加载状态列失败')
+      toast.error(errDetail(err, '加载状态列失败'))
     } finally {
       setLoading(false)
     }
@@ -71,7 +71,7 @@ export function StatusManagerDialog({ projectId, onClose, onUpdated }: Props) {
       )
       onUpdated()
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || '更新状态列失败')
+      toast.error(errDetail(err, '更新状态列失败'))
       // refresh to be safe
       loadStatuses()
     } finally {
@@ -92,7 +92,7 @@ export function StatusManagerDialog({ projectId, onClose, onUpdated }: Props) {
       onUpdated()
       toast.success('状态列已删除')
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || '删除状态列失败')
+      toast.error(errDetail(err, '删除状态列失败'))
     } finally {
       setDeletingId(null)
     }
@@ -113,7 +113,7 @@ export function StatusManagerDialog({ projectId, onClose, onUpdated }: Props) {
       onUpdated()
       toast.success('状态列已添加')
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || '添加状态列失败')
+      toast.error(errDetail(err, '添加状态列失败'))
     } finally {
       setAdding(false)
     }

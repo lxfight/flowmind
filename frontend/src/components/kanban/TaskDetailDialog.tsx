@@ -15,7 +15,7 @@ import {
   Paperclip,
   Download,
 } from 'lucide-react'
-import api from '../../utils/api'
+import api, { errDetail } from '../../utils/api'
 import toast from 'react-hot-toast'
 import { useAuthStore } from '../../stores/authStore'
 import { useProjectRole } from '../../hooks/useProjectRole'
@@ -188,7 +188,7 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
       await loadAttachments()
       toast.success('附件已上传')
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || '附件上传失败')
+      toast.error(errDetail(err, '附件上传失败'))
     } finally {
       setUploadingAttachment(false)
       if (attachmentInputRef.current) attachmentInputRef.current.value = ''
@@ -222,7 +222,7 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
       await loadAttachments()
       toast.success('附件已删除')
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || '删除附件失败')
+      toast.error(errDetail(err, '删除附件失败'))
     } finally {
       setDeletingAttachmentId(null)
     }
@@ -290,7 +290,7 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
       await refreshTask()
       toast.success('评论已更新')
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || '更新评论失败')
+      toast.error(errDetail(err, '更新评论失败'))
     } finally {
       setSavingComment(false)
     }
@@ -304,7 +304,7 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
       await refreshTask()
       toast.success('评论已删除')
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || '删除评论失败')
+      toast.error(errDetail(err, '删除评论失败'))
     } finally {
       setDeletingCommentId(null)
     }
@@ -421,7 +421,7 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
       onUpdated()
       onClose()
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || '删除任务失败')
+      toast.error(errDetail(err, '删除任务失败'))
     } finally {
       setDeleting(false)
     }

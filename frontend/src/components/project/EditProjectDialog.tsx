@@ -10,7 +10,7 @@ import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
 import { Textarea } from '../ui/Textarea'
 import { Switch } from '../ui/Switch'
-import api from '../../utils/api'
+import api, { errDetail } from '../../utils/api'
 import toast from 'react-hot-toast'
 import { cn } from '../../utils/cn'
 import type { Project } from '../../stores/projectStore'
@@ -53,7 +53,7 @@ export function EditProjectDialog({ project, onClose, onUpdated }: Props) {
       onUpdated(res.data)
       onClose()
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || '更新项目失败')
+      toast.error(errDetail(err, '更新项目失败'))
     } finally {
       setSaving(false)
     }

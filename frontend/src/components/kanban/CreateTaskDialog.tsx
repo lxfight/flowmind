@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Sparkles, CheckSquare, Square, Plus } from 'lucide-react'
-import api from '../../utils/api'
+import api, { errDetail } from '../../utils/api'
 import toast from 'react-hot-toast'
 import {
   Dialog,
@@ -67,7 +67,7 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose
       toast.success('任务已创建')
       onClose()
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || '创建任务失败')
+      toast.error(errDetail(err, '创建任务失败'))
     } finally {
       setManualSubmitting(false)
     }
