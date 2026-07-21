@@ -9,12 +9,13 @@ interface NavItemProps {
   label: string
   icon?: LucideIcon
   startDecorator?: ReactNode
+  endDecorator?: ReactNode
   active?: boolean
   onClick?: () => void
   className?: string
 }
 
-export function NavItem({ to, label, icon: Icon, startDecorator, active, onClick, className }: NavItemProps) {
+export function NavItem({ to, label, icon: Icon, startDecorator, endDecorator, active, onClick, className }: NavItemProps) {
   const location = useLocation()
   const isActive = active ?? (location.pathname === to || location.pathname.startsWith(`${to}/`))
 
@@ -44,6 +45,7 @@ export function NavItem({ to, label, icon: Icon, startDecorator, active, onClick
           <Icon className={cn('h-4 w-4 shrink-0 transition-colors', isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground')} />
         )}
         <span className="truncate">{label}</span>
+        {endDecorator && <span className="ml-auto shrink-0">{endDecorator}</span>}
       </span>
     </Link>
   )

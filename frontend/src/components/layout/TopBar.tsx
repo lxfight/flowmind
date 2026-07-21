@@ -9,6 +9,7 @@ import {
   DropdownMenuSeparator,
 } from '../ui/DropdownMenu'
 import type { Project } from '../../stores/projectStore'
+import { NotificationBell } from './NotificationBell'
 import {
   Menu,
   Sun,
@@ -75,6 +76,8 @@ export function TopBar({ currentProject, user, onLogout }: TopBarProps) {
           >
             {theme === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
           </Button>
+
+          <NotificationBell />
 
           <DropdownMenu
             align="end"

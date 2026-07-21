@@ -15,6 +15,8 @@ const ProjectReportPage = lazy(() => import('./pages/ProjectReportPage'))
 const ActivityPage = lazy(() => import('./pages/ActivityPage'))
 const AdminUsersPage = lazy(() => import('./pages/AdminUsersPage'))
 const ProfilePage = lazy(() => import('./pages/ProfilePage'))
+const NotificationsPage = lazy(() => import('./pages/NotificationsPage'))
+const TaskSearchPage = lazy(() => import('./pages/TaskSearchPage'))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
 const Layout = lazy(() => import('./components/common/Layout'))
 
@@ -87,6 +89,8 @@ export default function App() {
                 <Route path="activities" element={<ActivityPage />} />
               </Route>
               <Route path="profile" element={<ProfilePage />} />
+              <Route path="notifications" element={<NotificationsPage />} />
+              <Route path="search" element={<TaskSearchPage />} />
               <Route
                 path="admin/users"
                 element={

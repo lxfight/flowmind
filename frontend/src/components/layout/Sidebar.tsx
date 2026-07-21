@@ -2,11 +2,14 @@ import { Link } from 'react-router-dom'
 import { NavItem } from './NavItem'
 import { Avatar } from '../ui/Avatar'
 import { cn } from '../../utils/cn'
+import { useUnreadCount } from '../../hooks/useUnreadCount'
 import {
   LayoutGrid,
   FolderKanban,
   Shield,
   LogOut,
+  Bell,
+  Search,
 } from 'lucide-react'
 
 interface SidebarProps {
@@ -20,6 +23,8 @@ export function Sidebar({
   onLogout,
   onCloseMobile,
 }: SidebarProps) {
+  const { unreadCount } = useUnreadCount()
+
   return (
     <div className="flex h-full flex-col">
       {/* Brand */}
@@ -54,6 +59,20 @@ export function Sidebar({
       <div className="px-3 pb-2">
         <nav className="space-y-1">
           <NavItem to="/" label="我的项目" icon={LayoutGrid} onClick={onCloseMobile} />
+          <NavItem to="/search" label="搜索" icon={Search} onClick={onCloseMobile} />
+          <NavItem
+            to="/notifications"
+            label="通知"
+            icon={Bell}
+            onClick={onCloseMobile}
+            endDecorator={
+              unreadCount > 0 ? (
+                <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white">
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              ) : undefined
+            }
+          />
           {user?.is_superuser && (
             <NavItem to="/admin/users" label="用户管理" icon={Shield} onClick={onCloseMobile} />
           )}

@@ -58,7 +58,7 @@ export function AppShell({
           user={user}
           onLogout={onLogout}
         />
-        <main className="flex-1 overflow-auto p-4 lg:p-8">
+        <main className="flex-1 overflow-auto p-4 lg:p-8 2xl:p-10">
           {children}
         </main>
       </div>
