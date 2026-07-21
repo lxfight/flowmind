@@ -1,7 +1,5 @@
 """Attachment upload/list/download/delete coverage."""
 import pytest
-
-from app.core.config import get_settings
 from helpers import (
     add_member,
     admin_login,
@@ -9,6 +7,8 @@ from helpers import (
     create_task,
     register_and_approve,
 )
+
+from app.core.config import get_settings
 
 
 @pytest.fixture

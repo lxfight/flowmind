@@ -4,15 +4,14 @@ Revision ID: 3f1b2c4d5e6f
 Revises: 7c926fe0db38
 """
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 from alembic import op
 
-
 revision: str = "3f1b2c4d5e6f"
-down_revision: Union[str, Sequence[str], None] = "7c926fe0db38"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | Sequence[str] | None = "7c926fe0db38"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:

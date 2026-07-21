@@ -1,10 +1,10 @@
-from app.models.user import User
-from app.models.project import Project, ProjectMember
-from app.models.task import Task, TaskStatus, TaskComment
-from app.models.knowledge import KnowledgeDoc, DocChunk, DocChunkEmbedding
 from app.models.activity import ActivityLog
-from app.models.llm_chat import LLMChatSession, LLMChatMessage
+from app.models.knowledge import DocChunk, DocChunkEmbedding, KnowledgeDoc
+from app.models.llm_chat import LLMChatMessage, LLMChatSession
 from app.models.notification import Notification
+from app.models.project import Project, ProjectMember
+from app.models.task import Task, TaskComment, TaskStatus
+from app.models.user import User
 
 __all__ = [
     "User",

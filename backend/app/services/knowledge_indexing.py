@@ -16,11 +16,11 @@ from sqlalchemy import delete
 
 from app.core import database
 from app.models.knowledge import (
-    KnowledgeDoc,
-    DocChunk,
-    DOC_STATUS_INDEXING,
-    DOC_STATUS_INDEXED,
     DOC_STATUS_FAILED,
+    DOC_STATUS_INDEXED,
+    DOC_STATUS_INDEXING,
+    DocChunk,
+    KnowledgeDoc,
 )
 from app.services.rag_service import rag_service
 
@@ -81,6 +81,7 @@ async def index_uploaded_document(doc_id: int, file_bytes: bytes, ext: str) -> N
     """
     try:
         from io import BytesIO
+
         from markitdown import MarkItDown
 
         md = MarkItDown()

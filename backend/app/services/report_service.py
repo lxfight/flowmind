@@ -6,8 +6,8 @@ PRECOMPUTED numbers instead of being asked to count tasks itself.
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 PRIORITY_LABELS = {0: "无", 1: "低", 2: "中", 3: "高", 4: "紧急"}
 HIGH_PRIORITY_THRESHOLD = 3  # priority >= 3 counts as high priority
@@ -26,8 +26,8 @@ class ReportTask:
     status_is_done: bool = False
     priority: int = 0
     is_completed: bool = False
-    due_date: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
+    due_date: datetime | None = None
+    updated_at: datetime | None = None
     assignees: list[str] = field(default_factory=list)
     subtask_total: int = 0
     subtask_done: int = 0
@@ -38,16 +38,16 @@ class ReportTask:
 
 
 def _aware(dt: datetime) -> datetime:
-    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
 
 
 def compute_report_stats(
     tasks: list[ReportTask],
-    now: Optional[datetime] = None,
+    now: datetime | None = None,
     stale_days: int = STALE_DAYS,
 ) -> dict[str, Any]:
     """Compute all report statistics in Python so the LLM never has to count."""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
 
     total = len(tasks)
     done_tasks = [t for t in tasks if t.done]
@@ -119,10 +119,10 @@ def format_stats_text(
     stats: dict[str, Any],
     tasks: list[ReportTask],
     activity_lines: list[str],
-    now: Optional[datetime] = None,
+    now: datetime | None = None,
 ) -> str:
     """Serialize precomputed stats + capped task details for the prompt."""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     lines: list[str] = []
 
     lines.append(

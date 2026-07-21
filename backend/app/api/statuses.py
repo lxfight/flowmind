@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.database import get_db
+from app.core.realtime import queue_ws_event
 from app.core.security import get_current_user
 from app.models.user import User
-from app.schemas import TaskStatusCreate, TaskStatusUpdate, TaskStatusOut
+from app.schemas import TaskStatusCreate, TaskStatusOut, TaskStatusUpdate
 from app.services import task_service
-from app.core.realtime import queue_ws_event
 
 router = APIRouter(prefix="/api/projects/{project_id}/statuses", tags=["task-statuses"])
 

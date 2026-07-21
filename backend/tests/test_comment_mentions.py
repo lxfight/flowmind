@@ -4,7 +4,6 @@ Mentions resolve only to members of the comment's project; the commenter is
 never notified about their own mention.
 """
 import pytest
-
 from helpers import (
     add_member,
     admin_login,

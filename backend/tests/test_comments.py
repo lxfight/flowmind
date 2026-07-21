@@ -1,6 +1,5 @@
 """Comment create/list/edit/delete coverage incl. permission rules."""
 import pytest
-
 from helpers import (
     add_member,
     admin_login,

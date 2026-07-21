@@ -3,10 +3,10 @@
 import asyncio
 from pathlib import Path
 
-from alembic import command
 from alembic.config import Config
 from sqlalchemy import inspect, text
 
+from alembic import command
 from app.core.database import Base, engine
 
 

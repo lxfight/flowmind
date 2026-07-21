@@ -2,22 +2,30 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from app.core.database import get_db
-from app.core.security import get_current_user
+
 from app.api.permissions import (
     ensure_project_member,
     ensure_task_in_project,
     get_project_or_404,
 )
+from app.core.database import get_db
+from app.core.realtime import queue_ws_event
+from app.core.security import get_current_user
 from app.models.project import ProjectMember
-from app.models.user import User
 from app.models.task import TaskComment
+from app.models.user import User
 from app.schemas import (
-    TaskCreate, TaskUpdate, TaskOut, TaskDetailOut, TaskMove, TaskListOut,
-    TaskCommentCreate, TaskCommentUpdate, TaskCommentOut,
+    TaskCommentCreate,
+    TaskCommentOut,
+    TaskCommentUpdate,
+    TaskCreate,
+    TaskDetailOut,
+    TaskListOut,
+    TaskMove,
+    TaskOut,
+    TaskUpdate,
 )
 from app.services import task_service
-from app.core.realtime import queue_ws_event
 
 router = APIRouter(prefix="/api/projects/{project_id}/tasks", tags=["tasks"])
 

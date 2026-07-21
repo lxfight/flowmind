@@ -7,6 +7,8 @@ shape the agent runner builds. Retrieval is stubbed via monkeypatch where
 formatting/empty-contract behavior is under test.
 """
 import pytest
+from conftest import async_session_factory
+from helpers import admin_login, create_project
 from sqlalchemy import select
 
 from app.api import knowledge as knowledge_api
@@ -17,8 +19,6 @@ from app.services.agent_service import (
     list_knowledge_docs,
     search_knowledge,
 )
-from conftest import async_session_factory
-from helpers import admin_login, create_project
 
 
 @pytest.fixture(autouse=True)

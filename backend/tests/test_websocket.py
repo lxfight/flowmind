@@ -6,11 +6,11 @@ by backend/ws_smoke_test.py (dev tool). Here we cover endpoint auth and
 the ConnectionManager broadcast semantics directly.
 """
 import pytest
+from conftest import async_session_factory
+from helpers import add_member, admin_login, create_project, register_and_approve
 from starlette.websockets import WebSocketDisconnect
 
 from app.core.realtime import ConnectionManager, flush_ws_events, queue_ws_event
-from conftest import async_session_factory
-from helpers import add_member, admin_login, create_project, register_and_approve
 
 
 def _token(headers: dict[str, str]) -> str:
@@ -21,11 +21,10 @@ def _token(headers: dict[str, str]) -> str:
 async def test_ws_rejects_bad_token(client):
     headers = admin_login(client)
     project_id, _ = create_project(client, headers)
-    with pytest.raises(WebSocketDisconnect) as exc:
-        with client.websocket_connect(
-            f"/ws/projects/{project_id}?token=not-a-token"
-        ):
-            pass
+    with pytest.raises(WebSocketDisconnect) as exc, client.websocket_connect(
+        f"/ws/projects/{project_id}?token=not-a-token"
+    ):
+        pass
     assert exc.value.code == 4401
 
 
@@ -33,9 +32,8 @@ async def test_ws_rejects_bad_token(client):
 async def test_ws_rejects_missing_token(client):
     headers = admin_login(client)
     project_id, _ = create_project(client, headers)
-    with pytest.raises(WebSocketDisconnect) as exc:
-        with client.websocket_connect(f"/ws/projects/{project_id}"):
-            pass
+    with pytest.raises(WebSocketDisconnect) as exc, client.websocket_connect(f"/ws/projects/{project_id}"):
+        pass
     assert exc.value.code == 4401
 
 
@@ -44,11 +42,10 @@ async def test_ws_rejects_non_member(client):
     headers = admin_login(client)
     _, outsider_headers = register_and_approve(client, headers, "wsoutsider")
     project_id, _ = create_project(client, headers)
-    with pytest.raises(WebSocketDisconnect) as exc:
-        with client.websocket_connect(
-            f"/ws/projects/{project_id}?token={_token(outsider_headers)}"
-        ):
-            pass
+    with pytest.raises(WebSocketDisconnect) as exc, client.websocket_connect(
+        f"/ws/projects/{project_id}?token={_token(outsider_headers)}"
+    ):
+        pass
     assert exc.value.code == 4403
 
 

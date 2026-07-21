@@ -1,6 +1,5 @@
 """Tasks CRUD + kanban move endpoint coverage."""
 import pytest
-
 from helpers import (
     add_member,
     admin_login,

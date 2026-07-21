@@ -2,7 +2,7 @@
 import asyncio
 import os
 import tempfile
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///" + os.path.join(
     tempfile.mkdtemp(), "due_test.db"
@@ -10,8 +10,9 @@ os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///" + os.path.join(
 os.environ["FLOWMIND_ADMIN_PASSWORD"] = "adminpass123"
 
 from fastapi.testclient import TestClient  # noqa: E402
-from app.main import app  # noqa: E402
+
 from app.core.database import async_session_factory  # noqa: E402
+from app.main import app  # noqa: E402
 from app.services.due_reminder import scan_due_tasks  # noqa: E402
 
 PASS = "password123"
@@ -61,7 +62,7 @@ with TestClient(app) as client:
     open_status = next(s for s in statuses if not s["is_done"])
     done_status = next((s for s in statuses if s["is_done"]), None)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # --- 1. create task with due_date -> TaskOut includes it
     due_soon = (now + timedelta(hours=12)).isoformat()

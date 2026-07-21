@@ -8,6 +8,7 @@ os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///" + os.path.join(
 os.environ["FLOWMIND_ADMIN_PASSWORD"] = "adminpass123"
 
 from fastapi.testclient import TestClient  # noqa: E402
+
 from app.main import app  # noqa: E402
 
 PASS = "password123"

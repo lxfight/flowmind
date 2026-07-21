@@ -18,8 +18,8 @@ Known limitations:
 - Recreated comments get new ids.
 - Undo itself is not redoable and does not create a new batch.
 """
-from datetime import datetime, timezone
 import json
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -126,7 +126,9 @@ async def _compensate(
         if "completed_at" in snapshot:
             sub.completed_at = _parse_dt(snapshot["completed_at"])
         await db.flush()
-        queue_ws_event(db, "task_updated", log.project_id, {"task_id": sub.id, "status_id": sub.status_id}, actor_id=actor.id)
+        queue_ws_event(
+            db, "task_updated", log.project_id, {"task_id": sub.id, "status_id": sub.status_id}, actor_id=actor.id
+        )
         return None
 
     if action == "delete" and target_type == "task":
@@ -174,11 +176,13 @@ async def _compensate(
                     task_id=task.id,
                     user_id=c["user_id"],
                     content=c["content"],
-                    created_at=_parse_dt(c.get("created_at")) or datetime.now(timezone.utc),
+                    created_at=_parse_dt(c.get("created_at")) or datetime.now(UTC),
                 )
             )
         await db.flush()
-        queue_ws_event(db, "task_created", log.project_id, {"task_id": task.id, "status_id": task.status_id}, actor_id=actor.id)
+        queue_ws_event(
+            db, "task_created", log.project_id, {"task_id": task.id, "status_id": task.status_id}, actor_id=actor.id
+        )
         return None
 
     if action == "comment" and target_type == "task":
@@ -261,7 +265,7 @@ async def undo_batch(
         else:
             skipped.append({"summary": log.summary, "reason": reason})
 
-    message.undone_at = datetime.now(timezone.utc)
+    message.undone_at = datetime.now(UTC)
     db.add(
         ActivityLog(
             project_id=logs[0].project_id,

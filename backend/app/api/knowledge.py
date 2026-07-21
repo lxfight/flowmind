@@ -1,24 +1,32 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, UploadFile, File
-from sqlalchemy import select, func
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.database import get_db
-from app.core.security import get_current_user
+
 from app.api.permissions import ensure_project_editor, ensure_project_member
 from app.core.config import get_settings
-from app.models.user import User
-from app.models.knowledge import (
-    KnowledgeDoc, DocChunk, DocChunkEmbedding,
-    DOC_STATUS_INDEXING,
-)
+from app.core.database import get_db
+from app.core.security import get_current_user
 from app.models.activity import ActivityLog
-from app.schemas import (
-    KnowledgeDocCreate, KnowledgeDocUpdate, KnowledgeDocOut, KnowledgeDocListOut,
-    KnowledgeChunkOut, KnowledgeChunkListOut,
-    KnowledgeQuery, KnowledgeAnswer,
+from app.models.knowledge import (
+    DOC_STATUS_INDEXING,
+    DocChunk,
+    DocChunkEmbedding,
+    KnowledgeDoc,
 )
-from app.services.rag_service import rag_service
+from app.models.user import User
+from app.schemas import (
+    KnowledgeAnswer,
+    KnowledgeChunkListOut,
+    KnowledgeChunkOut,
+    KnowledgeDocCreate,
+    KnowledgeDocListOut,
+    KnowledgeDocOut,
+    KnowledgeDocUpdate,
+    KnowledgeQuery,
+)
 from app.services.knowledge_indexing import index_document, index_uploaded_document
 from app.services.llm_service import llm_service
+from app.services.rag_service import rag_service
 
 router = APIRouter(prefix="/api/projects/{project_id}/knowledge", tags=["knowledge"])
 settings = get_settings()

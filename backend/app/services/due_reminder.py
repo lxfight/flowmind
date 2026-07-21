@@ -7,7 +7,7 @@ wrapper; callers own the transaction.
 
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,7 +25,7 @@ SCAN_INTERVAL_SECONDS = 3600
 def _as_utc(dt: datetime) -> datetime:
     """SQLite returns naive datetimes even for timezone=True columns."""
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=UTC)
     return dt
 
 
@@ -34,7 +34,7 @@ async def scan_due_tasks(db: AsyncSession, now: datetime | None = None) -> dict:
 
     Returns counters, e.g. {"due_soon": 2, "due_overdue": 1}.
     """
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     soon_threshold = now + DUE_SOON_WINDOW
 
     result = await db.execute(

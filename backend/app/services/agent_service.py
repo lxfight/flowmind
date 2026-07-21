@@ -1,20 +1,21 @@
+import uuid
 from datetime import datetime
 from typing import Any
-import uuid
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
+
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
+from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
+from sqlalchemy import func, select
 
 from app.core.config import get_settings
+from app.models.knowledge import DocChunk, KnowledgeDoc
 from app.models.task import Task, TaskStatus
 from app.models.user import User
-from app.models.knowledge import KnowledgeDoc, DocChunk
-from app.schemas import TaskCreate, TaskUpdate, TaskMove, TaskCommentCreate, TaskStatusCreate, TaskStatusUpdate
+from app.schemas import TaskCommentCreate, TaskCreate, TaskMove, TaskStatusCreate, TaskStatusUpdate, TaskUpdate
 from app.services import task_service
 from app.services.rag_service import rag_service
-from langchain_openai import ChatOpenAI
-from sqlalchemy import func, select
 
 settings = get_settings()
 
@@ -83,7 +84,9 @@ async def list_tasks(config: RunnableConfig, status_id: int | None = None, assig
     """列出当前项目的任务。"""
     db, user, project_id = _get_deps(config)
     try:
-        result = await task_service.list_tasks(project_id, user, db, status_id=status_id, assignee_id=assignee_id, page=1, page_size=100)
+        result = await task_service.list_tasks(
+            project_id, user, db, status_id=status_id, assignee_id=assignee_id, page=1, page_size=100
+        )
         tasks = result.items
         if not tasks:
             return "当前没有符合条件的任务。"
@@ -288,7 +291,9 @@ async def create_status(name: str, color: str = "#6b7280", is_done: bool = False
     """创建新状态列（需要管理员权限）。"""
     db, user, project_id = _get_deps(config)
     try:
-        s = await task_service.create_status(project_id, TaskStatusCreate(name=name, color=color, is_done=is_done), user, db)
+        s = await task_service.create_status(
+            project_id, TaskStatusCreate(name=name, color=color, is_done=is_done), user, db
+        )
         return _format_result(
             True,
             message=f"已创建状态列 [{s.id}] {s.name}。",
@@ -299,7 +304,13 @@ async def create_status(name: str, color: str = "#6b7280", is_done: bool = False
 
 
 @tool
-async def update_status(status_id: int, name: str | None = None, color: str | None = None, is_done: bool | None = None, config: RunnableConfig = None) -> str:
+async def update_status(
+    status_id: int,
+    name: str | None = None,
+    color: str | None = None,
+    is_done: bool | None = None,
+    config: RunnableConfig = None,
+) -> str:
     """修改状态列（需要管理员权限）。"""
     db, user, project_id = _get_deps(config)
     try:
@@ -413,10 +424,7 @@ async def get_doc_content(
         return "请提供 doc_id 或文档标题。"
     try:
         stmt = select(KnowledgeDoc).where(KnowledgeDoc.project_id == project_id)
-        if doc_id is not None:
-            stmt = stmt.where(KnowledgeDoc.id == doc_id)
-        else:
-            stmt = stmt.where(KnowledgeDoc.title == title)
+        stmt = stmt.where(KnowledgeDoc.id == doc_id) if doc_id is not None else stmt.where(KnowledgeDoc.title == title)
         result = await db.execute(stmt)
         doc = result.scalars().first()
         if doc is None:

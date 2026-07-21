@@ -1,29 +1,34 @@
-from datetime import datetime, timezone, timedelta
 import json
+from datetime import UTC, datetime, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select, func, Integer
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from sqlalchemy import Integer, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+
+from app.api.permissions import ensure_project_member
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.api.permissions import ensure_project_member
-from app.models.user import User
-from app.models.task import Task, TaskStatus
+from app.models.llm_chat import LLMChatMessage, LLMChatSession
 from app.models.project import Project
-from app.models.llm_chat import LLMChatSession, LLMChatMessage
+from app.models.task import Task, TaskStatus
+from app.models.user import User
 from app.schemas import (
-    LLMChatRequest,
-    LLMChatResponse,
-    LLMTaskGenerate,
-    LLMChatSessionCreate,
-    LLMChatSessionUpdate,
-    LLMChatSessionOut,
-    LLMChatSessionDetailOut,
     LLMAgentChatRequest,
     LLMAgentChatResponse,
+    LLMChatRequest,
+    LLMChatResponse,
+    LLMChatSessionCreate,
+    LLMChatSessionDetailOut,
+    LLMChatSessionOut,
+    LLMChatSessionUpdate,
+    LLMTaskGenerate,
 )
+from app.services.agent_service import run_agent, run_agent_stream
 from app.services.llm_service import llm_service
+from app.services.rag_service import rag_service
 from app.services.report_service import (
     ACTIVITY_WINDOW_DAYS,
     ReportTask,
@@ -31,10 +36,7 @@ from app.services.report_service import (
     compute_report_stats,
     format_stats_text,
 )
-from app.services.rag_service import rag_service
-from app.services.agent_service import run_agent, run_agent_stream
 from app.services.undo_service import undo_batch
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 
 router = APIRouter(prefix="/api/llm", tags=["llm"])
 
@@ -115,7 +117,7 @@ async def llm_generate_tasks(
     try:
         generated = await llm_service.generate_tasks(request.instruction, project_context)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"任务生成失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"任务生成失败: {str(e)}") from e
 
     return generated
 
@@ -199,7 +201,7 @@ async def llm_report(
 
     # Get activity logs from the recent window
     from app.models.activity import ActivityLog
-    window_start = datetime.now(timezone.utc) - timedelta(days=ACTIVITY_WINDOW_DAYS)
+    window_start = datetime.now(UTC) - timedelta(days=ACTIVITY_WINDOW_DAYS)
     result = await db.execute(
         select(ActivityLog)
         .where(
@@ -210,7 +212,7 @@ async def llm_report(
     )
     logs = result.scalars().all()
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     report_tasks = [
         ReportTask(
             title=t.title,
@@ -562,7 +564,7 @@ async def _persist_agent_run(
                 db_msg.actions = result["actions"]
                 break
 
-    session.updated_at = datetime.now(timezone.utc)
+    session.updated_at = datetime.now(UTC)
     await db.flush()
 
     # Collect actions from tool results as well (more reliable than shared config)
@@ -676,7 +678,7 @@ async def agent_chat_stream(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
     history = await _load_history(session, db)
     llm_message = await _consume_pending_answer_context(session, db, request.message)
 
@@ -707,7 +709,7 @@ async def agent_chat_stream(
             while True:
                 try:
                     evt = await asyncio.wait_for(queue.get(), timeout=15)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     yield ": ping\n\n"
                     continue
                 if evt is None:

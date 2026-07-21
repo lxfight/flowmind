@@ -38,7 +38,26 @@ exclude = ["alembic*", "scripts*", "tests*"]
 dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "ruff>=0.15.0",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = [
+    # FastAPI 惯用法：Depends()/Query() 等调用作为参数默认值
+    "B008",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# 测试环境变量/路径必须在导入 app 之前设置
+"tests/conftest.py" = ["E402", "SIM115"]
+"tests_e2e/*" = ["E402", "SIM115"]
+# lifespan 中的延迟导入（避免循环依赖/加速启动）
+"app/main.py" = ["E402"]

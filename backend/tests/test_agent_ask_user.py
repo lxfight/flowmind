@@ -6,19 +6,18 @@
 - The user's answer is wrapped with the question context for the LLM only.
 - The system prompt carries the new decision rules.
 """
-import json
 from unittest.mock import patch
 
 import pytest
+from conftest import async_session_factory
+from helpers import admin_login, create_project
 from langchain_core.messages import AIMessage, HumanMessage
 from sqlalchemy import select
+from test_llm_stream import parse_sse
 
 from app.models.user import User
 from app.services import agent_service
-from app.services.agent_service import ask_user, _finalize_result
-from conftest import async_session_factory
-from helpers import admin_login, create_project
-from test_llm_stream import parse_sse
+from app.services.agent_service import _finalize_result, ask_user
 
 
 async def _tool_config(project_id: int):

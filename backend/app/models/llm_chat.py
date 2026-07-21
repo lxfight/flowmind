@@ -1,6 +1,8 @@
-from datetime import datetime, timezone
-from sqlalchemy import String, Text, Integer, ForeignKey, DateTime, JSON, false
+from datetime import UTC, datetime
+
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 from app.core.database import Base
 
 
@@ -17,12 +19,12 @@ class LLMChatSession(Base):
     title: Mapped[str] = mapped_column(String(256), default="新会话")
     awaiting_input: Mapped[bool] = mapped_column(default=False, server_default=false())
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
     )
 
     # Relationships
@@ -55,7 +57,7 @@ class LLMChatMessage(Base):
     undone_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     ordinal: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
 
     # Relationships

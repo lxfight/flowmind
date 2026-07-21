@@ -1,22 +1,23 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+import asyncio
+import time
+import uuid
+
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.security import OAuth2PasswordRequestForm
-from fastapi import UploadFile, File
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import get_settings
 from app.core.database import get_db
+from app.core.paths import get_avatars_dir
 from app.core.security import (
-    verify_password,
-    hash_password,
     create_access_token,
     get_current_user,
+    hash_password,
+    verify_password,
 )
 from app.models.user import User
 from app.schemas import PasswordChange, Token, UserCreate, UserOut, UserProfileUpdate
-from app.core.config import get_settings
-from app.core.paths import get_avatars_dir
-import uuid
-import asyncio
-import time
 
 settings = get_settings()
 router = APIRouter(prefix="/api/auth", tags=["auth"])

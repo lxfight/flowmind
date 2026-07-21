@@ -1,7 +1,9 @@
 """Activity log for tracking project changes."""
-from datetime import datetime, timezone
-from sqlalchemy import String, Text, DateTime, ForeignKey, Integer
+from datetime import UTC, datetime
+
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 from app.core.database import Base
 
 
@@ -19,7 +21,7 @@ class ActivityLog(Base):
     # Agent run batch this row belongs to (NULL for non-agent mutations).
     action_batch_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
 
     user = relationship("User")

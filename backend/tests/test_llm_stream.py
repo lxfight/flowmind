@@ -4,9 +4,8 @@ import json
 from unittest.mock import patch
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
-
 from helpers import admin_login, create_project
+from langchain_core.messages import AIMessage, HumanMessage
 
 
 def parse_sse(body: str) -> list[tuple[str, dict]]:

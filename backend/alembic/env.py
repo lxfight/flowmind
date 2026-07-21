@@ -3,9 +3,7 @@ from logging.config import fileConfig
 
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
-
-from alembic import context
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 # Import all models so Base.metadata is populated
 import app.models.activity  # noqa: F401
@@ -14,6 +12,7 @@ import app.models.llm_chat  # noqa: F401
 import app.models.project  # noqa: F401
 import app.models.task  # noqa: F401
 import app.models.user  # noqa: F401
+from alembic import context
 from app.core.config import get_settings
 from app.core.database import Base
 

@@ -1,7 +1,7 @@
 """E2E test for cross-project task search (GET /api/tasks/search). Run from backend/ dir."""
 import os
 import tempfile
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///" + os.path.join(
     tempfile.mkdtemp(), "task_search_test.db"
@@ -9,6 +9,7 @@ os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///" + os.path.join(
 os.environ["FLOWMIND_ADMIN_PASSWORD"] = "adminpass123"
 
 from fastapi.testclient import TestClient  # noqa: E402
+
 from app.main import app  # noqa: E402
 
 PASS = "password123"
@@ -22,7 +23,7 @@ def check(name, cond, extra=""):
         failures.append(name)
 
 
-NOW = datetime.now(timezone.utc)
+NOW = datetime.now(UTC)
 PAST = (NOW - timedelta(days=3)).isoformat()
 FUTURE = (NOW + timedelta(days=5)).isoformat()
 FAR_FUTURE = (NOW + timedelta(days=30)).isoformat()

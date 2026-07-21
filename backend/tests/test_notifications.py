@@ -1,11 +1,11 @@
 """Notifications: unread count, mark read, mark all read."""
 import pytest
+from conftest import async_session_factory
+from helpers import admin_login, register_and_approve
 from sqlalchemy import select
 
 from app.core.notify import create_notification
 from app.models.user import User
-from conftest import async_session_factory
-from helpers import admin_login, register_and_approve
 
 
 async def _user_id(username: str) -> int:

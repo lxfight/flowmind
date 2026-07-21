@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.database import get_db
 from app.core.notify import create_notification
 from app.core.security import get_current_superuser, hash_password
 from app.models.user import User
-from app.schemas import UserOut, UserListOut
+from app.schemas import UserListOut, UserOut
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 

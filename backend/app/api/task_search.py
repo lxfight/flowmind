@@ -1,8 +1,8 @@
 """Cross-project task search API ("我的任务搜索")."""
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func, union
+from sqlalchemy import func, select, union
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -62,7 +62,7 @@ async def search_my_tasks(
             try:
                 filters.append(Task.assignees.any(User.id == int(assignee_id)))
             except ValueError:
-                raise HTTPException(status_code=422, detail="assignee_id 必须是用户 ID 或 'me'")
+                raise HTTPException(status_code=422, detail="assignee_id 必须是用户 ID 或 'me'") from None
     if priority is not None:
         filters.append(Task.priority == priority)
     if status_id is not None:
@@ -75,7 +75,7 @@ async def search_my_tasks(
         )
     if overdue is True:
         filters.append(Task.due_date.isnot(None))
-        filters.append(Task.due_date < datetime.now(timezone.utc))
+        filters.append(Task.due_date < datetime.now(UTC))
         filters.append(Task.is_completed.is_(False))
     if due_before is not None:
         filters.append(Task.due_date.isnot(None))

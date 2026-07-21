@@ -1,9 +1,10 @@
 """Tests for project report generation: stats computation and /api/llm/report."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from helpers import admin_login, create_project, create_task
 
 from app.services.report_service import (
     ReportTask,
@@ -12,9 +13,7 @@ from app.services.report_service import (
     format_stats_text,
 )
 
-from helpers import admin_login, create_project, create_task
-
-NOW = datetime(2025, 6, 15, 12, 0, 0, tzinfo=timezone.utc)
+NOW = datetime(2025, 6, 15, 12, 0, 0, tzinfo=UTC)
 
 
 def make_tasks() -> list[ReportTask]:
@@ -128,7 +127,7 @@ async def test_report_endpoint_with_mocked_llm(client):
 
     task = create_task(client, headers, project_id, todo["id"], "高优任务")
     task_id = task["id"]
-    past = (datetime.now(timezone.utc) - timedelta(days=3)).isoformat()
+    past = (datetime.now(UTC) - timedelta(days=3)).isoformat()
     resp = client.put(
         f"/api/projects/{project_id}/tasks/{task_id}",
         headers=headers,

@@ -2,8 +2,9 @@ import logging
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.config import get_settings
-from app.models.knowledge import KnowledgeDoc, DocChunk, DocChunkEmbedding, DOC_STATUS_INDEXED
+from app.models.knowledge import DOC_STATUS_INDEXED, DocChunk, DocChunkEmbedding, KnowledgeDoc
 
 settings = get_settings()
 logger = logging.getLogger(__name__)

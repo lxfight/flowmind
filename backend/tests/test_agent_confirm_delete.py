@@ -7,14 +7,14 @@
 import json
 
 import pytest
+from conftest import async_session_factory
+from helpers import admin_login, create_project
 from sqlalchemy import select
 
 from app.models.task import TaskStatus
 from app.models.user import User
 from app.services import agent_service
 from app.services.agent_service import delete_status
-from conftest import async_session_factory
-from helpers import admin_login, create_project
 
 
 async def _tool_config(project_id: int):

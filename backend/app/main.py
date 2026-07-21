@@ -1,14 +1,16 @@
 import asyncio
+import contextlib
 import os
 import secrets
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import text, select
+from sqlalchemy import select, text
 
-from app.api import auth, admin, projects, tasks, statuses, knowledge, llm, notifications, task_search, attachments, ws
-from app.core.database import engine, Base, async_session_factory
+from app.api import admin, attachments, auth, knowledge, llm, notifications, projects, statuses, task_search, tasks, ws
+from app.core.database import Base, async_session_factory, engine
 
 # Columns that older SQLite dev databases may be missing; create_all never
 # alters existing tables, so add them manually.
@@ -45,10 +47,9 @@ async def _ensure_sqlite_columns(conn) -> None:
 async def lifespan(app: FastAPI):
     # Startup: enable pgvector extension, then create tables
     async with engine.begin() as conn:
-        try:
+        with contextlib.suppress(Exception):
+            # ignore if not PostgreSQL (e.g. SQLite dev mode)
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        except Exception:
-            pass  # ignore if not PostgreSQL (e.g. SQLite dev mode)
         await _ensure_sqlite_columns(conn)
         await conn.run_sync(Base.metadata.create_all)
 
@@ -58,8 +59,8 @@ async def lifespan(app: FastAPI):
 
     # Auto-create default superuser if no users exist
     async with async_session_factory() as db:
-        from app.models.user import User
         from app.core.security import hash_password
+        from app.models.user import User
         result = await db.execute(select(User).limit(1))
         if not result.scalar_one_or_none():
             admin_password = os.environ.get(
@@ -91,10 +92,8 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown
     reminder_task.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await reminder_task
-    except asyncio.CancelledError:
-        pass
     await engine.dispose()
 
 app = FastAPI(

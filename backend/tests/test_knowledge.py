@@ -11,11 +11,11 @@ background indexing coroutine has finished and the doc status is settled
 pre-indexing snapshot showing status='indexing'.
 """
 import pytest
+from helpers import add_member, admin_login, create_project, register_and_approve
 
 from app.api import knowledge as knowledge_api
 from app.services.knowledge_indexing import index_document, index_uploaded_document
 from app.services.rag_service import rag_service
-from helpers import add_member, admin_login, create_project, register_and_approve
 
 # NOTE: this starlette TestClient defers FastAPI BackgroundTasks until a
 # later request and may run several of them concurrently on separate event
@@ -89,7 +89,7 @@ async def test_knowledge_upload_txt_file(client):
     response = client.post(
         f"/api/projects/{project_id}/knowledge/upload",
         headers=headers,
-        files={"file": ("会议记录.txt", "本周同步了发布计划".encode("utf-8"), "text/plain")},
+        files={"file": ("会议记录.txt", "本周同步了发布计划".encode(), "text/plain")},
     )
     assert response.status_code == 201, response.text
     doc = response.json()
@@ -98,7 +98,7 @@ async def test_knowledge_upload_txt_file(client):
     assert doc["status"] == "indexing"
 
     # markitdown parsing + chunking run in the background task.
-    client.portal.call(index_uploaded_document, doc["id"], "本周同步了发布计划".encode("utf-8"), "txt")
+    client.portal.call(index_uploaded_document, doc["id"], "本周同步了发布计划".encode(), "txt")
     settled = _get_doc(client, headers, project_id, doc["id"])
     assert settled["status"] == "indexed"
     assert settled["content"] == "本周同步了发布计划"

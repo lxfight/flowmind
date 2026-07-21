@@ -9,6 +9,14 @@
 import json
 
 import pytest
+from conftest import async_session_factory
+from helpers import (
+    add_member,
+    admin_login,
+    create_project,
+    create_task,
+    register_and_approve,
+)
 from sqlalchemy import select
 
 from app.models.activity import ActivityLog
@@ -22,14 +30,6 @@ from app.schemas import (
     TaskUpdate,
 )
 from app.services import task_service
-from conftest import async_session_factory
-from helpers import (
-    add_member,
-    admin_login,
-    create_project,
-    create_task,
-    register_and_approve,
-)
 
 
 async def _db_and_admin():

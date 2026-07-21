@@ -6,6 +6,7 @@ clients connected to another — swap in Redis pub/sub (or similar) for
 multi-process deployments.
 """
 from collections import defaultdict
+
 from fastapi import WebSocket
 from sqlalchemy.ext.asyncio import AsyncSession
 

@@ -1,5 +1,6 @@
-from typing import Optional
+
 from openai import AsyncOpenAI
+
 from app.core.config import get_settings
 
 settings = get_settings()
@@ -7,7 +8,7 @@ settings = get_settings()
 
 class LLMService:
     def __init__(self):
-        self.client: Optional[AsyncOpenAI] = None
+        self.client: AsyncOpenAI | None = None
         self._init_client()
 
     def _init_client(self):

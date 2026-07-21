@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import os
 import uuid
 from pathlib import Path
@@ -183,8 +184,7 @@ async def delete_attachment(
         actor_id=current_user.id,
     )
     if file_path.exists():
-        try:
+        with contextlib.suppress(OSError):
+            # DB row is gone; leftover file is harmless
             await asyncio.to_thread(file_path.unlink)
-        except OSError:
-            pass  # DB row is gone; leftover file is harmless
     return {"message": "附件已删除"}

@@ -1,13 +1,14 @@
 import os
 
 import pytest
+from conftest import async_session_factory
 from sqlalchemy import update
 
+from app.models.task import Task
 from app.schemas import KnowledgeQuery
 from app.schemas.llm_chat import LLMAgentChatRequest, LLMChatSessionCreate
-from app.models.task import Task
-from app.services.rag_service import rag_service, settings as rag_settings
-from conftest import async_session_factory
+from app.services.rag_service import rag_service
+from app.services.rag_service import settings as rag_settings
 
 
 def _login(client, username: str, password: str) -> dict[str, str]:

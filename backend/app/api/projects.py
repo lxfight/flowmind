@@ -1,24 +1,26 @@
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query
-from datetime import datetime, timezone
-from sqlalchemy import select, func, delete
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+
+from app.api.permissions import ensure_project_admin, ensure_project_member
 from app.core.database import get_db
 from app.core.notify import create_notification
 from app.core.security import get_current_user
-from app.api.permissions import ensure_project_admin, ensure_project_member
-from app.models.user import User
+from app.models.activity import ActivityLog
 from app.models.project import Project, ProjectMember
 from app.models.task import Task, TaskStatus, task_assignees
-from app.models.activity import ActivityLog
+from app.models.user import User
 from app.schemas import (
     ActivityListOut,
     ActivityLogOut,
     DashboardStats,
     ProjectCreate,
     ProjectMemberAdd,
-    ProjectMemberUpdate,
     ProjectMemberOut,
+    ProjectMemberUpdate,
     ProjectOut,
     ProjectStats,
     ProjectUpdate,
@@ -181,7 +183,7 @@ async def get_dashboard_stats(
                 Task.parent_task_id.is_(None),
                 TaskStatus.is_done.is_(False),
                 Task.due_date.isnot(None),
-                Task.due_date < datetime.now(timezone.utc),
+                Task.due_date < datetime.now(UTC),
             )
         )
         overdue_tasks = overdue_result.scalar() or 0

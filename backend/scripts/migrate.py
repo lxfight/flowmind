@@ -13,8 +13,8 @@
 import argparse
 import json
 import os
-import sys
 import sqlite3
+import sys
 from datetime import datetime
 
 # 表结构和导入顺序
@@ -95,13 +95,14 @@ def import_data(input_path: str, database_url: str):
         print(f"错误: 数据文件不存在: {input_path}")
         sys.exit(1)
 
-    with open(input_path, "r", encoding="utf-8") as f:
+    with open(input_path, encoding="utf-8") as f:
         data = json.load(f)
 
     # 使用 SQLAlchemy 连接到 PostgreSQL
     import asyncio
-    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+
     from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
     async def do_import():
         engine = create_async_engine(database_url, echo=False)
@@ -115,7 +116,8 @@ def import_data(input_path: str, database_url: str):
             await conn.run_sync(Base.metadata.create_all)
 
         async with async_session_factory() as session:
-            for table in TABLES + (["doc_chunk_embeddings"] if "doc_chunk_embeddings" in data and data["doc_chunk_embeddings"] else []):
+            extra = ["doc_chunk_embeddings"] if data.get("doc_chunk_embeddings") else []
+            for table in TABLES + extra:
                 rows = data.get(table, [])
                 if not rows:
                     print(f"  跳过 {table}: 无数据")
@@ -171,7 +173,13 @@ def main():
     # import
     import_parser = subparsers.add_parser("import", help="导入数据到 PostgreSQL")
     import_parser.add_argument("input", help="输入 JSON 文件路径")
-    import_parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL", "postgresql+asyncpg://flowmind:flowmind_secret@localhost:5432/flowmind"), help="PostgreSQL 连接 URL")
+    import_parser.add_argument(
+        "--database-url",
+        default=os.environ.get(
+            "DATABASE_URL", "postgresql+asyncpg://flowmind:flowmind_secret@localhost:5432/flowmind"
+        ),
+        help="PostgreSQL 连接 URL",
+    )
 
     args = parser.parse_args()
 

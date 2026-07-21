@@ -1,6 +1,5 @@
 """Multi-assignee support: create/update with several assignees, notifications, validation."""
 import pytest
-
 from helpers import (
     add_member,
     admin_login,

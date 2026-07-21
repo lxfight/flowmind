@@ -1,17 +1,18 @@
-from datetime import datetime, timezone
 import contextvars
 import json
 import re
+from datetime import UTC, datetime
+
 from fastapi import HTTPException
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.permissions import (
-    ensure_project_member,
     ensure_project_admin,
-    ensure_project_editor,
     ensure_project_assignee,
+    ensure_project_editor,
+    ensure_project_member,
     ensure_status_in_project,
     ensure_task_in_project,
 )
@@ -21,20 +22,19 @@ from app.models.project import Project, ProjectMember
 from app.models.task import Task, TaskComment, TaskStatus
 from app.models.user import User
 from app.schemas import (
-    TaskCreate,
-    TaskUpdate,
-    TaskMove,
-    TaskOut,
-    TaskDetailOut,
+    ProjectMemberOut,
     TaskCommentCreate,
     TaskCommentOut,
+    TaskCreate,
+    TaskDetailOut,
     TaskListOut,
+    TaskMove,
+    TaskOut,
     TaskStatusCreate,
-    TaskStatusUpdate,
     TaskStatusOut,
-    ProjectMemberOut,
+    TaskStatusUpdate,
+    TaskUpdate,
 )
-
 
 # ---------------------------------------------------------------------------
 # Agent action batching (undo support)
@@ -279,7 +279,7 @@ async def create_task(
         parent_task_id=data.parent_task_id,
         order=max_order + 1.0,
         is_completed=status.is_done,
-        completed_at=datetime.now(timezone.utc) if status.is_done else None,
+        completed_at=datetime.now(UTC) if status.is_done else None,
     )
     task.assignees = assignees
     db.add(task)
@@ -381,7 +381,7 @@ async def update_task(
             subtask.status_id = matching_status.id
 
     if "is_completed" in payload or target_status is not None:
-        task.completed_at = datetime.now(timezone.utc) if task.is_completed else None
+        task.completed_at = datetime.now(UTC) if task.is_completed else None
 
     await db.flush()
     await db.refresh(task)
@@ -432,7 +432,7 @@ async def move_task(
     task.status_id = data.status_id
     task.order = data.order
     task.is_completed = status.is_done
-    task.completed_at = datetime.now(timezone.utc) if status.is_done else None
+    task.completed_at = datetime.now(UTC) if status.is_done else None
     if task.parent_task_id is None:
         result = await db.execute(select(Task).where(Task.parent_task_id == task.id))
         for subtask in result.scalars().all():
@@ -658,7 +658,7 @@ async def update_subtask(
         }
     subtask.is_completed = is_completed
     if is_completed:
-        subtask.completed_at = datetime.now(timezone.utc)
+        subtask.completed_at = datetime.now(UTC)
     else:
         subtask.completed_at = None
     await db.flush()
@@ -777,7 +777,7 @@ async def update_status(
         result = await db.execute(select(Task).where(Task.status_id == status_id))
         for task in result.scalars().all():
             task.is_completed = data.is_done
-            task.completed_at = datetime.now(timezone.utc) if data.is_done else None
+            task.completed_at = datetime.now(UTC) if data.is_done else None
     await db.flush()
     await db.refresh(status)
     _log(
@@ -850,7 +850,10 @@ async def get_project_summary(project_id: int, user: User, db: AsyncSession) -> 
         .limit(20)
     )
     tasks = result.scalars().all()
-    task_lines = [f"- [{t.id}] {t.title} (状态id={t.status_id}, 优先级={t.priority}, 完成={t.is_completed})" for t in tasks]
+    task_lines = [
+        f"- [{t.id}] {t.title} (状态id={t.status_id}, 优先级={t.priority}, 完成={t.is_completed})"
+        for t in tasks
+    ]
 
     result = await db.execute(
         select(ProjectMember, User)
