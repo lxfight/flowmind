@@ -28,6 +28,17 @@ class Settings(BaseSettings):
     llm_base_url: str = ""
     llm_model: str = "gpt-4o-mini"
     llm_embedding_model: str = "text-embedding-3-small"
+    # Dedicated embedding endpoint credentials (optional). When empty,
+    # embedding calls fall back to llm_api_key / llm_base_url so existing
+    # single-endpoint deployments keep working unchanged.
+    embedding_api_key: str = ""
+    embedding_base_url: str = ""
+    # Embedding call robustness (retry / timeout / bounded concurrency)
+    embedding_timeout: float = 30.0
+    embedding_max_retries: int = 4
+    embedding_retry_base_delay: float = 2.0
+    embedding_concurrency: int = 2
+    embedding_batch_size: int = 8
     # Embedding vector dimension. Single source of truth for the pgvector
     # column size (DocChunkEmbedding.embedding). NOTE: changing this on an
     # existing deployment requires a manual migration to resize the column.

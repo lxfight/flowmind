@@ -1,35 +1,42 @@
 
 from openai import AsyncOpenAI
 
-from app.core.config import get_settings
-
-settings = get_settings()
+from app.services.config_service import config_service
 
 
 class LLMService:
-    def __init__(self):
-        self.client: AsyncOpenAI | None = None
-        self._init_client()
+    """Chat completions against an OpenAI-compatible endpoint.
 
-    def _init_client(self):
-        if settings.llm_api_key:
-            client_kwargs = {"api_key": settings.llm_api_key}
-            if settings.llm_base_url:
-                client_kwargs["base_url"] = settings.llm_base_url
-            self.client = AsyncOpenAI(**client_kwargs)
+    The client is rebuilt per call from config_service so runtime config
+    changes (API key / base URL / model) take effect immediately without
+    restarting the process.
+    """
+
+    async def _build_client(self) -> tuple[AsyncOpenAI | None, str]:
+        """Return (client, model) from the current effective config."""
+        api_key = await config_service.get("llm_api_key")
+        base_url = await config_service.get("llm_base_url")
+        model = await config_service.get("llm_model")
+        if not api_key:
+            return None, model
+        client_kwargs = {"api_key": api_key}
+        if base_url:
+            client_kwargs["base_url"] = base_url
+        return AsyncOpenAI(**client_kwargs), model
 
     async def chat(self, messages: list[dict], system_prompt: str = "") -> str:
         """Send chat request to LLM."""
-        if not self.client:
-            return "LLM 未配置，请在环境变量中设置 LLM_API_KEY"
+        client, model = await self._build_client()
+        if client is None:
+            return "LLM 未配置，请在管理页面或环境变量中设置 LLM_API_KEY"
 
         full_messages = []
         if system_prompt:
             full_messages.append({"role": "system", "content": system_prompt})
         full_messages.extend(messages)
 
-        response = await self.client.chat.completions.create(
-            model=settings.llm_model,
+        response = await client.chat.completions.create(
+            model=model,
             messages=full_messages,
             temperature=0.7,
             max_tokens=4096,
