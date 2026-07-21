@@ -7,6 +7,7 @@ import {
   LayoutGrid,
   FolderKanban,
   Shield,
+  Settings,
   LogOut,
   Bell,
   Search,
@@ -74,7 +75,10 @@ export function Sidebar({
             }
           />
           {user?.is_superuser && (
-            <NavItem to="/admin/users" label="用户管理" icon={Shield} onClick={onCloseMobile} />
+            <>
+              <NavItem to="/admin/users" label="用户管理" icon={Shield} onClick={onCloseMobile} />
+              <NavItem to="/admin/config" label="系统配置" icon={Settings} onClick={onCloseMobile} />
+            </>
           )}
         </nav>
       </div>
