@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -24,13 +24,32 @@ import { TaskDetailDialog } from './TaskDetailDialog'
 import { StatusManagerDialog } from './StatusManagerDialog'
 import { LLMChatPanel } from '../llm-chat/LLMChatPanel'
 import { loadOpenState, saveOpenState } from '../llm-chat/floatingGeometry'
-import { AlertCircle, Columns3, Filter, Loader2, MessageSquare, Plus, RefreshCw, Search, X } from 'lucide-react'
+import { AlertCircle, ArrowDown, ArrowUp, Columns3, Filter, Loader2, MessageSquare, Plus, RefreshCw, Search, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
 import { Select } from '../ui/Select'
 import { Badge } from '../ui/Badge'
 import type { TaskSummary, TaskStatus, MemberOption, ActionSummary } from '../../types'
+
+/** 与后端 Task.priority 一致：0=none, 1=low, 2=medium, 3=high, 4=urgent */
+const PRIORITY_OPTIONS = [
+  { value: 0, label: '无' },
+  { value: 1, label: '低' },
+  { value: 2, label: '中' },
+  { value: 3, label: '高' },
+  { value: 4, label: '紧急' },
+]
+
+type SortKey = 'manual' | 'created_at' | 'updated_at' | 'priority' | 'due_date'
+
+const SORT_OPTIONS: { value: SortKey; label: string }[] = [
+  { value: 'manual', label: '手动排序' },
+  { value: 'created_at', label: '创建时间' },
+  { value: 'updated_at', label: '更新时间' },
+  { value: 'priority', label: '优先级' },
+  { value: 'due_date', label: '截止日期' },
+]
 
 export default function KanbanBoard() {
   const { projectId } = useParams()
@@ -64,6 +83,9 @@ export default function KanbanBoard() {
   // Search & filter
   const [searchQuery, setSearchQuery] = useState('')
   const [assigneeFilter, setAssigneeFilter] = useState<number | null>(null)
+  const [priorityFilter, setPriorityFilter] = useState<number | null>(null)
+  const [sortKey, setSortKey] = useState<SortKey>('manual')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [members, setMembers] = useState<MemberOption[]>([])
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const wsRefreshRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -119,6 +141,9 @@ export default function KanbanBoard() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting filters on project switch, before async fetch
     setSearchQuery('')
     setAssigneeFilter(null)
+    setPriorityFilter(null)
+    setSortKey('manual')
+    setSortDir('asc')
     loadBoard()
     api.get(`/projects/${projectId}/members`)
       .then((res) => setMembers(res.data))
@@ -146,10 +171,19 @@ export default function KanbanBoard() {
   const clearFilters = () => {
     setSearchQuery('')
     setAssigneeFilter(null)
+    setPriorityFilter(null)
+    setSortKey('manual')
+    setSortDir('asc')
     void loadTasks(undefined, null).catch(() => {})
   }
 
-  const hasActiveFilters = searchQuery || assigneeFilter !== null
+  const hasActiveFilters = searchQuery || assigneeFilter !== null || priorityFilter !== null || sortKey !== 'manual'
+
+  // 优先级过滤在已加载任务上纯前端进行（任务随看板全量加载）
+  const visibleTasks = useMemo(
+    () => (priorityFilter === null ? tasks : tasks.filter((t) => t.priority === priorityFilter)),
+    [tasks, priorityFilter]
+  )
 
   // Real-time sync: refresh the board when other clients mutate the project.
   // Refetches are idempotent and debounced; events from this client are
@@ -167,8 +201,23 @@ export default function KanbanBoard() {
     }, 300)
   })
 
-  const getTasksByStatus = (statusId: number) =>
-    tasks.filter((t) => t.status_id === statusId).sort((a, b) => a.order - b.order)
+  const getTasksByStatus = (statusId: number) => {
+    const list = visibleTasks.filter((t) => t.status_id === statusId)
+    if (sortKey === 'manual') return list.sort((a, b) => a.order - b.order)
+    const dir = sortDir === 'asc' ? 1 : -1
+    return [...list].sort((a, b) => {
+      if (sortKey === 'priority') return (a.priority - b.priority) * dir
+      const av = a[sortKey]
+      const bv = b[sortKey]
+      if (sortKey === 'due_date') {
+        // 无截止日期的任务始终排在最后
+        if (!av && !bv) return 0
+        if (!av) return 1
+        if (!bv) return -1
+      }
+      return (new Date(av as string).getTime() - new Date(bv as string).getTime()) * dir
+    })
+  }
 
   // Reset board-local UI state only when the project actually changes
   // (StrictMode-safe: comparing the param survives double-effect replays,
@@ -369,6 +418,7 @@ export default function KanbanBoard() {
               value={assigneeFilter || ''}
               onChange={(e) => handleAssigneeFilter(e.target.value ? parseInt(e.target.value) : null)}
               className="w-full sm:w-auto text-sm"
+              aria-label="按指派人筛选"
             >
               <option value="">全部指派人</option>
               {members.map((m) => (
@@ -377,6 +427,45 @@ export default function KanbanBoard() {
                 </option>
               ))}
             </Select>
+            <Select
+              value={priorityFilter ?? ''}
+              onChange={(e) => setPriorityFilter(e.target.value === '' ? null : parseInt(e.target.value))}
+              className="w-full sm:w-auto text-sm"
+              aria-label="按优先级筛选"
+            >
+              <option value="">全部优先级</option>
+              {PRIORITY_OPTIONS.map((p) => (
+                <option key={p.value} value={p.value}>
+                  {p.label}
+                </option>
+              ))}
+            </Select>
+            <div className="flex items-center gap-1">
+              <Select
+                value={sortKey}
+                onChange={(e) => setSortKey(e.target.value as SortKey)}
+                className="w-full sm:w-auto text-sm"
+                aria-label="列内排序方式"
+              >
+                {SORT_OPTIONS.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </Select>
+              {sortKey !== 'manual' && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 flex-shrink-0"
+                  onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+                  aria-label={sortDir === 'asc' ? '切换为降序' : '切换为升序'}
+                  title={sortDir === 'asc' ? '当前升序，点击切换降序' : '当前降序，点击切换升序'}
+                >
+                  {sortDir === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
+                </Button>
+              )}
+            </div>
             {hasActiveFilters && (
               <Button
                 variant="ghost"
@@ -389,7 +478,7 @@ export default function KanbanBoard() {
               </Button>
             )}
             <Badge variant="secondary" className="sm:ml-auto text-xs">
-              {tasks.length} 个任务
+              {priorityFilter !== null ? `${visibleTasks.length} / ${tasks.length} 个任务` : `${tasks.length} 个任务`}
             </Badge>
           </div>
         </div>
