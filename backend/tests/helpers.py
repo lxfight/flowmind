@@ -1,5 +1,7 @@
 """Shared helpers for API tests (login, user provisioning, project setup)."""
 
+import os
+
 
 def login(client, username: str, password: str) -> dict[str, str]:
     response = client.post(
@@ -11,7 +13,9 @@ def login(client, username: str, password: str) -> dict[str, str]:
 
 
 def admin_login(client) -> dict[str, str]:
-    return login(client, "admin", "testadmin")
+    # conftest defaults FLOWMIND_ADMIN_PASSWORD to "testadmin", but CI (and
+    # other environments) may override it — honor the env var.
+    return login(client, "admin", os.environ.get("FLOWMIND_ADMIN_PASSWORD", "testadmin"))
 
 
 def register_and_approve(client, admin_headers, username: str) -> tuple[int, dict[str, str]]:

@@ -1,3 +1,5 @@
+import os
+
 import pytest
 from sqlalchemy import update
 
@@ -52,7 +54,7 @@ def _create_project(client, admin_headers) -> tuple[int, list[dict]]:
 
 @pytest.mark.asyncio
 async def test_viewer_is_read_only(client):
-    admin_headers = _login(client, "admin", "testadmin")
+    admin_headers = _login(client, "admin", os.environ.get("FLOWMIND_ADMIN_PASSWORD", "testadmin"))
     viewer_id, viewer_headers = _register_and_approve(client, admin_headers, "readonly")
     project_id, statuses = _create_project(client, admin_headers)
     response = client.post(
@@ -82,7 +84,7 @@ async def test_viewer_is_read_only(client):
 
 @pytest.mark.asyncio
 async def test_subtasks_are_not_top_level_or_counted(client):
-    admin_headers = _login(client, "admin", "testadmin")
+    admin_headers = _login(client, "admin", os.environ.get("FLOWMIND_ADMIN_PASSWORD", "testadmin"))
     project_id, statuses = _create_project(client, admin_headers)
     response = client.post(
         f"/api/projects/{project_id}/tasks",
@@ -117,7 +119,7 @@ async def test_subtasks_are_not_top_level_or_counted(client):
 
 @pytest.mark.asyncio
 async def test_done_status_sync_and_nonempty_status_protection(client):
-    admin_headers = _login(client, "admin", "testadmin")
+    admin_headers = _login(client, "admin", os.environ.get("FLOWMIND_ADMIN_PASSWORD", "testadmin"))
     project_id, statuses = _create_project(client, admin_headers)
     active_status = next(status for status in statuses if not status["is_done"])
     done_status = next(status for status in statuses if status["is_done"])
@@ -146,7 +148,7 @@ async def test_done_status_sync_and_nonempty_status_protection(client):
 
 @pytest.mark.asyncio
 async def test_dashboard_completion_uses_status_as_source_of_truth(client):
-    admin_headers = _login(client, "admin", "testadmin")
+    admin_headers = _login(client, "admin", os.environ.get("FLOWMIND_ADMIN_PASSWORD", "testadmin"))
     project_id, statuses = _create_project(client, admin_headers)
     done_status = next(status for status in statuses if status["is_done"])
     response = client.post(
@@ -177,7 +179,7 @@ async def test_dashboard_completion_uses_status_as_source_of_truth(client):
 
 @pytest.mark.asyncio
 async def test_assignee_and_member_role_must_respect_project(client):
-    admin_headers = _login(client, "admin", "testadmin")
+    admin_headers = _login(client, "admin", os.environ.get("FLOWMIND_ADMIN_PASSWORD", "testadmin"))
     member_id, _ = _register_and_approve(client, admin_headers, "teammate")
     outsider_id, _ = _register_and_approve(client, admin_headers, "outsider")
     project_id, statuses = _create_project(client, admin_headers)
@@ -225,7 +227,7 @@ async def test_knowledge_creation_survives_embedding_failure(client, monkeypatch
     from app.api import knowledge as knowledge_api
     from app.services.knowledge_indexing import index_document
 
-    admin_headers = _login(client, "admin", "testadmin")
+    admin_headers = _login(client, "admin", os.environ.get("FLOWMIND_ADMIN_PASSWORD", "testadmin"))
     project_id, _ = _create_project(client, admin_headers)
 
     async def fail_embedding(_text: str):
