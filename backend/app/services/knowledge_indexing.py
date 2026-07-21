@@ -22,6 +22,7 @@ from app.models.knowledge import (
     DocChunk,
     KnowledgeDoc,
 )
+from app.services.config_service import config_service
 from app.services.rag_service import rag_service
 
 logger = logging.getLogger(__name__)
@@ -57,7 +58,21 @@ async def _run_index(doc_id: int) -> None:
                     return  # deleted while indexing was pending
                 # Latest edit wins: read content now, under the lock.
                 await session.execute(delete(DocChunk).where(DocChunk.doc_id == doc.id))
-                await rag_service.chunk_document(doc.title, doc.content, doc.id, session)
+                stored = await rag_service.split_and_store_chunks(
+                    doc.title, doc.content, doc.id, session
+                )
+                # Commit plain chunks first: if embedding fails afterwards,
+                # the doc is marked failed but the chunks stay visible.
+                await session.commit()
+                try:
+                    embedding_api_key, _, _ = await config_service.get_embedding_credentials()
+                    if embedding_api_key:
+                        await rag_service.embed_chunks(stored, session)
+                except Exception:
+                    # Roll back only the embeddings; chunks are safe.
+                    await session.rollback()
+                    raise
+                doc = await session.get(KnowledgeDoc, doc_id)
                 doc.status = DOC_STATUS_INDEXED
                 doc.error_message = None
                 await session.commit()
@@ -85,7 +100,11 @@ async def index_uploaded_document(doc_id: int, file_bytes: bytes, ext: str) -> N
         from markitdown import MarkItDown
 
         md = MarkItDown()
-        result = md.convert_stream(BytesIO(file_bytes), file_extension=ext)
+        # markitdown is a blocking, CPU-bound call; keep it off the event
+        # loop so a large/slow document cannot stall the whole API.
+        result = await asyncio.to_thread(
+            md.convert_stream, BytesIO(file_bytes), file_extension=ext
+        )
         content = result.text_content
         if not content.strip():
             raise ValueError("文件解析结果为空，请检查文件内容")

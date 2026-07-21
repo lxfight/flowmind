@@ -130,7 +130,7 @@ async def test_knowledge_indexing_failure_sets_failed_status(client, monkeypatch
     async def boom(*args, **kwargs):
         raise RuntimeError("embedding backend exploded")
 
-    monkeypatch.setattr(rag_service, "chunk_document", boom)
+    monkeypatch.setattr(rag_service, "split_and_store_chunks", boom)
 
     doc = _create_doc(client, headers, project_id, title="坏文档", content="内容")
     assert doc["status"] == "indexing"  # no more 502 on index failure
@@ -146,19 +146,19 @@ async def test_knowledge_reindex_recovers_failed_doc(client, monkeypatch):
     headers = admin_login(client)
     project_id, _ = create_project(client, headers)
 
-    original_chunk = rag_service.chunk_document
+    original_chunk = rag_service.split_and_store_chunks
 
     async def boom(*args, **kwargs):
         raise RuntimeError("temporary failure")
 
-    monkeypatch.setattr(rag_service, "chunk_document", boom)
+    monkeypatch.setattr(rag_service, "split_and_store_chunks", boom)
     doc = _create_doc(client, headers, project_id)
     client.portal.call(index_document, doc["id"])
     assert _get_doc(client, headers, project_id, doc["id"])["status"] == "failed"
 
     # Restore chunking directly; monkeypatch.undo() would also revert the
     # manual_indexing fixture's no-op of the API background callables.
-    monkeypatch.setattr(rag_service, "chunk_document", original_chunk)
+    monkeypatch.setattr(rag_service, "split_and_store_chunks", original_chunk)
     response = client.post(
         f"/api/projects/{project_id}/knowledge/{doc['id']}/reindex", headers=headers
     )
@@ -342,7 +342,8 @@ async def test_knowledge_query_empty_project_without_llm(client):
 
 @pytest.mark.asyncio
 async def test_retrieve_context_similarity_threshold(monkeypatch):
-    """pgvector path filters chunks below the similarity threshold."""
+    """Hybrid path: a below-threshold vector score filters the chunk only
+    when it also has zero keyword evidence."""
     from app.services import rag_service as rag_module
 
     class FakeResult:
@@ -350,15 +351,23 @@ async def test_retrieve_context_similarity_threshold(monkeypatch):
             self._rows = rows
 
         def fetchall(self):
-            return self._rows
+            return self._rows  # vector path (raw SQL)
+
+        def all(self):
+            return self._rows  # keyword path (ORM select)
 
     class FakeDB:
+        def __init__(self, keyword_rows, vector_rows):
+            self._keyword_rows = keyword_rows
+            self._vector_rows = vector_rows
+            self.calls = 0
+
         async def execute(self, *args, **kwargs):
-            # (content, chunk_index, doc_title, similarity)
-            return FakeResult([
-                ("高相关", 0, "文档A", 0.9),
-                ("低相关", 1, "文档A", 0.1),
-            ])
+            self.calls += 1
+            # First call is the keyword scan (ORM), second is the vector SQL.
+            if self.calls == 1:
+                return FakeResult(self._keyword_rows)
+            return FakeResult(self._vector_rows)
 
     async def fake_embed(text):
         return [0.0] * 1536
@@ -368,15 +377,68 @@ async def test_retrieve_context_similarity_threshold(monkeypatch):
     monkeypatch.setattr(rag_module.settings, "llm_api_key", "fake-key")
     monkeypatch.setattr(rag_module.settings, "similarity_threshold", 0.35)
 
-    results = await rag_service.retrieve_context("查询", 1, FakeDB())
+    # Keyword scan finds nothing (query absent from all chunks), so the
+    # threshold alone decides: 0.9 kept, 0.1 filtered.
+    db = FakeDB(
+        keyword_rows=[("高相关", "文档A"), ("低相关", "文档A")],
+        vector_rows=[("高相关", "文档A", 0.9), ("低相关", "文档A", 0.1)],
+    )
+    results = await rag_service.retrieve_context("查询", 1, db)
     assert len(results) == 1
     assert results[0]["content"] == "高相关"
     assert results[0]["similarity"] == 0.9
+    assert results[0]["vector_score"] == 0.9
 
     # Everything below threshold → empty list ("no relevant knowledge").
     monkeypatch.setattr(rag_module.settings, "similarity_threshold", 0.95)
-    results = await rag_service.retrieve_context("查询", 1, FakeDB())
+    db = FakeDB(
+        keyword_rows=[("高相关", "文档A"), ("低相关", "文档A")],
+        vector_rows=[("高相关", "文档A", 0.9), ("低相关", "文档A", 0.1)],
+    )
+    results = await rag_service.retrieve_context("查询", 1, db)
     assert results == []
+
+
+@pytest.mark.asyncio
+async def test_retrieve_context_keyword_hit_survives_low_vector_score(monkeypatch):
+    """A strong keyword hit is kept even when its vector score is below
+    the similarity threshold (core hybrid-retrieval semantics)."""
+    from app.services import rag_service as rag_module
+
+    class FakeResult:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def fetchall(self):
+            return self._rows
+
+        def all(self):
+            return self._rows
+
+    class FakeDB:
+        def __init__(self):
+            self.calls = 0
+
+        async def execute(self, *args, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                # Keyword scan: the chunk contains the query term.
+                return FakeResult([("看板拖拽操作指南", "产品FAQ")])
+            # Vector scan: same chunk, but a below-threshold score.
+            return FakeResult([("看板拖拽操作指南", "产品FAQ", 0.05)])
+
+    async def fake_embed(text):
+        return [0.0] * 1536
+
+    monkeypatch.setattr(rag_module, "_is_sqlite", False)
+    monkeypatch.setattr(rag_service, "embed_text", fake_embed)
+    monkeypatch.setattr(rag_module.settings, "llm_api_key", "fake-key")
+    monkeypatch.setattr(rag_module.settings, "similarity_threshold", 0.35)
+
+    results = await rag_service.retrieve_context("看板", 1, FakeDB())
+    assert len(results) == 1
+    assert results[0]["vector_score"] == 0.05
+    assert results[0]["keyword_score"] > 0
 
 
 @pytest.mark.asyncio

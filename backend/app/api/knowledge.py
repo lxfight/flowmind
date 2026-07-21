@@ -3,7 +3,6 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.permissions import ensure_project_editor, ensure_project_member
-from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.activity import ActivityLog
@@ -24,12 +23,12 @@ from app.schemas import (
     KnowledgeDocUpdate,
     KnowledgeQuery,
 )
+from app.services.config_service import config_service
 from app.services.knowledge_indexing import index_document, index_uploaded_document
 from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
 
 router = APIRouter(prefix="/api/projects/{project_id}/knowledge", tags=["knowledge"])
-settings = get_settings()
 ALLOWED_UPLOAD_EXTENSIONS = {
     "pdf", "docx", "pptx", "xls", "xlsx", "html", "htm", "md", "txt",
     "csv", "json", "xml", "jpg", "jpeg", "png", "gif", "bmp", "tiff",
@@ -89,11 +88,6 @@ async def create_doc(
     )
     db.add(doc)
     await db.flush()
-    await db.refresh(doc)
-
-    # Chunking + embedding run in the background; the doc settles to
-    # 'indexed' or 'failed' (with error_message) asynchronously.
-    background_tasks.add_task(index_document, doc.id)
 
     db.add(ActivityLog(
         project_id=project_id,
@@ -103,6 +97,15 @@ async def create_doc(
         target_id=doc.id,
         summary=f"添加知识文档: {doc.title}",
     ))
+    # Commit BEFORE scheduling the background task: the task opens its own
+    # session and must be able to read this document (the request session's
+    # commit happens after the response, which may be after the task runs).
+    await db.commit()
+    await db.refresh(doc)
+
+    # Chunking + embedding run in the background; the doc settles to
+    # 'indexed' or 'failed' (with error_message) asynchronously.
+    background_tasks.add_task(index_document, doc.id)
 
     out = KnowledgeDocOut.model_validate(doc)
     out.chunk_count = 0
@@ -158,15 +161,6 @@ async def update_doc(
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(doc, field, value)
 
-    # Re-index in the background if content changed. If the doc is edited
-    # again while indexing, the latest edit wins: the indexing task
-    # re-reads content under a per-doc lock, so stale runs index the
-    # newest content.
-    if data.content is not None:
-        doc.status = DOC_STATUS_INDEXING
-        doc.error_message = None
-        background_tasks.add_task(index_document, doc.id)
-
     db.add(ActivityLog(
         project_id=project_id,
         user_id=current_user.id,
@@ -175,8 +169,19 @@ async def update_doc(
         target_id=doc.id,
         summary=f"更新知识文档: {doc.title}",
     ))
-
     await db.flush()
+
+    # Re-index in the background if content changed. If the doc is edited
+    # again while indexing, the latest edit wins: the indexing task
+    # re-reads content under a per-doc lock, so stale runs index the
+    # newest content. Commit BEFORE scheduling so the task's own session
+    # sees the newest content.
+    if data.content is not None:
+        doc.status = DOC_STATUS_INDEXING
+        doc.error_message = None
+        await db.commit()
+        background_tasks.add_task(index_document, doc.id)
+
     await db.refresh(doc)
     return KnowledgeDocOut.model_validate(doc)
 
@@ -231,8 +236,9 @@ async def upload_file(
     file_bytes = await file.read()
     if len(file_bytes) == 0:
         raise HTTPException(status_code=400, detail="文件为空")
-    if len(file_bytes) > settings.knowledge_max_bytes:
-        max_mb = settings.knowledge_max_bytes // 1024 // 1024
+    max_bytes = await config_service.get("knowledge_max_bytes")
+    if len(file_bytes) > max_bytes:
+        max_mb = max_bytes // 1024 // 1024
         raise HTTPException(status_code=413, detail=f"文件大小不能超过 {max_mb}MB")
 
     # Strip extension from filename for title
@@ -248,11 +254,6 @@ async def upload_file(
     )
     db.add(doc)
     await db.flush()
-    await db.refresh(doc)
-
-    # Parse (markitdown) → chunk → embed in the background; the doc settles
-    # to 'indexed' or 'failed' (with error_message) asynchronously.
-    background_tasks.add_task(index_uploaded_document, doc.id, file_bytes, ext)
 
     db.add(ActivityLog(
         project_id=project_id,
@@ -262,6 +263,15 @@ async def upload_file(
         target_id=doc.id,
         summary=f"上传知识文档: {doc.title}",
     ))
+    # Commit BEFORE scheduling the background task: the task opens its own
+    # session and must be able to read this document (the request session's
+    # commit happens after the response, which may be after the task runs).
+    await db.commit()
+    await db.refresh(doc)
+
+    # Parse (markitdown) → chunk → embed in the background; the doc settles
+    # to 'indexed' or 'failed' (with error_message) asynchronously.
+    background_tasks.add_task(index_uploaded_document, doc.id, file_bytes, ext)
 
     out = KnowledgeDocOut.model_validate(doc)
     out.chunk_count = 0
@@ -335,7 +345,6 @@ async def reindex_doc(
 
     doc.status = DOC_STATUS_INDEXING
     doc.error_message = None
-    background_tasks.add_task(index_document, doc.id)
 
     db.add(ActivityLog(
         project_id=project_id,
@@ -345,8 +354,10 @@ async def reindex_doc(
         target_id=doc.id,
         summary=f"重建知识文档索引: {doc.title}",
     ))
+    # Commit BEFORE scheduling so the background task sees the new status.
+    await db.commit()
+    background_tasks.add_task(index_document, doc.id)
 
-    await db.flush()
     await db.refresh(doc)
     return KnowledgeDocOut.model_validate(doc)
 

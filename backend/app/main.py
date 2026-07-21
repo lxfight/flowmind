@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import logging
 import os
 import secrets
 from contextlib import asynccontextmanager
@@ -7,10 +8,25 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 
-from app.api import admin, attachments, auth, knowledge, llm, notifications, projects, statuses, task_search, tasks, ws
+from app.api import (
+    admin,
+    admin_config,
+    attachments,
+    auth,
+    knowledge,
+    llm,
+    notifications,
+    projects,
+    statuses,
+    task_search,
+    tasks,
+    ws,
+)
 from app.core.database import Base, async_session_factory, engine
+
+logger = logging.getLogger(__name__)
 
 # Columns that older SQLite dev databases may be missing; create_all never
 # alters existing tables, so add them manually.
@@ -25,6 +41,10 @@ _SQLITE_COLUMN_FALLBACKS = {
     ],
     "llm_chat_messages": [
         ("pending_question", "JSON"),
+    ],
+    "knowledge_docs": [
+        ("status", "VARCHAR(16) NOT NULL DEFAULT 'indexed'"),
+        ("error_message", "TEXT"),
     ],
 }
 
@@ -85,6 +105,33 @@ async def lifespan(app: FastAPI):
             print("  请登录后立即修改密码!")
             print(f"{'='*60}\n")
 
+    # Recover docs stuck mid-indexing from a previous process lifetime.
+    # Reset to 'failed' (rather than silently auto-reindexing) so startup
+    # never triggers an unbounded burst of embedding API calls; users can
+    # re-index on demand via the reindex endpoint. Best-effort: a broken
+    # legacy schema must not prevent startup.
+    try:
+        async with async_session_factory() as db:
+            from app.models.knowledge import (
+                DOC_STATUS_FAILED,
+                DOC_STATUS_INDEXING,
+                DOC_STATUS_PARSING,
+                KnowledgeDoc,
+            )
+            result = await db.execute(
+                update(KnowledgeDoc)
+                .where(KnowledgeDoc.status.in_([DOC_STATUS_INDEXING, DOC_STATUS_PARSING]))
+                .values(
+                    status=DOC_STATUS_FAILED,
+                    error_message="服务重启导致索引中断，请重新索引",
+                )
+            )
+            await db.commit()
+            if result.rowcount:
+                logger.info("已重置 %s 个因重启中断索引的文档为 failed", result.rowcount)
+    except Exception as exc:
+        logger.warning("中断索引文档恢复失败（已跳过）: %s", exc)
+
     # Start hourly due-date reminder background task
     from app.services.due_reminder import due_reminder_loop
     reminder_task = asyncio.create_task(due_reminder_loop(async_session_factory))
@@ -114,6 +161,7 @@ app.add_middleware(
 # Register routers
 app.include_router(auth.router)
 app.include_router(admin.router)
+app.include_router(admin_config.router)
 app.include_router(projects.router)
 app.include_router(tasks.router)
 app.include_router(statuses.router)

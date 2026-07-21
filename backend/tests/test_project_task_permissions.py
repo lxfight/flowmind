@@ -231,14 +231,14 @@ async def test_knowledge_creation_survives_embedding_failure(client, monkeypatch
     admin_headers = _login(client, "admin", os.environ.get("FLOWMIND_ADMIN_PASSWORD", "testadmin"))
     project_id, _ = _create_project(client, admin_headers)
 
-    async def fail_embedding(_text: str):
+    async def fail_embedding(_texts: list[str]):
         raise RuntimeError("embedding provider unavailable")
 
     # Drive indexing explicitly (the TestClient defers BackgroundTasks and
     # may run them concurrently on separate loops, which is racy on SQLite).
     monkeypatch.setattr(knowledge_api, "index_document", lambda *a, **k: None)
     monkeypatch.setattr(rag_settings, "llm_api_key", "configured")
-    monkeypatch.setattr(rag_service, "embed_text", fail_embedding)
+    monkeypatch.setattr(rag_service, "embed_texts", fail_embedding)
     response = client.post(
         f"/api/projects/{project_id}/knowledge",
         headers=admin_headers,
