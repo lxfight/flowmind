@@ -15,6 +15,7 @@ import { useParams } from 'react-router-dom'
 import api from '../../utils/api'
 import { useProjectRole } from '../../hooks/useProjectRole'
 import { useProjectSocket } from '../../hooks/useProjectSocket'
+import { useResizableWidth } from '../../hooks/useResizableWidth'
 import { useAuthStore } from '../../stores/authStore'
 import { KanbanColumn } from './KanbanColumn'
 import { KanbanCard } from './KanbanCard'
@@ -29,7 +30,6 @@ import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
 import { Select } from '../ui/Select'
 import { Badge } from '../ui/Badge'
-import { cn } from '../../utils/cn'
 import type { TaskSummary, TaskStatus, MemberOption, ActionSummary } from '../../types'
 
 export default function KanbanBoard() {
@@ -54,6 +54,12 @@ export default function KanbanBoard() {
   const [boardLoading, setBoardLoading] = useState(true)
   const [boardError, setBoardError] = useState<string | null>(null)
   const [showStatusManager, setShowStatusManager] = useState(false)
+  const { width: columnWidth, startResize: startColumnResize } = useResizableWidth({
+    storageKey: 'flowmind.kanban.columnWidth',
+    defaultWidth: 288,
+    min: 240,
+    max: 480,
+  })
 
   // Search & filter
   const [searchQuery, setSearchQuery] = useState('')
@@ -425,6 +431,8 @@ export default function KanbanBoard() {
                       tasks={getTasksByStatus(status.id)}
                       members={members}
                       readOnly={isViewer}
+                      columnWidth={columnWidth}
+                      onColumnResizeStart={startColumnResize}
                       onAddTask={() => {
                         setCreateStatusId(status.id)
                         setShowCreateDialog(true)

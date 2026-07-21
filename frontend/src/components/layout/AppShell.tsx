@@ -1,4 +1,5 @@
 import { useLayoutStore } from '../../stores/layoutStore'
+import { useResizableWidth } from '../../hooks/useResizableWidth'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 import {
@@ -26,6 +27,12 @@ export function AppShell({
 }: AppShellProps) {
   const mobileOpen = useLayoutStore((s) => s.mobileSidebarOpen)
   const closeMobileSidebar = useLayoutStore((s) => s.closeMobileSidebar)
+  const { width: sidebarWidth, startResize: startSidebarResize } = useResizableWidth({
+    storageKey: 'flowmind.sidebar.width',
+    defaultWidth: 240,
+    min: 200,
+    max: 400,
+  })
 
   const sidebar = (
     <Sidebar
@@ -38,8 +45,20 @@ export function AppShell({
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       {/* Desktop sidebar */}
-      <aside className="hidden lg:flex w-60 flex-col gap-2 p-3">
+      <aside
+        className="relative hidden lg:flex flex-col gap-2 p-3 pr-1.5 shrink-0"
+        style={{ width: sidebarWidth }}
+      >
         <div className="surface h-full overflow-hidden">{sidebar}</div>
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="调整侧栏宽度"
+          title="拖拽调整侧栏宽度"
+          onPointerDown={startSidebarResize}
+          className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize rounded-full transition-colors hover:bg-primary/30 active:bg-primary/50"
+          style={{ touchAction: 'none' }}
+        />
       </aside>
 
       {/* Mobile sidebar */}

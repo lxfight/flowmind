@@ -15,12 +15,15 @@ interface Props {
   tasks: TaskCard[]
   members: MemberOption[]
   readOnly?: boolean
+  /** Column width in px on desktop (mobile stays full-width) */
+  columnWidth?: number
+  onColumnResizeStart?: (e: React.PointerEvent) => void
   onAddTask: () => void
   onTaskClick: (taskId: number) => void
   onAssignTask?: (taskId: number, userIds: number[]) => void
 }
 
-export function KanbanColumn({ status, tasks, members, readOnly = false, onAddTask, onTaskClick, onAssignTask }: Props) {
+export function KanbanColumn({ status, tasks, members, readOnly = false, columnWidth, onColumnResizeStart, onAddTask, onTaskClick, onAssignTask }: Props) {
   const { setNodeRef, isOver } = useDroppable({
     id: `status-${status.id}`,
     disabled: readOnly,
@@ -29,9 +32,10 @@ export function KanbanColumn({ status, tasks, members, readOnly = false, onAddTa
   return (
     <Card
       className={cn(
-        'flex-shrink-0 w-full lg:w-72 flex flex-col',
+        'relative flex-shrink-0 w-full lg:w-[var(--kanban-col-w)] flex flex-col',
         isOver && 'ring-2 ring-primary bg-primary/5 dark:bg-primary/10'
       )}
+      style={columnWidth ? ({ '--kanban-col-w': `${columnWidth}px` } as React.CSSProperties) : undefined}
     >
       <CardHeader className="sticky top-0 z-10 rounded-t-xl bg-card px-3 py-3 flex-row items-center justify-between gap-2 space-y-0 border-b border-border/60">
         <div className="flex items-center gap-2 min-w-0">
@@ -91,6 +95,18 @@ export function KanbanColumn({ status, tasks, members, readOnly = false, onAddTa
           )}
         </div>
       </CardContent>
+
+      {onColumnResizeStart && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={`调整 ${status.name} 列宽度`}
+          title="拖拽调整列宽"
+          onPointerDown={onColumnResizeStart}
+          className="absolute -right-2 top-0 z-20 hidden lg:block h-full w-2 cursor-col-resize rounded-full transition-colors hover:bg-primary/30 active:bg-primary/50"
+          style={{ touchAction: 'none' }}
+        />
+      )}
     </Card>
   )
 }
