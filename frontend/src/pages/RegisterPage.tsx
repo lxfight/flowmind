@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { motion } from 'framer-motion'
+import { ArrowRight, LoaderCircle } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import toast from 'react-hot-toast'
-import { Button } from '../components/ui/Button'
-import { Input } from '../components/ui/Input'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/Card'
+import { AuthLayout, FloatInput, Word } from '../components/auth/AuthLayout'
 
 export default function RegisterPage() {
   const [username, setUsername] = useState('')
@@ -28,54 +28,61 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md border-border">
-        <CardHeader className="text-center">
-          <CardTitle className="text-3xl font-bold tracking-tight text-foreground">
-            Flow<span className="text-primary">M</span>ind
-          </CardTitle>
-          <div className="mx-auto mt-2 h-0.5 w-10 rounded-full bg-primary" aria-hidden="true" />
-          <CardDescription className="pt-2">创建您的账号</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">用户名</label>
-              <Input
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                required
-                autoFocus
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">邮箱</label>
-              <Input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">密码</label>
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={6}
-              />
-            </div>
-            <Button type="submit" className="w-full" disabled={loading} loading={loading}>
-              注册
-            </Button>
-          </form>
-          <p className="text-center text-sm text-muted-foreground mt-6">
-            已有账号？<Link to="/login" className="text-primary hover:underline">登录</Link>
-          </p>
-        </CardContent>
-      </Card>
-    </div>
+    <AuthLayout
+      headline={
+        <>
+          <Word index={0}>新</Word>
+          <Word index={1}>的</Word>
+          <Word index={2}>起点</Word>
+          <Word index={3}>，</Word>
+          <br />
+          <Word index={4}>从</Word>
+          <Word index={5} className="font-serif italic font-medium text-[#f3702c]">one</Word>{' '}
+          <Word index={6} className="text-[#f3702c]">任务</Word>
+          <Word index={7}>开始</Word>
+          <Word index={8}>。</Word>
+        </>
+      }
+      caption="创建一个账号，提交审批后即可进入你的专属工作台，开始组织第一件重要的事。"
+    >
+      <div className="mb-12">
+        <p className="text-[11px] uppercase tracking-[0.24em] text-[#c1480f]">Join FlowMind</p>
+        <h2 className="mt-3 text-[2rem] font-semibold leading-tight tracking-tight text-stone-900">
+          创建你的<br />账号
+        </h2>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-7">
+        <FloatInput label="用户名" value={username} onChange={setUsername} autoFocus />
+        <FloatInput label="邮箱" type="email" value={email} onChange={setEmail} />
+        <FloatInput label="密码（至少 6 位）" type="password" value={password} onChange={setPassword} minLength={6} />
+
+        <motion.button
+          type="submit"
+          disabled={loading}
+          whileTap={{ scale: 0.985 }}
+          className="group relative mt-2 flex w-full items-center justify-between overflow-hidden rounded-full bg-stone-900 py-4 pl-7 pr-2.5 text-[15px] font-medium text-[#f5f2ed] transition-colors duration-300 hover:bg-[#e8490f] disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <span>{loading ? '正在提交…' : '注册'}</span>
+          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#f5f2ed] text-stone-900 transition-transform duration-300 group-hover:translate-x-1">
+            {loading ? (
+              <LoaderCircle size={16} className="animate-spin" />
+            ) : (
+              <ArrowRight size={16} />
+            )}
+          </span>
+        </motion.button>
+      </form>
+
+      <p className="mt-10 text-sm text-stone-500">
+        已有账号？{' '}
+        <Link
+          to="/login"
+          className="font-medium text-[#c1480f] underline decoration-[#e8490f]/40 underline-offset-4 transition-colors hover:decoration-[#e8490f]"
+        >
+          登录
+        </Link>
+      </p>
+    </AuthLayout>
   )
 }

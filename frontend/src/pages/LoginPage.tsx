@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { motion } from 'framer-motion'
+import { ArrowRight, LoaderCircle } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import toast from 'react-hot-toast'
 import axios from 'axios'
-import { Button } from '../components/ui/Button'
-import { Input } from '../components/ui/Input'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/Card'
+import { AuthLayout, FloatInput, Word } from '../components/auth/AuthLayout'
 
 export default function LoginPage() {
   const [username, setUsername] = useState('')
@@ -41,47 +41,60 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md border-border">
-        <CardHeader className="text-center">
-          <CardTitle className="text-3xl font-bold tracking-tight text-foreground">
-            Flow<span className="text-primary">M</span>ind
-          </CardTitle>
-          <div className="mx-auto mt-2 h-0.5 w-10 rounded-full bg-primary" aria-hidden="true" />
-          <CardDescription className="pt-2">登录到智能任务管理系统</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">用户名</label>
-              <Input
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                required
-                autoFocus
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">密码</label>
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </div>
-            <Button type="submit" className="w-full" disabled={loading} loading={loading}>
-              登录
-            </Button>
-          </form>
-          <p className="text-center text-sm text-muted-foreground mt-6">
-            还没有账号？{' '}
-            <Link to="/register" className="text-primary hover:underline">
-              注册
-            </Link>
-          </p>
-        </CardContent>
-      </Card>
-    </div>
+    <AuthLayout
+      headline={
+        <>
+          <Word index={0}>让</Word>
+          <Word index={1}>任务</Word>{' '}
+          <Word index={2} className="text-[#f3702c]">自然</Word>
+          <br />
+          <Word index={3} className="font-serif italic font-medium text-[#f3702c]">flow</Word>
+          <Word index={4}>，</Word>
+          <Word index={5}>思绪</Word>
+          <Word index={6}>不</Word>
+          <Word index={7}>断线</Word>
+          <Word index={8}>。</Word>
+        </>
+      }
+      caption="规划、协作、流转 —— 在一个安静的地方，把每一天的工作编织成清晰的脉络。"
+    >
+      <div className="mb-12">
+        <p className="text-[11px] uppercase tracking-[0.24em] text-[#c1480f]">Welcome back</p>
+        <h2 className="mt-3 text-[2rem] font-semibold leading-tight tracking-tight text-stone-900">
+          登录你的<br />工作台
+        </h2>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-7">
+        <FloatInput label="用户名" value={username} onChange={setUsername} autoFocus />
+        <FloatInput label="密码" type="password" value={password} onChange={setPassword} />
+
+        <motion.button
+          type="submit"
+          disabled={loading}
+          whileTap={{ scale: 0.985 }}
+          className="group relative mt-2 flex w-full items-center justify-between overflow-hidden rounded-full bg-stone-900 py-4 pl-7 pr-2.5 text-[15px] font-medium text-[#f5f2ed] transition-colors duration-300 hover:bg-[#e8490f] disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <span>{loading ? '正在登录…' : '登录'}</span>
+          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#f5f2ed] text-stone-900 transition-transform duration-300 group-hover:translate-x-1">
+            {loading ? (
+              <LoaderCircle size={16} className="animate-spin" />
+            ) : (
+              <ArrowRight size={16} />
+            )}
+          </span>
+        </motion.button>
+      </form>
+
+      <p className="mt-10 text-sm text-stone-500">
+        还没有账号？{' '}
+        <Link
+          to="/register"
+          className="font-medium text-[#c1480f] underline decoration-[#e8490f]/40 underline-offset-4 transition-colors hover:decoration-[#e8490f]"
+        >
+          注册
+        </Link>
+      </p>
+    </AuthLayout>
   )
 }
