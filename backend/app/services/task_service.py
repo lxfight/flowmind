@@ -562,8 +562,14 @@ async def add_comment(
     mentioned_usernames = set(re.findall(r"@([A-Za-z0-9_.-]+)", data.content))
     mentioned_ids: set[int] = set()
     if mentioned_usernames:
+        # Only resolve mentions to members of this project
         result = await db.execute(
-            select(User).where(User.username.in_(mentioned_usernames))
+            select(User)
+            .join(ProjectMember, ProjectMember.user_id == User.id)
+            .where(
+                User.username.in_(mentioned_usernames),
+                ProjectMember.project_id == project_id,
+            )
         )
         for mentioned in result.scalars().all():
             if mentioned.id == user.id:

@@ -34,6 +34,7 @@ import { Select } from '../ui/Select'
 import { Badge } from '../ui/Badge'
 import { Separator } from '../ui/Separator'
 import { AssigneePicker } from './AssigneePicker'
+import { MentionText } from './MentionText'
 import { cn } from '../../utils/cn'
 import type { MemberOption, StatusOption, TaskAttachment, TaskDetail } from '../../types'
 
@@ -84,6 +85,45 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
   const [deletingAttachmentId, setDeletingAttachmentId] = useState<number | null>(null)
   const attachmentInputRef = useRef<HTMLInputElement | null>(null)
   const wsRefreshRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // @mention autocomplete in the comment input
+  const commentInputRef = useRef<HTMLInputElement | null>(null)
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null)
+
+  /** Track the active `@query` fragment right before the caret, if any. */
+  const updateMentionQuery = useCallback((value: string, caret: number) => {
+    const before = value.slice(0, caret)
+    const at = before.lastIndexOf('@')
+    if (at === -1 || (at > 0 && !/\s/.test(before[at - 1]))) {
+      setMentionQuery(null)
+      return
+    }
+    const q = before.slice(at + 1)
+    setMentionQuery(/^[A-Za-z0-9_.-]*$/.test(q) ? q : null)
+  }, [])
+
+  const insertMention = useCallback((username: string) => {
+    setNewComment((prev) => {
+      const caret = commentInputRef.current?.selectionStart ?? prev.length
+      const before = prev.slice(0, caret)
+      const at = before.lastIndexOf('@')
+      return before.slice(0, at) + '@' + username + ' ' + prev.slice(caret)
+    })
+    setMentionQuery(null)
+    commentInputRef.current?.focus()
+  }, [])
+
+  const mentionCandidates =
+    mentionQuery !== null
+      ? members
+          .filter((m) =>
+            mentionQuery === ''
+              ? true
+              : m.username.toLowerCase().includes(mentionQuery.toLowerCase()) ||
+                m.display_name.toLowerCase().includes(mentionQuery.toLowerCase())
+          )
+          .slice(0, 6)
+      : []
 
   // Edit mode state
   const [isEditing, setIsEditing] = useState(false)
@@ -231,6 +271,7 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
     try {
       await api.post(`/projects/${projectId}/tasks/${taskId}/comments`, { content: newComment.trim() })
       setNewComment('')
+      setMentionQuery(null)
       await refreshTask()
     } catch {
       toast.error('发送评论失败')
@@ -800,7 +841,9 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
                         </div>
                       </div>
                     ) : (
-                      <p className="text-sm text-foreground whitespace-pre-wrap">{c.content}</p>
+                      <p className="text-sm text-foreground whitespace-pre-wrap">
+                        <MentionText content={c.content} members={members} />
+                      </p>
                     )}
                   </div>
                 )
@@ -808,13 +851,54 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
             )}
           </div>
           {!isViewer && (
-            <div className="flex gap-2">
+            <div className="relative flex gap-2">
+              {mentionCandidates.length > 0 && (
+                <div
+                  role="listbox"
+                  aria-label="提及成员"
+                  className="absolute bottom-full left-0 z-10 mb-1 w-56 overflow-hidden rounded-lg border border-border bg-popover shadow-md"
+                >
+                  {mentionCandidates.map((m) => (
+                    <button
+                      key={m.user_id}
+                      type="button"
+                      role="option"
+                      aria-selected={false}
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        insertMention(m.username)
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
+                    >
+                      <span className="font-medium text-foreground">{m.display_name}</span>
+                      <span className="truncate text-xs text-muted-foreground">@{m.username}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
               <Input
+                ref={commentInputRef}
                 value={newComment}
-                onChange={(e) => setNewComment(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleAddComment()}
+                onChange={(e) => {
+                  setNewComment(e.target.value)
+                  updateMentionQuery(e.target.value, e.target.selectionStart ?? e.target.value.length)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setMentionQuery(null)
+                    return
+                  }
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    if (mentionCandidates.length > 0) {
+                      e.preventDefault()
+                      insertMention(mentionCandidates[0].username)
+                    } else {
+                      handleAddComment()
+                    }
+                  }
+                }}
                 disabled={addingComment}
-                placeholder="输入评论..."
+                placeholder="输入评论，@ 可提及成员..."
                 className="text-sm flex-1 min-w-0"
               />
               <Button
