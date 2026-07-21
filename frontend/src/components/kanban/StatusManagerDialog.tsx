@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   Dialog,
   DialogDescription,
@@ -9,7 +9,6 @@ import {
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
 import { Switch } from '../ui/Switch'
-import { Badge } from '../ui/Badge'
 import api from '../../utils/api'
 import toast from 'react-hot-toast'
 import { cn } from '../../utils/cn'
@@ -42,29 +41,26 @@ export function StatusManagerDialog({ projectId, onClose, onUpdated }: Props) {
   const [newName, setNewName] = useState('')
   const [newColor, setNewColor] = useState(PRESET_COLORS[0])
 
-  const loadStatuses = async () => {
+  const loadStatuses = useCallback(async () => {
     setLoading(true)
     try {
       const res = await api.get(`/projects/${projectId}/statuses`)
       const data = res.data as TaskStatus[]
       setStatuses(data)
-      setEditingEntries(data)
+      const map: Record<number, string> = {}
+      data.forEach((s) => (map[s.id] = s.name))
+      setEditingNames(map)
     } catch (err: any) {
       toast.error(err.response?.data?.detail || '加载状态列失败')
     } finally {
       setLoading(false)
     }
-  }
-
-  const setEditingEntries = (data: TaskStatus[]) => {
-    const map: Record<number, string> = {}
-    data.forEach((s) => (map[s.id] = s.name))
-    setEditingNames(map)
-  }
+  }, [projectId])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount: async loader updates state after await
     loadStatuses()
-  }, [projectId])
+  }, [loadStatuses])
 
   const handleUpdate = async (status: TaskStatus, updates: Partial<TaskStatus>) => {
     setSavingId(status.id)

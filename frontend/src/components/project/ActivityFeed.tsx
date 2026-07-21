@@ -40,6 +40,7 @@ export function ActivityFeed({ projectId }: Props) {
   const [showMore, setShowMore] = useState(false)
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount: loading flag before async fetch
     setLoading(true)
     setError(null)
     api.get(`/projects/${projectId}/activities`, { params: { page: 1, page_size: showMore ? 50 : 15 } })
@@ -87,6 +88,7 @@ export function ActivityFeed({ projectId }: Props) {
   }
 
   const getRelativeTime = (dateStr: string) => {
+    // eslint-disable-next-line react-hooks/purity -- relative timestamps are computed against render time
     const ms = Date.now() - new Date(dateStr).getTime()
     const mins = Math.floor(ms / 60000)
     if (mins < 1) return '刚刚'

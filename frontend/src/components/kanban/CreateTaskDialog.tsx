@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Sparkles, Loader2, CheckSquare, Square, Plus } from 'lucide-react'
+import { Sparkles, CheckSquare, Square, Plus } from 'lucide-react'
 import api from '../../utils/api'
 import toast from 'react-hot-toast'
 import {

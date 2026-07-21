@@ -29,6 +29,7 @@ export default function ProjectPage() {
   }, [projectId, setCurrentProject])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount: async loader updates state after await
     loadProject()
     return () => setCurrentProject(null)
   }, [loadProject, setCurrentProject])

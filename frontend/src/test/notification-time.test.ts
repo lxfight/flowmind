@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatNotificationTime } from '../components/layout/NotificationBell'
+import { formatNotificationTime } from '../components/layout/notificationDisplay'
 
 describe('formatNotificationTime', () => {
   it('returns 刚刚 for under a minute', () => {

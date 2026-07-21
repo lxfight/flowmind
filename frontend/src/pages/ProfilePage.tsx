@@ -28,10 +28,11 @@ export default function ProfilePage() {
 
   useEffect(() => {
     if (!user) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing form fields when the user object changes
     setDisplayName(user.display_name || '')
     setEmail(user.email || '')
     setAvatarUrl(user.avatar_url || '')
-  }, [user?.id, user?.display_name, user?.email, user?.avatar_url])
+  }, [user])
 
   const handleSaveProfile = async () => {
     if (!displayName.trim()) return

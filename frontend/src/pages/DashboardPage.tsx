@@ -11,7 +11,6 @@ import { EmptyState } from '../components/ui/EmptyState'
 import api from '../utils/api'
 import { useAuthStore } from '../stores/authStore'
 import toast from 'react-hot-toast'
-import { cn } from '../utils/cn'
 
 interface ProjectStat {
   project_id: number
@@ -32,6 +31,7 @@ export default function DashboardPage() {
   const navigate = useNavigate()
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount: loading flag before async fetch
     setStatsLoading(true)
     api.get('/projects/stats')
       .then((statsRes) => {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   Dialog,
   DialogDescription,
@@ -58,7 +58,7 @@ export function KnowledgeDocDialog({ projectId, docId, canEdit, onClose, onUpdat
   const [chunksLoading, setChunksLoading] = useState(false)
   const CHUNKS_PAGE_SIZE = 20
 
-  const loadDoc = async () => {
+  const loadDoc = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
@@ -72,11 +72,12 @@ export function KnowledgeDocDialog({ projectId, docId, canEdit, onClose, onUpdat
     } finally {
       setLoading(false)
     }
-  }
+  }, [projectId, docId])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount: async loader updates state after await
     loadDoc()
-  }, [projectId, docId])
+  }, [loadDoc])
 
   // Poll while the doc is still being parsed/indexed.
   useEffect(() => {
@@ -85,7 +86,7 @@ export function KnowledgeDocDialog({ projectId, docId, canEdit, onClose, onUpdat
       loadDoc()
     }, 3000)
     return () => clearInterval(timer)
-  }, [doc?.status, projectId, docId])
+  }, [doc, loadDoc])
 
   const loadChunks = async (page = 1) => {
     setChunksLoading(true)

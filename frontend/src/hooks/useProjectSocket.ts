@@ -22,7 +22,9 @@ export function useProjectSocket(
 ) {
   const token = useAuthStore((s) => s.token)
   const handlerRef = useRef(onEvent)
-  handlerRef.current = onEvent
+  useEffect(() => {
+    handlerRef.current = onEvent
+  }, [onEvent])
 
   useEffect(() => {
     if (!projectId || !token) return

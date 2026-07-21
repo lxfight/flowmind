@@ -67,7 +67,6 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [members, setMembers] = useState<MemberOption[]>([])
-  const [membersError, setMembersError] = useState(false)
   const [updatingAssignee, setUpdatingAssignee] = useState(false)
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('')
   const [addingSubtask, setAddingSubtask] = useState(false)
@@ -162,7 +161,7 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
     } finally {
       setLoading(false)
     }
-  }, [refreshTask])
+  }, [refreshTask, resetEditFields])
 
   const loadAttachments = useCallback(async () => {
     try {
@@ -230,18 +229,17 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
   }
 
   const loadMembers = useCallback(async () => {
-    setMembersError(false)
     try {
       const res = await api.get(`/projects/${projectId}/members`)
       setMembers(res.data)
     } catch {
       setMembers([])
-      setMembersError(true)
       toast.error('成员列表加载失败，任务详情仍可查看')
     }
   }, [projectId])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount: async loaders update state after await
     loadTaskDetail()
     loadMembers()
     loadAttachments()

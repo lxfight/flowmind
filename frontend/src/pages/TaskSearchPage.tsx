@@ -112,6 +112,7 @@ export default function TaskSearchPage() {
 
   // Load status columns for the selected project
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting filters when the selected project changes
     setStatusId('')
     setStatuses([])
     if (!projectId) return
@@ -157,6 +158,7 @@ export default function TaskSearchPage() {
   )
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount: async search updates state after await
     runSearch(0, false)
   }, [runSearch])
 

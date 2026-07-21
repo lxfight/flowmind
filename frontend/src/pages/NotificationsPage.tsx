@@ -16,7 +16,7 @@ import {
   NOTIFICATION_TYPE_ICONS,
   NOTIFICATION_TYPE_COLORS,
   formatNotificationTime,
-} from '../components/layout/NotificationBell'
+} from '../components/layout/notificationDisplay'
 
 type Filter = 'all' | 'unread' | 'read'
 
@@ -55,6 +55,7 @@ export default function NotificationsPage() {
   }, [setUnreadCount])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount: async loader updates state after await
     load(1, false)
   }, [load])
 

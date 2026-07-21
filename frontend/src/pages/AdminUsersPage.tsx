@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
-import { Users, Check, X, RefreshCw, Shield, Key } from 'lucide-react'
+import { Users, Check, X, RefreshCw, Key } from 'lucide-react'
 import api from '../utils/api'
 import toast from 'react-hot-toast'
 import { PageHeader } from '../components/layout/PageHeader'
@@ -25,25 +25,18 @@ interface UserInfo {
   created_at: string
 }
 
+const PAGE_SIZE = 20
+
 export default function AdminUsersPage() {
   const currentUser = useAuthStore((s) => s.user)
   const navigate = useNavigate()
   const [users, setUsers] = useState<UserInfo[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
-  const PAGE_SIZE = 20
   const [loading, setLoading] = useState(true)
   const [actionId, setActionId] = useState<number | null>(null)
 
-  useEffect(() => {
-    if (currentUser && !currentUser.is_superuser) {
-      navigate('/')
-      return
-    }
-    loadUsers(1)
-  }, [currentUser])
-
-  const loadUsers = async (p = page) => {
+  const loadUsers = useCallback(async (p = 1) => {
     setLoading(true)
     try {
       const res = await api.get('/admin/users', { params: { page: p, page_size: PAGE_SIZE } })
@@ -54,14 +47,23 @@ export default function AdminUsersPage() {
       toast.error('加载用户列表失败')
     }
     setLoading(false)
-  }
+  }, [])
+
+  useEffect(() => {
+    if (currentUser && !currentUser.is_superuser) {
+      navigate('/')
+      return
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount: async loader updates state after await
+    loadUsers(1)
+  }, [currentUser, loadUsers, navigate])
 
   const handleApprove = async (userId: number, canCreate: boolean) => {
     setActionId(userId)
     try {
       await api.post(`/admin/users/${userId}/approve?can_create_project=${canCreate}`)
       toast.success('用户已审批通过')
-      loadUsers()
+      loadUsers(page)
     } catch {
       toast.error('审批失败')
     }
@@ -74,7 +76,7 @@ export default function AdminUsersPage() {
     try {
       await api.post(`/admin/users/${userId}/reject`)
       toast.success('用户已禁用')
-      loadUsers()
+      loadUsers(page)
     } catch {
       toast.error('操作失败')
     }
@@ -86,7 +88,7 @@ export default function AdminUsersPage() {
     try {
       await api.post(`/admin/users/${userId}/activate`)
       toast.success('用户已启用')
-      loadUsers()
+      loadUsers(page)
     } catch {
       toast.error('操作失败')
     }
@@ -98,7 +100,7 @@ export default function AdminUsersPage() {
     try {
       await api.put(`/admin/users/${userId}?can_create_project=${!enabled}`)
       toast.success('权限已更新')
-      loadUsers()
+      loadUsers(page)
     } catch {
       toast.error('更新失败')
     }

@@ -116,6 +116,7 @@ export default function KanbanBoard() {
 
   useEffect(() => {
     if (!projectId) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting filters on project switch, before async fetch
     setSearchQuery('')
     setAssigneeFilter(null)
     loadBoard()

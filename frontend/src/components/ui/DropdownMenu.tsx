@@ -2,8 +2,6 @@ import {
   useState,
   useRef,
   useEffect,
-  createContext,
-  useContext,
   isValidElement,
   cloneElement,
   type ReactNode,
@@ -12,21 +10,12 @@ import {
   type ReactElement,
 } from 'react'
 import { cn } from '../../utils/cn'
+import { DropdownMenuContext, useDropdownMenu } from './dropdownMenuContext'
 
 export interface DropdownMenuProps {
   trigger: ReactNode
   children: ReactNode
   align?: 'start' | 'end'
-}
-
-interface DropdownMenuContextValue {
-  close: () => void
-}
-
-const DropdownMenuContext = createContext<DropdownMenuContextValue | null>(null)
-
-export function useDropdownMenu() {
-  return useContext(DropdownMenuContext)
 }
 
 export function DropdownMenu({ trigger, children, align = 'start' }: DropdownMenuProps) {
@@ -115,6 +104,7 @@ export function DropdownMenu({ trigger, children, align = 'start' }: DropdownMen
     const originalOnKeyDown = typedTrigger.props.onKeyDown as
       | ((e: React.KeyboardEvent<HTMLElement>) => void)
       | undefined
+    // eslint-disable-next-line react-hooks/refs -- attaching a callback ref to the trigger; it runs on attach, not during render
     triggerNode = cloneElement(typedTrigger, {
       'aria-haspopup': 'menu',
       'aria-expanded': open,

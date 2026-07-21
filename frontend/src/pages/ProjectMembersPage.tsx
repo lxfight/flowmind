@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
 import { Search, UserPlus, X, Trash2, Users } from 'lucide-react'
 import api from '../utils/api'
@@ -34,18 +34,20 @@ export default function ProjectMembersPage() {
   const [adding, setAdding] = useState(false)
   const [updatingUserId, setUpdatingUserId] = useState<number | null>(null)
 
-  const loadMembers = async () => {
+  const loadMembers = useCallback(async () => {
     if (!projectId) return
     const res = await api.get(`/projects/${projectId}/members`)
     setMembers(res.data)
-  }
-
-  useEffect(() => {
-    loadMembers()
   }, [projectId])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount: async loader updates state after await
+    loadMembers()
+  }, [loadMembers])
+
+  useEffect(() => {
     if (!searchQuery.trim()) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clearing stale search results when the query is emptied
       setSearchResults([])
       return
     }

@@ -58,11 +58,14 @@ export function LLMChatPanel({ projectId, open, onClose, onActions }: Props) {
   const [visible, setVisible] = useState(open)
   const [entered, setEntered] = useState(open)
   const rectRef = useRef(rect)
-  rectRef.current = rect
+  useEffect(() => {
+    rectRef.current = rect
+  }, [rect])
 
   // Keep mounted during the exit transition so the scale/fade-out is visible
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- keep panel mounted for the enter/exit transition
       setVisible(true)
       const raf = requestAnimationFrame(() => requestAnimationFrame(() => setEntered(true)))
       return () => cancelAnimationFrame(raf)

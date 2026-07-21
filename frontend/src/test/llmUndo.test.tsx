@@ -54,7 +54,7 @@ describe('LLMChatMessage undo batch', () => {
   })
 
   it('renders no undo affordance without a batch id', () => {
-    const { action_batch_id, ...rest } = undoableMessage
+    const { action_batch_id: _batchId, ...rest } = undoableMessage
     render(<LLMChatMessage message={rest} onUndoBatch={vi.fn()} />)
     expect(screen.queryByRole('button', { name: /撤销本轮操作/ })).not.toBeInTheDocument()
   })

@@ -21,6 +21,7 @@ export function Avatar({ name, src, size = 'md', className }: AvatarProps) {
 
   // Reset error state when the image URL changes (e.g. after re-upload)
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting error state when the image src changes
     setImageError(false)
   }, [src])
 

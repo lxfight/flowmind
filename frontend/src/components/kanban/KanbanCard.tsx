@@ -49,6 +49,7 @@ export function KanbanCard({ task, members, isDragOverlay, readOnly = false, onC
     !!task.due_date &&
     !task.is_completed &&
     !isOverdue &&
+    // eslint-disable-next-line react-hooks/purity -- Date.now() is intentional: due-soon badge is relative to render time
     new Date(task.due_date).getTime() - Date.now() <= 24 * 60 * 60 * 1000
 
   const subtaskProgress =

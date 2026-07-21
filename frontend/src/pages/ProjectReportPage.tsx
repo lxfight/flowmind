@@ -56,6 +56,7 @@ export default function ProjectReportPage() {
 
   useEffect(() => {
     if (!projectId) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrating from localStorage cache on mount
     setHistory(loadHistory(projectId))
     const cached = loadCache(projectId)
     if (cached) {

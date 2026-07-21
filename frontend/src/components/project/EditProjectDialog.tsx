@@ -31,6 +31,7 @@ export function EditProjectDialog({ project, onClose, onUpdated }: Props) {
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing form fields when the edited project prop changes
     setName(project.name)
     setDescription(project.description || '')
     setColor(project.color)

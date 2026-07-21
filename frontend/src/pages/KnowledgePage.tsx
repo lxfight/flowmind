@@ -70,6 +70,7 @@ export default function KnowledgePage() {
   }, [projectId, docsPage])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount: async loader updates state after await
     loadDocs()
   }, [loadDocs])
 
