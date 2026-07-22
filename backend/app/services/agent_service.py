@@ -102,6 +102,28 @@ def _record_pending_question(config: RunnableConfig, question: dict) -> None:
         pending.update(question)
 
 
+def _normalize_key(text: str) -> str:
+    """Collapse whitespace/case so '整理迭代计划' and ' 整理迭代计划 ' dedupe."""
+    return " ".join((text or "").split()).lower()
+
+
+def _created_keys(config: RunnableConfig) -> set:
+    """Per-run set of idempotency keys for create-type writes.
+
+    ``_build_agent_run`` seeds ``config['configurable']['created_keys']`` with
+    a fresh set every run, so the guard is scoped to that run and never blocks
+    a deliberate re-create in a later message or session. The tool must mutate
+    the seeded set in place: the tool wrapper snapshots ``configurable``, so a
+    lazy ``cfg['created_keys'] = ...`` rebind would be lost between calls.
+    """
+    cfg = config.get("configurable", {})
+    keys = cfg.get("created_keys")
+    if keys is None:  # direct unit invocation without _build_agent_run
+        keys = set()
+        cfg["created_keys"] = keys
+    return keys
+
+
 def _format_result(ok: bool, message: str = "", action: dict | None = None) -> str:
     import json
     payload = {"ok": ok, "message": message or ("操作成功。" if ok else "操作失败。")}
@@ -268,6 +290,19 @@ async def create_task(
         if err == "ASK":
             return "目标项目不明确，已向用户提问要在哪个项目中创建，请立即结束本轮回复。"
         return _format_result(False, message=err)
+
+    # Idempotency: the model occasionally fires two identical create_task calls
+    # in one turn (same title), which used to insert duplicate tasks. Within a
+    # single run, a repeated (project, title) reuses the already-created task.
+    keys = _created_keys(config)
+    idem_key = ("create_task", target, _normalize_key(title))
+    if idem_key in keys:
+        label = f"{_proj_label(names, target)}" if ctx_pid is None else ""
+        return _format_result(
+            True,
+            message=f"任务「{title.strip()}」本轮已在{label}创建，未重复创建。",
+        )
+    keys.add(idem_key)
     try:
         data = TaskCreate(title=title, description=description, status_id=status_id, priority=priority)
         if assignee_ids:
@@ -419,6 +454,18 @@ async def create_status(name: str, color: str = "#6b7280", is_done: bool = False
         if err == "ASK":
             return "目标项目不明确，已向用户提问要在哪个项目中创建，请立即结束本轮回复。"
         return _format_result(False, message=err)
+
+    # Same idempotency guard as create_task: avoid duplicate status columns
+    # when the model repeats an identical create_status call within one run.
+    keys = _created_keys(config)
+    idem_key = ("create_status", target, _normalize_key(name))
+    if idem_key in keys:
+        label = f"{_proj_label(names, target)}" if ctx_pid is None else ""
+        return _format_result(
+            True,
+            message=f"状态列「{name.strip()}」本轮已在{label}创建，未重复创建。",
+        )
+    keys.add(idem_key)
     try:
         s = await task_service.create_status(
             target, TaskStatusCreate(name=name, color=color, is_done=is_done), user, db
@@ -734,6 +781,8 @@ _SHARED_RULES = (
     "- 随后必须向用户说明将删除的状态列及其影响并获得明确同意（可直接在回复中询问），"
     "用户同意后再以 confirmed=true 调用 delete_status 完成删除。\n\n"
     "工作方式：先调用查询工具确认事实，再执行操作。"
+    "创建任务/状态列时，每个条目只调用一次 create_task / create_status；"
+    "同一标题不要在同一轮重复创建，系统会自动去重。\n"
     "用中文回答，保持专业友好。"
 )
 
@@ -891,6 +940,8 @@ async def _build_agent_run(db, user: User, project_id: int | None, user_message:
             "project_names": project_names,
             "actions": actions,
             "pending_question": pending_question,
+            # Seeded per run so create_task/create_status dedupe repeated calls.
+            "created_keys": set(),
         }
     }
 
