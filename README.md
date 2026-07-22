@@ -1,140 +1,223 @@
-# FlowMind
+<div align="center">
 
-LLM 智能任务管理系统 — 基于看板的现代化项目管理工具，集成 AI 辅助任务生成与知识库管理。
+# 🧠 FlowMind
 
-## 功能特性
+**LLM 驱动的智能项目管理平台**
 
-- **看板管理** — 拖拽式任务卡片，自定义列状态，子任务拆分，优先级标记
-- **AI 辅助** — 自然语言描述自动生成任务，RAG 知识库问答，项目报告自动生成
-- **知识库** — 上传文档（PDF/DOCX/PPTX/HTML/图片/Markdown），自动解析索引，支持语义检索
-- **权限系统** — 超级管理员、注册审批、项目创建权限、项目角色（owner/admin/member/viewer）分层控制
-- **团队协作** — 项目成员管理，任务指派，活动日志时间线
-- **数据看板** — 项目统计、进度条、逾期提醒
-- **暗色模式** — 支持亮色/暗色主题切换
-- **安全防护** — JWT 鉴权、bcrypt 密码加密、登录防暴力破解
+看板协作 · RAG 知识库 · AI 助手 —— 让 AI 真正读懂你的项目
 
-## 快速开始
+[![CI](https://github.com/lxfight/flowmind/actions/workflows/ci.yml/badge.svg)](https://github.com/lxfight/flowmind/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.12+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![React](https://img.shields.io/badge/react-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![pgvector](https://img.shields.io/badge/pgvector-PostgreSQL-4169E1?logo=postgresql&logoColor=white)](https://github.com/pgvector/pgvector)
 
-### 使用 Docker Compose（推荐）
+</div>
+
+---
+
+## ✨ 功能特性
+
+<table>
+<tr>
+<td width="50%">
+
+### 📋 智能看板
+- 拖拽式任务卡片，自定义状态列
+- 子任务拆分、优先级、截止日期
+- **列内筛选与排序**（关键词 / 负责人 / 优先级 / 时间）
+- 评论 @ 提及，实时通知
+
+### 🤖 AI 助手
+- 自然语言创建、调整看板任务
+- **SSE 流式对话**，工具调用过程实时可见
+- 对话中 `@` 项目成员并触发通知
+- 会话按 **用户 × 项目** 严格隔离
+
+</td>
+<td width="50%">
+
+### 📚 RAG 知识库
+- 上传 PDF / DOCX / PPTX / Markdown 等，自动解析索引
+- **混合检索**：向量语义 + 关键词 RRF 融合
+- 相似度阈值过滤，无命中不编造
+- AI 可**通读完整文档**，据此拆解详细任务
+
+### 🌐 跨项目协作
+- 「我的项目」页**跨项目助手**：一次提问，检索全部参与的项目
+- 检索结果标注来源项目，写操作自动追问目标
+- 项目成员候选列表，一键添加
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+### ⚙️ 超管配置中心
+- 在线调整 LLM / Embedding 配置，**免重启即时生效**
+- LLM 与 Embedding 可配置**独立的 URL 和 Key**
+- 一键**连通性测试**，API 异常快速排障
+- 密钥脱敏展示，来源可追溯（环境变量 / 运行时覆盖）
+
+</td>
+<td width="50%">
+
+### 🔐 权限与安全
+- 超级管理员 + 注册审批 + 项目角色分层
+- JWT 鉴权、bcrypt 加密、登录防暴力破解
+- 越权访问返回 404，不泄露资源存在性
+- 亮色 / 暗色主题切换
+
+</td>
+</tr>
+</table>
+
+---
+
+## 🏗️ 架构一览
+
+```mermaid
+graph LR
+    subgraph 前端
+        UI[React 19 + Vite<br/>Tailwind + Zustand]
+    end
+    subgraph 后端
+        API[FastAPI]
+        AGENT[LangGraph Agent<br/>工具调用 · SSE 流式]
+        RAG[RAG 混合检索<br/>向量 + 关键词 RRF]
+    end
+    subgraph 数据
+        PG[(PostgreSQL<br/>+ pgvector)]
+    end
+    subgraph 外部服务
+        LLM[LLM API<br/>OpenAI 兼容]
+        EMB[Embedding API<br/>可独立配置]
+    end
+    UI <-->|REST / SSE| API
+    API --> AGENT
+    API --> RAG
+    AGENT --> LLM
+    RAG --> EMB
+    AGENT --> PG
+    RAG --> PG
+```
+
+---
+
+## 🚀 快速开始
+
+### Docker Compose（推荐）
 
 ```bash
 # 1. 克隆仓库
 git clone https://github.com/lxfight/flowmind.git
 cd flowmind
 
-# 2. （可选）编辑环境变量
-# cp .env.example .env
-# 编辑 .env 设置 LLM_API_KEY 等
+# 2.（可选）配置环境变量
+cp .env.example .env   # 编辑 LLM_API_KEY 等
 
-# 3. 启动所有服务
+# 3. 启动全部服务
 docker compose up -d
 
-# 4. 查看启动日志（获取管理员密码）
+# 4. 查看日志获取初始管理员密码
 docker compose logs backend
-
-# 访问 http://localhost
 ```
 
-首次启动会自动创建默认管理员账号，密码打印在启动日志中。
+访问 **http://localhost** 即可使用。首次启动自动创建管理员账号并完成数据库迁移。
+
+> 💡 没有 LLM Key 也能跑：知识库自动降级为关键词检索，其余功能不受影响。登录后可在 **系统配置** 页在线配置 Key 并测试连通性。
 
 ### 本地开发
 
-#### 数据库
+<details>
+<summary><b>后端</b>（Python 3.12+，推荐 uv）</summary>
 
 ```bash
-# 启动 PostgreSQL + pgvector
-docker compose up -d postgres
-```
-
-#### 后端
-
-```bash
+docker compose up -d postgres   # PostgreSQL + pgvector
 cd backend
-# 安装依赖（推荐使用 uv）
-uv sync
-source .venv/bin/activate
-# 启动开发服务器
+uv sync && source .venv/bin/activate
 uvicorn app.main:app --reload --port 8000
 ```
+</details>
 
-#### 前端
+<details>
+<summary><b>前端</b>（Node 20+）</summary>
 
 ```bash
 cd frontend
 npm install
-npm run dev
-# 访问 http://localhost:5173
+npm run dev   # http://localhost:5173
 ```
+</details>
 
-#### 使用 SQLite 开发（无 Docker）
-
-修改 `.env` 使用 SQLite 连接：
+<details>
+<summary><b>无 Docker 的 SQLite 模式</b></summary>
 
 ```env
-# DATABASE_URL=postgresql+asyncpg://flowmind:flowmind_secret@localhost:5432/flowmind
+# .env 中修改
 DATABASE_URL=sqlite+aiosqlite:///./flowmind.db
 ```
 
-SQLite 模式下，RAG 知识库的向量搜索会降级为随机检索，不影响其他功能。
+SQLite 模式下向量检索降级为关键词检索，其余功能不受影响。
+</details>
 
-## 环境变量
+---
+
+## 🔧 环境变量
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `DATABASE_URL` | 数据库连接 | `postgresql+asyncpg://flowmind:flowmind_secret@localhost:5432/flowmind` |
-| `JWT_SECRET` | JWT 签名密钥 | 自动生成（生产环境请务必设置） |
-| `JWT_ALGORITHM` | JWT 算法 | HS256 |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | Token 过期时间 | 1440 (24h) |
-| `FLOWMIND_ADMIN_PASSWORD` | 默认管理员密码 | 随机生成 |
-| `LLM_API_KEY` | LLM API 密钥 | - |
-| `LLM_BASE_URL` | LLM API 地址 | - |
-| `LLM_MODEL` | LLM 模型 | gpt-4o-mini |
-| `LLM_EMBEDDING_MODEL` | 向量嵌入模型 | text-embedding-3-small |
-| `KNOWLEDGE_MAX_BYTES` | 知识库单文件大小上限（字节） | 26214400 |
-| `RATE_LIMIT_LOGIN_MAX` | 登录最大尝试次数 | 5 |
-| `RATE_LIMIT_WINDOW` | 速率限制窗口(秒) | 60 |
-| `DEBUG` | 调试模式 | false |
+| `DATABASE_URL` | 数据库连接串 | `postgresql+asyncpg://flowmind:flowmind_secret@localhost:5432/flowmind` |
+| `JWT_SECRET` | JWT 签名密钥（生产必设） | 自动生成 |
+| `FLOWMIND_ADMIN_PASSWORD` | 初始管理员密码 | 随机生成（见启动日志） |
+| `LLM_API_KEY` | LLM 对话 API 密钥 | — |
+| `LLM_BASE_URL` | LLM API 地址（OpenAI 兼容） | — |
+| `LLM_MODEL` | 对话模型 | `gpt-4o-mini` |
+| `EMBEDDING_API_KEY` | Embedding 独立密钥（留空回退 LLM Key） | — |
+| `EMBEDDING_BASE_URL` | Embedding 独立地址（留空回退 LLM URL） | — |
+| `LLM_EMBEDDING_MODEL` | 向量模型 | `text-embedding-3-small` |
+| `LLM_EMBEDDING_DIM` | 向量维度（需与模型输出一致） | `1536` |
+| `KNOWLEDGE_MAX_BYTES` | 知识库单文件上限 | `26214400` (25MB) |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | Token 有效期 | `1440` |
 
-## 技术栈
+> 以上 LLM / Embedding / 检索参数均可在超管的 **系统配置** 页在线修改，运行时覆盖、即时生效。
 
-### 后端
-- Python 3.12+ / FastAPI
-- SQLAlchemy (async) / PostgreSQL + pgvector
-- JWT (python-jose) / bcrypt
-- OpenAI 兼容 API
+---
 
-### 前端
-- React 19 / TypeScript 5.5
-- Vite 6 / TailwindCSS 3.4
-- @dnd-kit（看板拖拽）
-- Zustand 5 / framer-motion
-- react-markdown / lucide-react
+## 🧰 技术栈
 
-## 项目结构
+| 层 | 技术 |
+|----|------|
+| **前端** | React 19 · TypeScript · Vite 6 · TailwindCSS · Zustand · @dnd-kit · framer-motion |
+| **后端** | FastAPI · SQLAlchemy (async) · Alembic · LangGraph · OpenAI SDK |
+| **数据** | PostgreSQL 17 + pgvector（SQLite 可降级开发） |
+| **检索** | 向量余弦相似度 + CJK bigram 关键词打分，RRF (k=60) 融合 |
+| **工程** | ruff · pytest (160+) · Vitest · GitHub Actions CI |
+
+## 📁 项目结构
 
 ```
 FlowMind/
-├── docker-compose.yml         # 全服务编排
-├── .env.example               # 环境变量模板
+├── docker-compose.yml          # 全服务编排
 ├── backend/
-│   ├── Dockerfile
 │   └── app/
-│       ├── api/               # API 路由
-│       ├── core/              # 配置 / 数据库 / 安全
-│       ├── models/            # SQLAlchemy 模型
-│       ├── schemas/           # Pydantic 模型
-│       └── services/          # LLM / RAG 服务
+│       ├── api/                # REST / SSE 路由
+│       ├── core/               # 配置 / 数据库 / 安全
+│       ├── models/             # SQLAlchemy 模型
+│       └── services/           # Agent / RAG / 运行时配置
 ├── frontend/
-│   ├── Dockerfile
-│   ├── nginx.conf
 │   └── src/
-│       ├── components/        # UI 组件
-│       ├── pages/             # 页面
-│       ├── stores/            # Zustand 状态管理
-│       └── utils/             # 工具函数
-└── docs/                      # 内部文档（不纳入版本控制）
+│       ├── components/         # 看板 / 知识库 / LLM 聊天组件
+│       ├── pages/              # 页面
+│       └── stores/             # Zustand 状态
+└── docs/plans/                 # 设计方案文档
 ```
 
-## License
+---
 
-MIT
+<div align="center">
+
+**[MIT License](LICENSE)** · Made with ❤️ by [lxfight](https://github.com/lxfight)
+
+</div>
