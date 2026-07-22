@@ -162,6 +162,21 @@ export interface ChatSession {
   updated_at: string
 }
 
+/** One step of the agent's live process: a tool call or a thinking fragment. */
+export interface ProcessStep {
+  kind: 'tool' | 'thinking'
+  /** run_id pairing a tool_start with its tool_end */
+  id?: string
+  /** Tool name (kind = 'tool') */
+  tool?: string
+  args?: Record<string, unknown>
+  /** Tool return summary, filled once the tool finishes */
+  output?: string
+  status?: 'running' | 'done'
+  /** Accumulated thinking text (kind = 'thinking') */
+  text?: string
+}
+
 export interface ToolCall {
   id?: string
   tool: string
@@ -215,6 +230,8 @@ export interface ChatMessage {
   loading?: boolean
   /** True while the assistant message is streaming token-by-token */
   streaming?: boolean
+  /** Live agent process steps (tool calls / thinking), kept after streaming ends */
+  steps?: ProcessStep[]
   /** Compact status line shown while a tool runs (streaming) */
   toolStatus?: string | null
   /** Streaming was aborted by the user — partial content kept */

@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { ChevronDown, ChevronRight, HelpCircle, Undo2, Wrench } from 'lucide-react'
+import { Brain, ChevronDown, ChevronRight, HelpCircle, Undo2, Wrench } from 'lucide-react'
 import { cn } from '../../utils/cn'
 import { toolLabel } from '../../stores/llmChatStore'
 import { Button } from '../ui/Button'
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/Dialog'
 import { MentionText } from '../kanban/MentionText'
-import type { ChatMessage, MemberOption } from '../../types'
+import type { ChatMessage, MemberOption, ProcessStep } from '../../types'
 
 interface Props {
   message: ChatMessage
@@ -72,6 +72,62 @@ function ToolStatusMessage({ message }: { message: ChatMessage }) {
       {expanded && first && (
         <div className="mt-1.5 rounded-lg border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground whitespace-pre-wrap break-words max-h-48 overflow-y-auto scrollbar-thin">
           {first.message}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** One collapsible step of the agent's live process (tool call or thinking). */
+function ProcessStepRow({ step }: { step: ProcessStep }) {
+  const [expanded, setExpanded] = useState(false)
+  const running = step.status === 'running'
+  const isThinking = step.kind === 'thinking'
+  const expandable = isThinking ? Boolean(step.text) : Boolean(step.output || (step.args && Object.keys(step.args).length > 0))
+
+  return (
+    <div className="w-full">
+      <button
+        type="button"
+        onClick={() => expandable && setExpanded(!expanded)}
+        disabled={!expandable}
+        className={cn(
+          'flex items-center gap-1.5 text-xs text-muted-foreground transition-colors duration-150',
+          expandable && 'hover:text-foreground',
+          !expandable && 'cursor-default'
+        )}
+      >
+        {expandable ? (
+          expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />
+        ) : (
+          <span className="inline-block w-3" />
+        )}
+        {isThinking ? <Brain className="h-3 w-3" /> : <Wrench className="h-3 w-3" />}
+        <span>{isThinking ? '思考过程' : `调用了 ${toolLabel(step.tool || '')}`}</span>
+        {running && (
+          <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-primary/70" />
+        )}
+      </button>
+      {expanded && (
+        <div className="mt-1.5 max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground scrollbar-thin">
+          {isThinking ? (
+            step.text
+          ) : (
+            <>
+              {step.args && Object.keys(step.args).length > 0 && (
+                <div className="mb-1">
+                  <span className="font-medium text-foreground/70">参数：</span>
+                  {JSON.stringify(step.args, null, 2)}
+                </div>
+              )}
+              {step.output && (
+                <div>
+                  <span className="font-medium text-foreground/70">结果：</span>
+                  {step.output}
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
     </div>
@@ -214,6 +270,14 @@ export function LLMChatMessage({ message, questionActive = false, members, onAns
   // Assistant: full-width plain flow, markdown rendered
   return (
     <div className="w-full text-sm leading-relaxed text-foreground">
+      {message.steps && message.steps.length > 0 && (
+        <div className="mb-2 space-y-1.5" data-testid="process-steps">
+          {message.steps.map((step, idx) => (
+            <ProcessStepRow key={step.id || idx} step={step} />
+          ))}
+        </div>
+      )}
+
       {message.toolStatus && (
         <div className="mb-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
           <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground/60" />

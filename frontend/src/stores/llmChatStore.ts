@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import api, { detailToText } from '../utils/api'
 import { useAuthStore } from './authStore'
-import type { ChatSession, ChatMessage, ActionSummary, UndoResult } from '../types'
+import type { ChatSession, ChatMessage, ActionSummary, UndoResult, ProcessStep } from '../types'
 
 /** Human-friendly labels for agent tool calls (streaming status + history). */
 export const TOOL_LABELS: Record<string, string> = {
@@ -223,6 +223,53 @@ export const useLLMChatStore = create<LLMChatState>((set, get) => ({
       })
     }
 
+    /** Mutate the live steps[] of the streaming assistant message. */
+    const patchSteps = (fn: (steps: ProcessStep[]) => ProcessStep[]) => {
+      set((state) => {
+        const messages = [...state.messages]
+        for (let i = messages.length - 1; i >= 0; i--) {
+          if (messages[i].role === 'assistant') {
+            messages[i] = { ...messages[i], steps: fn(messages[i].steps ?? []) }
+            break
+          }
+        }
+        return { messages }
+      })
+    }
+
+    const pushStep = (step: ProcessStep) => patchSteps((steps) => [...steps, step])
+
+    const appendThinking = (text: string) =>
+      patchSteps((steps) => {
+        const last = steps[steps.length - 1]
+        // Coalesce consecutive thinking chunks into one thinking step.
+        if (last && last.kind === 'thinking') {
+          const next = [...steps]
+          next[next.length - 1] = { ...last, text: (last.text ?? '') + text }
+          return next
+        }
+        return [...steps, { kind: 'thinking', text }]
+      })
+
+    const finishToolStep = (id: string | undefined, name: string, output: string) =>
+      patchSteps((steps) => {
+        // Match by run_id; fall back to the latest running step with this name.
+        let idx = id ? steps.findIndex((s) => s.kind === 'tool' && s.id === id) : -1
+        if (idx === -1) {
+          for (let i = steps.length - 1; i >= 0; i--) {
+            const s = steps[i]
+            if (s.kind === 'tool' && s.status === 'running' && (s.tool === name || !id)) {
+              idx = i
+              break
+            }
+          }
+        }
+        if (idx === -1) return [...steps, { kind: 'tool', tool: name, output, status: 'done' }]
+        const next = [...steps]
+        next[idx] = { ...next[idx], output, status: 'done' }
+        return next
+      })
+
     let finalMessage = ''
     let finalActions: ActionSummary[] = []
     let finalSessionId: number | null = null
@@ -272,9 +319,20 @@ export const useLLMChatStore = create<LLMChatState>((set, get) => ({
             }
             return { messages }
           })
+        } else if (event === 'thinking') {
+          // 思维链/推理片段，作为独立过程步骤流式展示
+          if (data.text) appendThinking(data.text)
         } else if (event === 'tool_start') {
+          pushStep({
+            kind: 'tool',
+            id: data.id || '',
+            tool: data.name || '',
+            args: data.args || {},
+            status: 'running',
+          })
           patchAssistant({ toolStatus: `🔧 正在${toolLabel(data.name || '')}…` })
         } else if (event === 'tool_end') {
+          finishToolStep(data.id, data.name || '', data.output || '')
           patchAssistant({ toolStatus: null })
         } else if (event === 'done') {
           sawDone = true
