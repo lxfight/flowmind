@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 from helpers import admin_login, create_project
-from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 
 
 def parse_sse(body: str) -> list[tuple[str, dict]]:
@@ -136,15 +136,22 @@ async def test_run_agent_stream_yields_status_first():
             yield {
                 "event": "on_tool_start",
                 "name": "search_knowledge",
+                "run_id": "run-1",
                 "data": {"input": {"query": "AI 新闻"}},
             }
-            yield {"event": "on_tool_end", "name": "search_knowledge", "data": {}}
+            yield {
+                "event": "on_tool_end",
+                "name": "search_knowledge",
+                "run_id": "run-1",
+                "data": {"output": "检索到 2 条结果"},
+            }
             yield {
                 "event": "on_chat_model_stream",
                 "data": {"chunk": AIMessageChunk(content="你好")},
             }
             yield {
                 "event": "on_chain_end",
+                "name": "LangGraph",
                 "data": {"output": {"messages": [HumanMessage(content="hi"), AIMessage(content="你好")]}},
             }
 
@@ -164,4 +171,100 @@ async def test_run_agent_stream_yields_status_first():
     assert events[0] == {"type": "status", "stage": "thinking", "message": "正在思考…"}
     kinds = [e["type"] for e in events]
     assert kinds == ["status", "tool_start", "tool_end", "token", "result"]
+
+    tool_start = next(e for e in events if e["type"] == "tool_start")
+    assert tool_start["id"] == "run-1"
+    assert tool_start["name"] == "search_knowledge"
+
+    tool_end = next(e for e in events if e["type"] == "tool_end")
+    assert tool_end["id"] == "run-1"
+    assert tool_end["output"] == "检索到 2 条结果"
+
     assert events[-1]["result"]["message"] == "你好"
+
+
+@pytest.mark.asyncio
+async def test_run_agent_stream_ignores_inner_chain_end():
+    """Internal graph nodes also fire on_chain_end with a partial ``messages``
+    output (dropping tool messages); only the top-level LangGraph output must
+    be used as the final result."""
+    from app.services import agent_service
+
+    full = [
+        HumanMessage(content="hi"),
+        AIMessage(content="", tool_calls=[{"id": "c1", "name": "search_knowledge", "args": {"query": "x"}}]),
+        ToolMessage(content="检索结果", tool_call_id="c1", name="search_knowledge"),
+        AIMessage(content="你好"),
+    ]
+
+    class FakeAgent:
+        async def astream_events(self, input, config=None, version=None):
+            # An inner node end whose messages omit the tool exchange.
+            yield {
+                "event": "on_chain_end",
+                "name": "call_model",
+                "data": {"output": {"messages": [AIMessage(content="partial")]}},
+            }
+            yield {
+                "event": "on_chain_end",
+                "name": "LangGraph",
+                "data": {"output": {"messages": full}},
+            }
+
+    built = (FakeAgent(), [HumanMessage(content="hi")], {}, [], None, "batch-1")
+
+    async def fake_build(*args, **kwargs):
+        return built
+
+    with patch.object(agent_service, "_build_agent_run", side_effect=fake_build):
+        events = [
+            evt
+            async for evt in agent_service.run_agent_stream(
+                db=None, user=None, project_id=1, user_message="hi"
+            )
+        ]
+
+    result = events[-1]["result"]
+    assert result["message"] == "你好"
+    # The full top-level messages (incl. the ToolMessage) are what get persisted.
+    assert result["messages"] is full
+
+
+@pytest.mark.asyncio
+async def test_run_agent_stream_emits_thinking_events():
+    """Reasoning/thinking chunks from the provider stream as thinking events."""
+    from app.services import agent_service
+
+    thinking_chunk = AIMessageChunk(content="")
+    thinking_chunk.additional_kwargs["reasoning_content"] = "先检索知识库…"
+
+    class FakeAgent:
+        async def astream_events(self, input, config=None, version=None):
+            yield {"event": "on_chat_model_stream", "data": {"chunk": thinking_chunk}}
+            yield {
+                "event": "on_chat_model_stream",
+                "data": {"chunk": AIMessageChunk(content="结论")},
+            }
+            yield {
+                "event": "on_chain_end",
+                "name": "LangGraph",
+                "data": {"output": {"messages": [HumanMessage(content="hi"), AIMessage(content="结论")]}},
+            }
+
+    built = (FakeAgent(), [HumanMessage(content="hi")], {}, [], None, "batch-1")
+
+    async def fake_build(*args, **kwargs):
+        return built
+
+    with patch.object(agent_service, "_build_agent_run", side_effect=fake_build):
+        events = [
+            evt
+            async for evt in agent_service.run_agent_stream(
+                db=None, user=None, project_id=1, user_message="hi"
+            )
+        ]
+
+    kinds = [e["type"] for e in events]
+    assert kinds == ["status", "thinking", "token", "result"]
+    thinking = next(e for e in events if e["type"] == "thinking")
+    assert thinking["text"] == "先检索知识库…"

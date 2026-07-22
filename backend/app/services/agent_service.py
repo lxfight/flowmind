@@ -875,6 +875,42 @@ def _content_to_text(content) -> str:
     return ""
 
 
+def _extract_reasoning(chunk) -> str:
+    """Pull any reasoning/thinking text out of a streamed chat chunk.
+
+    Different OpenAI-compatible providers expose chain-of-thought differently:
+    some set ``additional_kwargs.reasoning_content``, others emit content
+    blocks typed ``thinking``/``reasoning``. Returns "" when absent so callers
+    can skip the thinking event for plain providers.
+    """
+    additional = getattr(chunk, "additional_kwargs", None) or {}
+    reasoning = additional.get("reasoning_content") or additional.get("thinking")
+    if isinstance(reasoning, str) and reasoning:
+        return reasoning
+    content = getattr(chunk, "content", "")
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") in ("thinking", "reasoning"):
+                text = block.get("thinking") or block.get("text") or block.get("reasoning")
+                if isinstance(text, str):
+                    parts.append(text)
+        return "".join(parts)
+    return ""
+
+
+_TOOL_OUTPUT_MAX = 500
+
+
+def _tool_output_text(output) -> str:
+    """Compact tool-return text for the client to expand inline (truncated)."""
+    content = getattr(output, "content", output)
+    text = _content_to_text(content).strip()
+    if len(text) > _TOOL_OUTPUT_MAX:
+        text = text[:_TOOL_OUTPUT_MAX] + "…"
+    return text
+
+
 async def get_user_project_scope(db, user: User) -> tuple[list[int], dict[int, str]]:
     """Ids + names of every project the user is a member of.
 
@@ -1037,6 +1073,12 @@ async def run_agent_stream(
             if kind == "on_chat_model_stream":
                 chunk = event.get("data", {}).get("chunk")
                 if chunk is not None:
+                    # Surface the model's reasoning/thinking stream separately
+                    # when the provider exposes it (reasoning_content on the
+                    # chunk, or content blocks of type "thinking"/"reasoning").
+                    reasoning = _extract_reasoning(chunk)
+                    if reasoning:
+                        yield {"type": "thinking", "text": reasoning}
                     text = _content_to_text(getattr(chunk, "content", ""))
                     if text:
                         yield {"type": "token", "text": text}
@@ -1045,12 +1087,24 @@ async def run_agent_stream(
                 args = event.get("data", {}).get("input")
                 yield {
                     "type": "tool_start",
+                    # run_id pairs this start with its tool_end on the client.
+                    "id": event.get("run_id", ""),
                     "name": name,
                     "args": args if isinstance(args, dict) else {},
                 }
             elif kind == "on_tool_end":
-                yield {"type": "tool_end", "name": event.get("name", "")}
+                yield {
+                    "type": "tool_end",
+                    "id": event.get("run_id", ""),
+                    "name": event.get("name", ""),
+                    "output": _tool_output_text(event.get("data", {}).get("output")),
+                }
             elif kind == "on_chain_end":
+                # Every internal node fires on_chain_end and they overwrite each
+                # other; only the top-level LangGraph output carries the full
+                # message list (intermediate nodes drop the tool messages).
+                if event.get("name") != "LangGraph":
+                    continue
                 output = event.get("data", {}).get("output")
                 if isinstance(output, dict) and "messages" in output:
                     final_messages = output["messages"]

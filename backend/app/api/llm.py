@@ -791,13 +791,20 @@ async def agent_chat_stream(
                     })
                 elif etype == "token":
                     yield _sse("token", {"text": evt.get("text", "")})
+                elif etype == "thinking":
+                    yield _sse("thinking", {"text": evt.get("text", "")})
                 elif etype == "tool_start":
                     yield _sse("tool_start", {
+                        "id": evt.get("id", ""),
                         "name": evt.get("name", ""),
                         "args": evt.get("args", {}),
                     })
                 elif etype == "tool_end":
-                    yield _sse("tool_end", {"name": evt.get("name", "")})
+                    yield _sse("tool_end", {
+                        "id": evt.get("id", ""),
+                        "name": evt.get("name", ""),
+                        "output": evt.get("output", ""),
+                    })
                 elif etype == "result":
                     result = evt.get("result") or {}
                     try:
