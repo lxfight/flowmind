@@ -153,7 +153,8 @@ export interface GeneratedTask {
 
 export interface ChatSession {
   id: number
-  project_id: number
+  /** Null for cross-project ("all my projects") assistant sessions */
+  project_id: number | null
   title: string
   /** True while the assistant is waiting for the user to answer a question */
   awaiting_input?: boolean

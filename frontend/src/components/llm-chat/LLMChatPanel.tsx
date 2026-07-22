@@ -26,11 +26,13 @@ function viewportOf(): Viewport {
 }
 
 interface Props {
-  projectId: number
+  /** null = 跨项目助手（我的项目页），聚合用户参与的所有项目 */
+  projectId: number | null
   open: boolean
   onClose: () => void
   onActions?: (actions: ActionSummary[]) => void
-  /** 项目成员，用于输入框 @ 补全与消息 mention 高亮 */
+  /** 项目成员，用于输入框 @ 补全与消息 mention 高亮。
+   *  跨项目模式下不传（成员跨多项目，@ 补全禁用） */
   members?: MemberOption[]
 }
 
@@ -237,6 +239,11 @@ export function LLMChatPanel({ projectId, open, onClose, onActions, members }: P
         style={{ touchAction: 'none' }}
       >
         <span className="truncate text-sm font-semibold text-foreground">FlowMind 助手</span>
+        {projectId === null && (
+          <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+            跨项目
+          </span>
+        )}
         <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
           {currentTitle}
         </span>
@@ -306,6 +313,7 @@ export function LLMChatPanel({ projectId, open, onClose, onActions, members }: P
           messages={messages}
           streaming={streaming}
           members={members}
+          crossProject={projectId === null}
           onExampleClick={setDraft}
           onAnswerQuestion={handleSend}
           onUndoBatch={handleUndoBatch}

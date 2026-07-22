@@ -8,6 +8,8 @@ interface Props {
   streaming?: boolean
   /** 项目成员，用于用户消息中的 @mention 高亮 */
   members?: MemberOption[]
+  /** 跨项目助手（我的项目页）：换用跨项目示例文案 */
+  crossProject?: boolean
   onExampleClick?: (prompt: string) => void
   /** Send a quick-reply option from a pending-question card */
   onAnswerQuestion?: (answer: string) => void
@@ -21,8 +23,15 @@ const EXAMPLE_PROMPTS = [
   '总结一下当前项目进度',
 ]
 
-export function LLMChatMessageList({ messages, streaming, members, onExampleClick, onAnswerQuestion, onUndoBatch }: Props) {
+const CROSS_PROJECT_PROMPTS = [
+  '我所有项目里有哪些任务快到期了？',
+  '汇总一下各个项目的进度',
+  '我在所有项目里还有哪些待办任务？',
+]
+
+export function LLMChatMessageList({ messages, streaming, members, crossProject, onExampleClick, onAnswerQuestion, onUndoBatch }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
+  const examplePrompts = crossProject ? CROSS_PROJECT_PROMPTS : EXAMPLE_PROMPTS
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: streaming ? 'auto' : 'smooth', block: 'end' })
@@ -37,10 +46,10 @@ export function LLMChatMessageList({ messages, streaming, members, onExampleClic
           </div>
           <p className="mt-3 text-sm font-medium text-foreground">你好，我是 FlowMind 智能助手</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            可以帮你查询任务、创建任务、总结项目进度
+            {crossProject ? '可以跨项目查询任务、汇总进度' : '可以帮你查询任务、创建任务、总结项目进度'}
           </p>
           <div className="mt-4 flex w-full max-w-[320px] flex-col gap-2">
-            {EXAMPLE_PROMPTS.map((prompt) => (
+            {examplePrompts.map((prompt) => (
               <button
                 key={prompt}
                 type="button"

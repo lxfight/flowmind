@@ -40,17 +40,19 @@ interface LLMChatState {
   error: string | null
   /** Draft input text (example prompts can prefill it) */
   draft: string
-  /** Project the loaded session list belongs to (sessions are per user+project) */
-  sessionsProjectId: number | null
+  /** Project the loaded session list belongs to; 'all' = cross-project scope,
+   *  null = not loaded yet (sessions are per user+scope) */
+  sessionsProjectId: number | 'all' | null
 
-  loadSessions: (projectId: number) => Promise<void>
-  createSession: (projectId: number, title?: string) => Promise<number>
+  /** projectId null = cross-project assistant ("all my projects") */
+  loadSessions: (projectId: number | null) => Promise<void>
+  createSession: (projectId: number | null, title?: string) => Promise<number>
   renameSession: (sessionId: number, title: string) => Promise<void>
   deleteSession: (sessionId: number) => Promise<void>
   selectSession: (sessionId: number | null) => void
   loadMessages: (sessionId: number) => Promise<void>
   sendMessage: (
-    projectId: number,
+    projectId: number | null,
     sessionId: number | null,
     content: string
   ) => Promise<{ message: string; actions: ActionSummary[] }>
@@ -113,17 +115,21 @@ export const useLLMChatStore = create<LLMChatState>((set, get) => ({
   sessionsProjectId: null,
 
   loadSessions: async (projectId) => {
-    // Sessions are scoped to (user, project): when the project changes, drop
-    // the previous project's list and selection before loading the new one.
-    if (get().sessionsProjectId !== projectId) {
-      set({ sessions: [], currentSessionId: null, messages: [], sessionsProjectId: projectId })
+    // Sessions are scoped to (user, scope): the scope key is the project id,
+    // or 'all' for the cross-project assistant (projectId null). When the
+    // scope changes, drop the previous list and selection before loading.
+    const scopeKey: number | 'all' = projectId ?? 'all'
+    if (get().sessionsProjectId !== scopeKey) {
+      set({ sessions: [], currentSessionId: null, messages: [], sessionsProjectId: scopeKey })
     }
     try {
-      const res = await api.get('/llm/sessions', { params: { project_id: projectId } })
+      const res = await api.get('/llm/sessions', {
+        params: projectId === null ? { scope: 'all_my_projects' } : { project_id: projectId },
+      })
       const sessions = res.data as ChatSession[]
       set((state) => ({
         sessions,
-        // Drop a stale selection that is not part of this project (anymore)
+        // Drop a stale selection that is not part of this scope (anymore)
         currentSessionId: sessions.some((s) => s.id === state.currentSessionId)
           ? state.currentSessionId
           : null,
@@ -134,7 +140,11 @@ export const useLLMChatStore = create<LLMChatState>((set, get) => ({
   },
 
   createSession: async (projectId, title) => {
-    const res = await api.post('/llm/sessions', { project_id: projectId, title: title || '新会话' })
+    // Cross-project sessions are created without a project_id
+    const body = projectId === null
+      ? { title: title || '新会话' }
+      : { project_id: projectId, title: title || '新会话' }
+    const res = await api.post('/llm/sessions', body)
     const session = res.data as ChatSession
     set((state) => ({
       sessions: [session, ...state.sessions],
@@ -228,11 +238,11 @@ export const useLLMChatStore = create<LLMChatState>((set, get) => ({
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({
-          project_id: projectId,
-          session_id: sessionId,
-          message: trimmed,
-        }),
+        body: JSON.stringify(
+          projectId === null
+            ? { scope: 'all_my_projects', session_id: sessionId, message: trimmed }
+            : { project_id: projectId, session_id: sessionId, message: trimmed }
+        ),
         signal: controller.signal,
       })
 

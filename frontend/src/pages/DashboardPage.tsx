@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useProjectStore } from '../stores/projectStore'
 import { Link, useNavigate } from 'react-router-dom'
-import { Plus, KanbanSquare, RefreshCw, CheckCircle, Clock, AlertTriangle } from 'lucide-react'
+import { Plus, KanbanSquare, RefreshCw, CheckCircle, Clock, AlertTriangle, MessageSquare } from 'lucide-react'
 import { CreateProjectDialog } from '../components/project/CreateProjectDialog'
+import { LLMChatPanel } from '../components/llm-chat/LLMChatPanel'
 import { PageHeader } from '../components/layout/PageHeader'
 import { Button } from '../components/ui/Button'
 import { Card, CardContent } from '../components/ui/Card'
@@ -26,6 +27,7 @@ export default function DashboardPage() {
   const { projects, setProjects, setCurrentProject, loaded: projectsLoaded } = useProjectStore()
   const user = useAuthStore((s) => s.user)
   const [showCreate, setShowCreate] = useState(false)
+  const [showChat, setShowChat] = useState(false)
   const [statsLoading, setStatsLoading] = useState(false)
   const [stats, setStats] = useState<Record<number, ProjectStat>>({})
   const navigate = useNavigate()
@@ -176,6 +178,26 @@ export default function DashboardPage() {
           onClose={() => setShowCreate(false)}
           onCreate={handleCreateProject}
         />
+      )}
+
+      {/* 跨项目 LLM 助手浮动窗口（projectId null = 聚合所有项目；
+          不传 members —— 成员跨多项目，@ 补全在跨项目模式下禁用） */}
+      <LLMChatPanel
+        projectId={null}
+        open={showChat}
+        onClose={() => setShowChat(false)}
+      />
+
+      {/* Floating trigger when the assistant panel is collapsed */}
+      {!showChat && (
+        <button
+          type="button"
+          onClick={() => setShowChat(true)}
+          aria-label="打开跨项目助手"
+          className="fixed bottom-6 right-6 z-30 flex h-11 w-11 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-md transition-transform duration-200 hover:scale-105"
+        >
+          <MessageSquare className="h-5 w-5" />
+        </button>
       )}
     </div>
   )
