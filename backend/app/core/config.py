@@ -11,6 +11,12 @@ class Settings(BaseSettings):
     app_name: str = "FlowMind"
     debug: bool = False
 
+    # Local timezone used when surfacing "current time" to the LLM assistant.
+    # The server runs in UTC, but users see times in their local zone; this makes
+    # the assistant reason about "today / tomorrow / this week" consistently with
+    # what the user sees in the UI.
+    app_timezone: str = "Asia/Shanghai"
+
     # Database (defaults to SQLite for local dev; override with DATABASE_URL env)
     database_url: str = "sqlite+aiosqlite:///./flowmind_dev.db"
 

@@ -1,6 +1,7 @@
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
@@ -9,6 +10,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 from sqlalchemy import func, select
 
+from app.core.config import get_settings
 from app.models.knowledge import DocChunk, KnowledgeDoc
 from app.models.project import Project, ProjectMember
 from app.models.task import Task, TaskStatus
@@ -60,6 +62,32 @@ async def _find_status_project(db, status_id: int, project_ids: list[int]) -> in
     result = await db.execute(select(TaskStatus.project_id).where(TaskStatus.id == status_id))
     pid = result.scalar_one_or_none()
     return pid if pid in project_ids else None
+
+
+def _local_tz():
+    try:
+        return ZoneInfo(get_settings().app_timezone)
+    except Exception:
+        return UTC
+
+
+def _parse_due_date(value: str) -> datetime:
+    """Parse an LLM-supplied due date into an aware datetime in the local zone.
+
+    The model usually returns a bare ``YYYY-MM-DD``; interpreting that as UTC
+    midnight would surface as the previous/next day in the user's local zone and
+    skew due-reminder comparisons. Anchor bare dates to end-of-day local time so
+    "明天截止" stays "明天" everywhere. Explicit datetimes keep their time (and
+    are assumed local when naive).
+    """
+    text = value.strip()
+    dt = datetime.fromisoformat(text)
+    tz = _local_tz()
+    if dt.tzinfo is not None:
+        return dt
+    if len(text) == 10:  # bare date YYYY-MM-DD → end of that day, local time
+        return dt.replace(hour=23, minute=59, second=59, tzinfo=tz)
+    return dt.replace(tzinfo=tz)
 
 
 def _resolve_target_project(config: RunnableConfig, provided: int | None):
@@ -308,7 +336,7 @@ async def create_task(
         if assignee_ids:
             data.assignee_ids = assignee_ids
         if due_date:
-            data.due_date = datetime.fromisoformat(due_date)
+            data.due_date = _parse_due_date(due_date)
         t = await task_service.create_task(target, data, user, db)
         label = f"{_proj_label(names, target)}" if ctx_pid is None else ""
         return _format_result(
@@ -350,7 +378,7 @@ async def update_task(
         if priority is not None:
             payload["priority"] = priority
         if due_date is not None:
-            payload["due_date"] = datetime.fromisoformat(due_date) if due_date else None
+            payload["due_date"] = _parse_due_date(due_date) if due_date else None
         if is_completed is not None:
             payload["is_completed"] = is_completed
         if not payload:
@@ -787,11 +815,38 @@ _SHARED_RULES = (
 )
 
 
+_WEEKDAYS_CN = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+
+
+def _current_time_context() -> str:
+    """Local current date/time block injected into the system prompt.
+
+    The server clock is UTC, but users reason and see times in their local
+    zone (``app_timezone``). Without this the model has no sense of "now" and
+    misinterprets relative dates like 今天 / 明天 / 本周 / 下个月.
+    """
+    try:
+        tz = ZoneInfo(get_settings().app_timezone)
+    except Exception:
+        tz = UTC
+    now = datetime.now(tz)
+    # Local zone abbreviation (CST / UTC+8 / etc.), falling back to the offset.
+    tz_label = now.tzname() or now.strftime("UTC%z")
+    return (
+        "当前时间信息：\n"
+        f"- 现在：{now.strftime('%Y-%m-%d %H:%M')}（{_WEEKDAYS_CN[now.weekday()]}，时区 {tz_label}）\n"
+        f"- 今天日期：{now.strftime('%Y-%m-%d')}\n"
+        "- 用户提到「今天/明天/昨天/本周/下周/下个月」等相对时间时，请以上述当前时间为准换算成"
+        "具体日期（YYYY-MM-DD），再用于创建/查询任务。\n\n"
+    )
+
+
 def _build_system_prompt(project_summary: dict) -> str:
     return (
         "你是 FlowMind 智能助手，帮助用户管理任务和项目。你只能通过提供的工具操作当前项目，"
         "禁止编造 ID。所有 task_id、status_id、assignee_id 必须从工具查询结果中获取。\n\n"
-        f"当前项目：{project_summary['project_name']}\n"
+        + _current_time_context()
+        + f"当前项目：{project_summary['project_name']}\n"
         f"描述：{project_summary['project_description'] or '无'}\n\n"
         "可用工具说明：\n"
         "- 查询：get_project_info / list_tasks / search_tasks / get_task / get_members\n"
@@ -808,7 +863,8 @@ def _build_cross_project_prompt(project_names: dict[int, str]) -> str:
     return (
         "你是 FlowMind 智能助手，当前处于跨项目模式：用户同时参与多个项目，"
         "你可以跨这些项目查询和操作。禁止编造 ID，所有 id 必须来自工具查询结果。\n\n"
-        f"用户参与的项目：\n{listing}\n\n"
+        + _current_time_context()
+        + f"用户参与的项目：\n{listing}\n\n"
         "跨项目规则：\n"
         "- 查询类工具（list_tasks / search_tasks / search_knowledge / list_knowledge_docs）"
         "默认覆盖以上所有项目，结果会标注来源项目；回答时注明信息来自哪个项目。\n"
