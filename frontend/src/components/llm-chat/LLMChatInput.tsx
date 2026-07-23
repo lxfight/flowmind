@@ -145,7 +145,7 @@ export function LLMChatInput({
           aria-label="消息内容"
           rows={1}
           disabled={disabled}
-          className="block w-full resize-none bg-transparent px-3.5 pt-3 text-sm placeholder:text-muted-foreground focus:outline-none disabled:cursor-not-allowed max-h-[120px]"
+          className="block w-full resize-none bg-transparent px-3.5 pt-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none disabled:cursor-not-allowed max-h-[120px]"
         />
         <div className="flex items-center justify-between gap-2 px-2.5 pb-2 pt-1">
           <div className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
