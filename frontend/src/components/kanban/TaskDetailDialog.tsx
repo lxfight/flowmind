@@ -33,6 +33,7 @@ import { Textarea } from '../ui/Textarea'
 import { Select } from '../ui/Select'
 import { Badge } from '../ui/Badge'
 import { Separator } from '../ui/Separator'
+import { MarkdownContent } from '../ui/MarkdownContent'
 import { AssigneePicker } from './AssigneePicker'
 import { MentionText } from './MentionText'
 import { cn } from '../../utils/cn'
@@ -591,12 +592,14 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
               placeholder="任务描述..."
             />
           ) : (
-            <p className={task.description
-              ? 'text-sm leading-relaxed text-foreground whitespace-pre-wrap rounded-lg bg-muted/30 px-4 py-3'
-              : 'text-sm italic text-muted-foreground/70 px-1'
-            }>
-              {task.description || '无描述'}
-            </p>
+            task.description ? (
+              <MarkdownContent
+                content={task.description}
+                className="rounded-lg bg-muted/30 px-4 py-3"
+              />
+            ) : (
+              <p className="px-1 text-sm italic text-muted-foreground/70">无描述</p>
+            )
           )}
         </div>
 

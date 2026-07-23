@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react'
-import { Sparkles } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ArrowDown, Sparkles } from 'lucide-react'
 import { LLMChatMessage } from './LLMChatMessage'
 import type { ChatMessage, MemberOption } from '../../types'
 
@@ -31,6 +31,9 @@ const CROSS_PROJECT_PROMPTS = [
 
 export function LLMChatMessageList({ messages, streaming, members, crossProject, onExampleClick, onAnswerQuestion, onUndoBatch }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const shouldFollowOutputRef = useRef(true)
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const examplePrompts = crossProject ? CROSS_PROJECT_PROMPTS : EXAMPLE_PROMPTS
   // The persisted agent trace includes intermediate empty AI messages and
   // standalone tool messages. The final assistant message owns the combined
@@ -48,56 +51,91 @@ export function LLMChatMessageList({ messages, streaming, members, crossProject,
   })
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: streaming ? 'auto' : 'smooth', block: 'end' })
+    if (shouldFollowOutputRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: streaming ? 'auto' : 'smooth', block: 'end' })
+    }
   }, [messages, streaming])
 
+  const handleScroll = () => {
+    const container = scrollContainerRef.current
+    if (!container) return
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
+    const shouldFollow = distanceFromBottom <= 80
+    shouldFollowOutputRef.current = shouldFollow
+    setShowScrollToBottom(!shouldFollow)
+  }
+
+  const scrollToBottom = () => {
+    shouldFollowOutputRef.current = true
+    setShowScrollToBottom(false)
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  }
+
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto px-4 py-5 scrollbar-thin">
-      {conversationMessages.length === 0 ? (
-        <div className="flex h-full flex-col items-center justify-center text-center">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
-            <Sparkles className="h-5 w-5" />
+    <div className="relative flex-1 min-h-0">
+      <div
+        ref={scrollContainerRef}
+        data-testid="chat-message-list"
+        onScroll={handleScroll}
+        className="h-full overflow-y-auto px-4 py-5 scrollbar-thin"
+      >
+        {conversationMessages.length === 0 ? (
+          <div className="flex h-full flex-col items-center justify-center text-center">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <Sparkles className="h-5 w-5" />
+            </div>
+            <p className="mt-3 text-sm font-medium text-foreground">你好，我是 FlowMind 智能助手</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {crossProject ? '可以跨项目查询任务、汇总进度' : '可以帮你查询任务、创建任务、总结项目进度'}
+            </p>
+            <div className="mt-4 flex w-full max-w-[320px] flex-col gap-2">
+              {examplePrompts.map((prompt) => (
+                <button
+                  key={prompt}
+                  type="button"
+                  onClick={() => onExampleClick?.(prompt)}
+                  className="rounded-xl border border-border bg-background px-3 py-2 text-left text-xs text-muted-foreground transition-colors duration-150 hover:border-foreground/20 hover:text-foreground"
+                >
+                  {prompt}
+                </button>
+              ))}
+            </div>
           </div>
-          <p className="mt-3 text-sm font-medium text-foreground">你好，我是 FlowMind 智能助手</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {crossProject ? '可以跨项目查询任务、汇总进度' : '可以帮你查询任务、创建任务、总结项目进度'}
-          </p>
-          <div className="mt-4 flex w-full max-w-[320px] flex-col gap-2">
-            {examplePrompts.map((prompt) => (
-              <button
-                key={prompt}
-                type="button"
-                onClick={() => onExampleClick?.(prompt)}
-                className="rounded-xl border border-border bg-background px-3 py-2 text-left text-xs text-muted-foreground transition-colors duration-150 hover:border-foreground/20 hover:text-foreground"
-              >
-                {prompt}
-              </button>
-            ))}
+        ) : (
+          <div className="mx-auto w-full max-w-3xl pb-4">
+            {conversationMessages.map((msg, idx) => {
+              const prev = conversationMessages[idx - 1]
+              const sameSpeaker = prev && prev.role === msg.role
+              // A pending question stays answerable only while it is the latest
+              // message and no stream is in flight.
+              const questionActive =
+                Boolean(msg.pending_question) && idx === conversationMessages.length - 1 && !streaming
+              return (
+                <div key={msg.id ?? idx} className={idx === 0 ? '' : sameSpeaker ? 'mt-3' : 'mt-8'}>
+                  <LLMChatMessage
+                    message={msg}
+                    questionActive={questionActive}
+                    members={members}
+                    onAnswerQuestion={onAnswerQuestion}
+                    onUndoBatch={onUndoBatch}
+                  />
+                </div>
+              )
+            })}
+            <div ref={bottomRef} />
           </div>
-        </div>
-      ) : (
-        <div className="mx-auto w-full max-w-3xl pb-4">
-          {conversationMessages.map((msg, idx) => {
-            const prev = conversationMessages[idx - 1]
-            const sameSpeaker = prev && prev.role === msg.role
-            // A pending question stays answerable only while it is the latest
-            // message and no stream is in flight.
-            const questionActive =
-              Boolean(msg.pending_question) && idx === conversationMessages.length - 1 && !streaming
-            return (
-              <div key={msg.id ?? idx} className={idx === 0 ? '' : sameSpeaker ? 'mt-3' : 'mt-8'}>
-                <LLMChatMessage
-                  message={msg}
-                  questionActive={questionActive}
-                  members={members}
-                  onAnswerQuestion={onAnswerQuestion}
-                  onUndoBatch={onUndoBatch}
-                />
-              </div>
-            )
-          })}
-          <div ref={bottomRef} />
-        </div>
+        )}
+      </div>
+      {showScrollToBottom && conversationMessages.length > 0 && (
+        <button
+          type="button"
+          onClick={scrollToBottom}
+          aria-label="滚动到最新消息"
+          title="滚动到最新消息"
+          className="absolute bottom-3 left-1/2 flex h-8 w-8 -translate-x-1/2 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <ArrowDown className="h-4 w-4" />
+        </button>
       )}
     </div>
   )
