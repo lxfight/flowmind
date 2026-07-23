@@ -33,6 +33,7 @@ from app.services.llm_service import llm_service
 from app.services.mention_service import board_link, notify_mentions
 from app.services.rag_service import rag_service
 from app.services.report_service import (
+    ACTIVITY_MAX_LINES,
     ACTIVITY_WINDOW_DAYS,
     ReportTask,
     build_report_prompt,
@@ -239,8 +240,13 @@ async def llm_report(
 
     # Precompute all statistics in Python — never ask the LLM to count.
     stats = compute_report_stats(report_tasks, now=now)
-    activity_lines = [log.summary for log in logs[:20]]
-    stats_text = format_stats_text(stats, report_tasks, activity_lines, now=now)
+    # Show the most recent activity, but report the true window total so the
+    # "N 条" in the prompt matches reality instead of the truncated count.
+    total_activity = len(logs)
+    activity_lines = [log.summary for log in logs[:ACTIVITY_MAX_LINES]]
+    stats_text = format_stats_text(
+        stats, report_tasks, activity_lines, now=now, activity_total=total_activity
+    )
     prompt = build_report_prompt(
         project.name, project.description or "", stats_text
     )

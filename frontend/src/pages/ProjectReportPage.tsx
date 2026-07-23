@@ -69,7 +69,11 @@ export default function ProjectReportPage() {
     if (!projectId) return
     setLoading(true)
     try {
-      const res = await api.post(`/llm/report?project_id=${projectId}`)
+      const res = await api.post(`/llm/report?project_id=${projectId}`, undefined, {
+        // Report generation reads all stats then writes a long report — allow a
+        // long wait (nginx permits 300s upstream) but never spin forever.
+        timeout: 310000,
+      })
       const entry: ReportEntry = { report: res.data.report, generated_at: res.data.generated_at }
       setReport(entry.report)
       setGeneratedAt(entry.generated_at)
@@ -77,8 +81,9 @@ export default function ProjectReportPage() {
       const newHistory = [entry, ...loadHistory(projectId).filter(h => h.generated_at !== entry.generated_at)]
       saveHistory(projectId, newHistory)
       setHistory(newHistory)
-    } catch {
-      toast.error('报告生成失败，请检查 LLM 配置')
+    } catch (err: any) {
+      const isTimeout = err?.code === 'ECONNABORTED' || err?.response?.status === 504
+      toast.error(isTimeout ? '报告生成超时，请稍后重试' : '报告生成失败，请检查 LLM 配置')
     }
     setLoading(false)
   }

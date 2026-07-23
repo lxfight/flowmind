@@ -13,6 +13,7 @@ PRIORITY_LABELS = {0: "无", 1: "低", 2: "中", 3: "高", 4: "紧急"}
 HIGH_PRIORITY_THRESHOLD = 3  # priority >= 3 counts as high priority
 STALE_DAYS = 7  # unfinished task not updated for this many days is "stale"
 ACTIVITY_WINDOW_DAYS = 7
+ACTIVITY_MAX_LINES = 20  # cap how many recent activity entries go into the prompt
 MAX_DETAIL_TASKS = 30  # cap detailed task lines to keep token usage sane
 MAX_LIST_ITEMS = 10  # cap overdue/stale/high-priority/assignee lists
 
@@ -120,8 +121,13 @@ def format_stats_text(
     tasks: list[ReportTask],
     activity_lines: list[str],
     now: datetime | None = None,
+    activity_total: int | None = None,
 ) -> str:
-    """Serialize precomputed stats + capped task details for the prompt."""
+    """Serialize precomputed stats + capped task details for the prompt.
+
+    ``activity_total`` is the true number of activity entries in the window;
+    when omitted it defaults to ``len(activity_lines)`` (no truncation).
+    """
     now = now or datetime.now(UTC)
     lines: list[str] = []
 
@@ -166,8 +172,10 @@ def format_stats_text(
         lines.append("- 无")
 
     if activity_lines:
-        lines.append(f"\n近 {ACTIVITY_WINDOW_DAYS} 天项目动态（{len(activity_lines)} 条）:")
-        for line in activity_lines[:MAX_LIST_ITEMS * 2]:
+        total = activity_total if activity_total is not None else len(activity_lines)
+        shown = activity_lines[:MAX_LIST_ITEMS * 2]
+        lines.append(f"\n近 {ACTIVITY_WINDOW_DAYS} 天项目动态（共 {total} 条，列出最近 {len(shown)} 条）:")
+        for line in shown:
             lines.append(f"- {line}")
 
     lines.append(f"\n任务明细（共 {len(tasks)} 个，最多列出 {MAX_DETAIL_TASKS} 个）:")

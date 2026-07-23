@@ -88,6 +88,20 @@ class TestPromptBuilding:
         assert "- Bob: 1 个" in text
         assert "近 7 天项目动态" in text
 
+    def test_activity_total_reflects_window_not_truncation(self):
+        """The "N 条" label must match the true window total, not the capped list."""
+        tasks = make_tasks()
+        stats = compute_report_stats(tasks, now=NOW)
+        shown = [f"动态 {i}" for i in range(20)]
+        text = format_stats_text(stats, tasks, shown, now=NOW, activity_total=57)
+        assert "近 7 天项目动态（共 57 条，列出最近 20 条）" in text
+
+    def test_activity_total_defaults_to_shown_count(self):
+        tasks = make_tasks()
+        stats = compute_report_stats(tasks, now=NOW)
+        text = format_stats_text(stats, tasks, ["动态 A", "动态 B"], now=NOW)
+        assert "共 2 条" in text
+
     def test_task_detail_cap(self):
         tasks = [
             ReportTask(title=f"任务{i}", status_name="待办", updated_at=NOW)
