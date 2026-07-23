@@ -33,6 +33,9 @@ export function KanbanColumn({ status, tasks, members, readOnly = false, columnW
     <Card
       className={cn(
         'relative flex-shrink-0 w-full lg:w-[var(--kanban-col-w)] flex flex-col',
+        // Cap the column to the visible board area on desktop so a long column
+        // scrolls its own task list instead of stretching the whole board.
+        'lg:max-h-[calc(100vh-240px)]',
         isOver && 'ring-2 ring-primary bg-primary/5 dark:bg-primary/10'
       )}
       style={columnWidth ? ({ '--kanban-col-w': `${columnWidth}px` } as React.CSSProperties) : undefined}
@@ -59,10 +62,10 @@ export function KanbanColumn({ status, tasks, members, readOnly = false, columnW
         )}
       </CardHeader>
 
-      <CardContent className="flex-1 px-2 pb-3 pt-0">
+      <CardContent className="flex-1 min-h-0 overflow-y-auto px-2 pb-3 pt-0 scrollbar-thin">
         <div
           ref={setNodeRef}
-          className="flex min-h-[60px] flex-col gap-2"
+          className="flex min-h-[60px] flex-col gap-2 pt-2"
         >
           <SortableContext
             items={tasks.map((t) => t.id)}

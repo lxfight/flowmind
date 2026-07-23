@@ -511,7 +511,7 @@ export default function KanbanBoard() {
                 onDragEnd={handleDragEnd}
               >
                 <div
-                  className="flex flex-col lg:flex-row gap-4 lg:overflow-x-auto pb-4 scrollbar-thin"
+                  className="flex flex-col lg:flex-row lg:items-start gap-4 lg:overflow-x-auto pb-4 scrollbar-thin"
                   style={{ minHeight: 'calc(100vh - 260px)' }}
                 >
                   {statuses.map((status) => (

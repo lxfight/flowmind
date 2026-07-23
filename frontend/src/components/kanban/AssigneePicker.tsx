@@ -102,6 +102,7 @@ export function AssigneePicker({
       onPointerDown={(e) => e.stopPropagation()}
     >
       <DropdownMenu trigger={trigger} align={align}>
+        {/* "未指派" + separator stay pinned; only the member list scrolls. */}
         <DropdownMenuItem onClick={handleClear}>
           <div className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-muted-foreground mr-2">
             <X className="h-3 w-3" />
@@ -110,29 +111,31 @@ export function AssigneePicker({
           {value.length === 0 && <Check className="ml-auto h-4 w-4 text-primary" />}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        {members.map((member) => {
-          const checked = value.includes(member.user_id)
-          return (
-            <button
-              key={member.user_id}
-              type="button"
-              role="menuitemcheckbox"
-              aria-checked={checked}
-              tabIndex={-1}
-              onClick={() => handleToggle(member.user_id)}
-              className="relative flex w-full cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
-            >
-              <Avatar
-                name={member.display_name || member.username}
-                src={member.avatar_url}
-                size="sm"
-                className="mr-2"
-              />
-              <span className="flex-1 truncate text-left">{member.display_name || member.username}</span>
-              {checked && <Check className="ml-2 h-4 w-4 text-primary" />}
-            </button>
-          )
-        })}
+        <div className="max-h-[260px] overflow-y-auto scrollbar-thin">
+          {members.map((member) => {
+            const checked = value.includes(member.user_id)
+            return (
+              <button
+                key={member.user_id}
+                type="button"
+                role="menuitemcheckbox"
+                aria-checked={checked}
+                tabIndex={-1}
+                onClick={() => handleToggle(member.user_id)}
+                className="relative flex w-full cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+              >
+                <Avatar
+                  name={member.display_name || member.username}
+                  src={member.avatar_url}
+                  size="sm"
+                  className="mr-2"
+                />
+                <span className="flex-1 truncate text-left">{member.display_name || member.username}</span>
+                {checked && <Check className="ml-2 h-4 w-4 text-primary" />}
+              </button>
+            )
+          })}
+        </div>
       </DropdownMenu>
     </div>
   )
