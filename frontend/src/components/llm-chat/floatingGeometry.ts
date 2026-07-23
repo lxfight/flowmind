@@ -30,9 +30,11 @@ export const MIN_VISIBLE = 48
 
 /** Clamp a size to [MIN_SIZE, viewport]. */
 export function clampSize(size: Size, viewport: Viewport): Size {
+  const minW = Math.min(MIN_SIZE.w, viewport.w)
+  const minH = Math.min(MIN_SIZE.h, viewport.h)
   return {
-    w: Math.min(Math.max(size.w, MIN_SIZE.w), Math.max(viewport.w, MIN_SIZE.w)),
-    h: Math.min(Math.max(size.h, MIN_SIZE.h), Math.max(viewport.h, MIN_SIZE.h)),
+    w: Math.min(Math.max(size.w, minW), viewport.w),
+    h: Math.min(Math.max(size.h, minH), viewport.h),
   }
 }
 

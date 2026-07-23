@@ -614,6 +614,14 @@ async def _persist_agent_run(
                 db_msg.actions = result["actions"]
                 break
 
+    # Keep the streamed reasoning/tool process on the final assistant message
+    # so the collapsed disclosure remains available after reloading a session.
+    if result.get("steps") and persisted_messages:
+        for db_msg in reversed(persisted_messages):
+            if db_msg.role == "assistant":
+                db_msg.steps = result["steps"]
+                break
+
     session.updated_at = datetime.now(UTC)
     await db.flush()
 

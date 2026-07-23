@@ -408,7 +408,10 @@ def test_cross_project_session_migration_up_down_on_sqlite(tmp_path):
     conn.commit()
     conn.close()
 
-    alembic("downgrade", "-1")
+    # Target the revision immediately before the cross-project migration.
+    # Newer unrelated migrations may be added after it, so ``-1`` would only
+    # remove the latest migration rather than exercise this downgrade.
+    alembic("downgrade", "e2f4a6b8c0d2")
     conn = sqlite3.connect(db_file)
     titles = [r[0] for r in conn.execute("SELECT title FROM llm_chat_sessions")]
     conn.close()

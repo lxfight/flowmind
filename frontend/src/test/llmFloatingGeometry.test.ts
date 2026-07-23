@@ -34,8 +34,8 @@ describe('clampSize', () => {
     expect(clampSize({ w: 420, h: 600 }, VP)).toEqual({ w: 420, h: 600 })
   })
 
-  it('still honors the minimum when the viewport is tiny', () => {
-    expect(clampSize({ w: 100, h: 100 }, { w: 200, h: 200 })).toEqual(MIN_SIZE)
+  it('fits inside the viewport when the viewport is smaller than the minimum', () => {
+    expect(clampSize({ w: 100, h: 100 }, { w: 200, h: 200 })).toEqual({ w: 200, h: 200 })
   })
 })
 
@@ -71,8 +71,8 @@ describe('defaultGeometry', () => {
 
   it('clamps the size on small viewports', () => {
     const geo = defaultGeometry({ w: 300, h: 300 })
-    expect(geo.w).toBe(MIN_SIZE.w) // min wins over tiny viewport
-    expect(geo.h).toBe(MIN_SIZE.h)
+    expect(geo.w).toBe(300)
+    expect(geo.h).toBe(300)
     expect(geo.x).toBe(0)
     expect(geo.y).toBe(0)
   })

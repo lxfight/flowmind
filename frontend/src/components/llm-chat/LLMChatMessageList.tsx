@@ -32,14 +32,28 @@ const CROSS_PROJECT_PROMPTS = [
 export function LLMChatMessageList({ messages, streaming, members, crossProject, onExampleClick, onAnswerQuestion, onUndoBatch }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const examplePrompts = crossProject ? CROSS_PROJECT_PROMPTS : EXAMPLE_PROMPTS
+  // The persisted agent trace includes intermediate empty AI messages and
+  // standalone tool messages. The final assistant message owns the combined
+  // collapsible steps, so keep the visible conversation as user/assistant turns.
+  const conversationMessages = messages.filter((message) => {
+    if (message.role === 'tool') return false
+    if (
+      message.role === 'assistant'
+      && !message.streaming
+      && !message.content.trim()
+      && message.tool_calls?.length
+      && !message.steps?.length
+    ) return false
+    return true
+  })
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: streaming ? 'auto' : 'smooth', block: 'end' })
   }, [messages, streaming])
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 scrollbar-thin">
-      {messages.length === 0 ? (
+    <div className="flex-1 min-h-0 overflow-y-auto px-4 py-5 scrollbar-thin">
+      {conversationMessages.length === 0 ? (
         <div className="flex h-full flex-col items-center justify-center text-center">
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
             <Sparkles className="h-5 w-5" />
@@ -62,17 +76,16 @@ export function LLMChatMessageList({ messages, streaming, members, crossProject,
           </div>
         </div>
       ) : (
-        <div>
-          {messages.map((msg, idx) => {
-            const prev = messages[idx - 1]
-            // ~36px between a user group and an assistant group, ~8px within
+        <div className="mx-auto w-full max-w-3xl pb-4">
+          {conversationMessages.map((msg, idx) => {
+            const prev = conversationMessages[idx - 1]
             const sameSpeaker = prev && prev.role === msg.role
             // A pending question stays answerable only while it is the latest
             // message and no stream is in flight.
             const questionActive =
-              Boolean(msg.pending_question) && idx === messages.length - 1 && !streaming
+              Boolean(msg.pending_question) && idx === conversationMessages.length - 1 && !streaming
             return (
-              <div key={msg.id ?? idx} className={idx === 0 ? '' : sameSpeaker ? 'mt-2' : 'mt-9'}>
+              <div key={msg.id ?? idx} className={idx === 0 ? '' : sameSpeaker ? 'mt-3' : 'mt-8'}>
                 <LLMChatMessage
                   message={msg}
                   questionActive={questionActive}

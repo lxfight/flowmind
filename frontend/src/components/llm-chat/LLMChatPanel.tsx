@@ -61,6 +61,7 @@ export function LLMChatPanel({ projectId, open, onClose, onActions, members }: P
   const [showSessions, setShowSessions] = useState(false)
   const [visible, setVisible] = useState(open)
   const [entered, setEntered] = useState(open)
+  const compactViewport = typeof window !== 'undefined' && window.innerWidth <= 640
   const rectRef = useRef(rect)
   useEffect(() => {
     rectRef.current = rect
@@ -133,6 +134,7 @@ export function LLMChatPanel({ projectId, open, onClose, onActions, members }: P
 
   // --- Drag by header (buttons excluded) ------------------------------------
   const onHeaderPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (compactViewport) return
     if (e.button !== 0) return
     // Keep header buttons clickable — never start a drag from them
     if ((e.target as HTMLElement).closest('button')) return
@@ -212,14 +214,15 @@ export function LLMChatPanel({ projectId, open, onClose, onActions, members }: P
       aria-label="LLM 助手面板"
       aria-hidden={!open}
       className={cn(
-        'fixed z-40 flex flex-col overflow-hidden rounded-xl border border-border bg-background shadow-lg',
+        'fixed z-40 flex flex-col overflow-hidden border border-border bg-background shadow-lg',
+        compactViewport ? 'rounded-none border-0' : 'rounded-lg',
         interacting && 'select-none'
       )}
       style={{
-        left: rect.x,
-        top: rect.y,
-        width: rect.w,
-        height: rect.h,
+        left: compactViewport ? 0 : rect.x,
+        top: compactViewport ? 0 : rect.y,
+        width: compactViewport ? '100vw' : rect.w,
+        height: compactViewport ? '100dvh' : rect.h,
         transform: entered ? 'scale(1)' : 'scale(0.95)',
         opacity: entered ? 1 : 0,
         transformOrigin: 'bottom right',
@@ -234,7 +237,7 @@ export function LLMChatPanel({ projectId, open, onClose, onActions, members }: P
         onPointerDown={onHeaderPointerDown}
         className={cn(
           'flex h-12 shrink-0 items-center gap-1.5 border-b border-border px-3',
-          interacting === 'drag' ? 'cursor-grabbing' : 'cursor-grab'
+          compactViewport ? 'cursor-default' : interacting === 'drag' ? 'cursor-grabbing' : 'cursor-grab'
         )}
         style={{ touchAction: 'none' }}
       >
@@ -286,7 +289,7 @@ export function LLMChatPanel({ projectId, open, onClose, onActions, members }: P
               onClick={() => setShowSessions(false)}
               aria-hidden="true"
             />
-            <div className="absolute left-2 right-2 top-2 z-20 max-h-[60%] overflow-hidden rounded-xl border border-border bg-popover shadow-lg">
+            <div className="absolute left-2 right-2 top-2 z-20 max-h-[60%] overflow-hidden rounded-lg border border-border bg-popover shadow-lg">
               <LLMChatSessionList
                 sessions={sessions}
                 currentSessionId={currentSessionId}
@@ -334,19 +337,21 @@ export function LLMChatPanel({ projectId, open, onClose, onActions, members }: P
       </div>
 
       {/* Resize handle — bottom-right corner */}
-      <div
-        role="separator"
-        aria-orientation="horizontal"
-        aria-label="调整窗口大小"
-        onPointerDown={onResizePointerDown}
-        className={cn(
-          'absolute bottom-0 right-0 z-10 h-4 w-4 cursor-nwse-resize',
-          'before:absolute before:bottom-1 before:right-1 before:h-2 before:w-2 before:rounded-br-sm',
-          'before:border-b-2 before:border-r-2',
-          interacting === 'resize' ? 'before:border-primary/60' : 'before:border-muted-foreground/40 hover:before:border-primary/50'
-        )}
-        style={{ touchAction: 'none' }}
-      />
+      {!compactViewport && (
+        <div
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="调整窗口大小"
+          onPointerDown={onResizePointerDown}
+          className={cn(
+            'absolute bottom-0 right-0 z-10 h-4 w-4 cursor-nwse-resize',
+            'before:absolute before:bottom-1 before:right-1 before:h-2 before:w-2 before:rounded-br-sm',
+            'before:border-b-2 before:border-r-2',
+            interacting === 'resize' ? 'before:border-primary/60' : 'before:border-muted-foreground/40 hover:before:border-primary/50'
+          )}
+          style={{ touchAction: 'none' }}
+        />
+      )}
     </div>
   )
 }

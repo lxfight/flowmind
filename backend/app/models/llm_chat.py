@@ -51,6 +51,7 @@ class LLMChatMessage(Base):
     content: Mapped[str] = mapped_column(Text, default="")
     tool_calls: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     tool_results: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    steps: Mapped[list | None] = mapped_column(JSON, nullable=True)
     actions: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     pending_question: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # One uuid per agent run; links the assistant message to its ActivityLog

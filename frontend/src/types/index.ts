@@ -203,6 +203,8 @@ export interface ActionSummary {
     | 'delete_status'
   task_id?: number
   status_id?: number
+  parent_task_id?: number
+  is_completed?: boolean
   title?: string
   detail?: string
 }

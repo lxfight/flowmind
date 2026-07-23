@@ -54,6 +54,10 @@ async def test_stream_happy_path_with_mocked_agent(client):
             "result": {
                 "message": "好的，已创建。",
                 "actions": [{"type": "create_task", "task_id": 1, "title": "任务A"}],
+                "steps": [
+                    {"kind": "thinking", "text": "先确认状态列"},
+                    {"kind": "tool", "tool": "create_task", "status": "done", "output": "已创建"},
+                ],
                 "messages": [
                     HumanMessage(content="帮我创建任务A"),
                     AIMessage(content="好的，已创建。"),
@@ -99,6 +103,10 @@ async def test_stream_happy_path_with_mocked_agent(client):
         ("assistant", "好的，已创建。"),
     ]
     assert messages[1]["actions"] == [{"type": "create_task", "task_id": 1, "title": "任务A"}]
+    assert messages[1]["steps"] == [
+        {"kind": "thinking", "text": "先确认状态列"},
+        {"kind": "tool", "tool": "create_task", "status": "done", "output": "已创建"},
+    ]
 
 
 @pytest.mark.asyncio
@@ -181,6 +189,16 @@ async def test_run_agent_stream_yields_status_first():
     assert tool_end["output"] == "检索到 2 条结果"
 
     assert events[-1]["result"]["message"] == "你好"
+    assert events[-1]["result"]["steps"] == [
+        {
+            "kind": "tool",
+            "id": "run-1",
+            "tool": "search_knowledge",
+            "args": {"query": "AI 新闻"},
+            "status": "done",
+            "output": "检索到 2 条结果",
+        }
+    ]
 
 
 @pytest.mark.asyncio
@@ -268,3 +286,6 @@ async def test_run_agent_stream_emits_thinking_events():
     assert kinds == ["status", "thinking", "token", "result"]
     thinking = next(e for e in events if e["type"] == "thinking")
     assert thinking["text"] == "先检索知识库…"
+    assert events[-1]["result"]["steps"] == [
+        {"kind": "thinking", "text": "先检索知识库…"}
+    ]

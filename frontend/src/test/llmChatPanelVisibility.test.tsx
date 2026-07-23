@@ -101,4 +101,20 @@ describe('LLM chat floating window (KanbanBoard integration)', () => {
     }, { timeout: 2000 })
     expect(await screen.findByRole('button', { name: '打开 LLM 助手' })).toBeInTheDocument()
   })
+
+  it('uses a full-screen conversation surface on narrow viewports', async () => {
+    const previousWidth = window.innerWidth
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
+    try {
+      render(<KanbanBoard />)
+      const trigger = await screen.findByRole('button', { name: '打开 LLM 助手' })
+      await userEvent.click(trigger)
+
+      const panel = await screen.findByRole('dialog', { name: 'LLM 助手面板' })
+      expect(panel).toHaveStyle({ left: '0px', top: '0px', width: '100vw', height: '100dvh' })
+      expect(screen.queryByRole('separator', { name: '调整窗口大小' })).not.toBeInTheDocument()
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: previousWidth })
+    }
+  })
 })

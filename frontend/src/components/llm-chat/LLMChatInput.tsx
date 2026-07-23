@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState } from 'react'
-import { Send, Square } from 'lucide-react'
+import { ArrowUp, Square } from 'lucide-react'
 import { cn } from '../../utils/cn'
 import { useLLMChatStore } from '../../stores/llmChatStore'
 import { filterMentionCandidates, getMentionQuery, insertMention } from '../../utils/mention'
@@ -24,7 +24,7 @@ export function LLMChatInput({
   streaming = false,
   disabled = false,
   disabledHint,
-  placeholder = '输入消息，Enter 发送，Shift+Enter 换行，@ 提及成员',
+  placeholder = '给 FlowMind 助手发消息',
   sessionTitle,
   members,
 }: Props) {
@@ -95,11 +95,11 @@ export function LLMChatInput({
   }, [draft])
 
   return (
-    <div className="shrink-0 px-3 pb-3 pt-2">
+    <div className="shrink-0 border-t border-border/60 bg-background px-3 pb-3 pt-2.5">
       <div
         className={cn(
-          'relative rounded-2xl border border-input bg-background transition-shadow duration-200',
-          'focus-within:shadow-[0_2px_12px_-4px_hsl(var(--foreground)/0.12)] focus-within:border-foreground/25',
+          'relative rounded-2xl border border-input bg-muted/20 transition-shadow duration-200',
+          'focus-within:border-foreground/25 focus-within:bg-background focus-within:shadow-[0_2px_12px_-4px_hsl(var(--foreground)/0.12)]',
           disabled && 'opacity-70'
         )}
       >
@@ -149,7 +149,7 @@ export function LLMChatInput({
         />
         <div className="flex items-center justify-between gap-2 px-2.5 pb-2 pt-1">
           <div className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
-            {disabledHint || (sessionTitle ? `当前会话：${sessionTitle}` : 'Enter 发送 · Shift+Enter 换行 · @ 提及成员')}
+            {disabledHint || (sessionTitle ? sessionTitle : '助手可能会出错，请核对重要信息')}
           </div>
           {streaming ? (
             <button
@@ -166,9 +166,9 @@ export function LLMChatInput({
               onClick={handleSend}
               disabled={disabled || !draft.trim()}
               aria-label="发送消息"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity duration-150 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity duration-150 hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-35"
             >
-              <Send className="h-3.5 w-3.5" />
+              <ArrowUp className="h-4 w-4" />
             </button>
           )}
         </div>

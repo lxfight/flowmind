@@ -1,4 +1,7 @@
+import asyncio
+import json
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -7,7 +10,9 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
-from langgraph.prebuilt import create_react_agent
+from langgraph.errors import GraphRecursionError
+from langgraph.prebuilt import ToolNode, create_react_agent
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
 from app.core.config import get_settings
@@ -135,29 +140,116 @@ def _normalize_key(text: str) -> str:
     return " ".join((text or "").split()).lower()
 
 
-def _created_keys(config: RunnableConfig) -> set:
-    """Per-run set of idempotency keys for create-type writes.
+def _created_keys(config: RunnableConfig) -> dict:
+    """Per-run store of idempotency results for mutating tool calls.
 
     ``_build_agent_run`` seeds ``config['configurable']['created_keys']`` with
-    a fresh set every run, so the guard is scoped to that run and never blocks
+    a fresh dict every run, so the guard is scoped to that run and never blocks
     a deliberate re-create in a later message or session. The tool must mutate
-    the seeded set in place: the tool wrapper snapshots ``configurable``, so a
+    the seeded dict in place: the tool wrapper snapshots ``configurable``, so a
     lazy ``cfg['created_keys'] = ...`` rebind would be lost between calls.
+
+    Maps an idempotency key (tuple) to the JSON result string of the first
+    successful call, so a repeated call replays that result verbatim instead of
+    mutating again.
     """
     cfg = config.get("configurable", {})
     keys = cfg.get("created_keys")
     if keys is None:  # direct unit invocation without _build_agent_run
-        keys = set()
+        keys = {}
         cfg["created_keys"] = keys
     return keys
 
 
+def _last_mutations(config: RunnableConfig) -> dict:
+    """Last successful state mutation per resource, for adjacent retry replay."""
+    cfg = config.get("configurable", {})
+    mutations = cfg.get("last_mutations")
+    if mutations is None:
+        mutations = {}
+        cfg["last_mutations"] = mutations
+    return mutations
+
+
+def _mutation_lock(config: RunnableConfig) -> asyncio.Lock:
+    """Serialize writes sharing the run's AsyncSession and idempotency stores."""
+    cfg = config.get("configurable", {})
+    lock = cfg.get("mutation_lock")
+    if lock is None:
+        lock = asyncio.Lock()
+        cfg["mutation_lock"] = lock
+    return lock
+
+
+@asynccontextmanager
+async def _locked_mutation(config: RunnableConfig):
+    async with _mutation_lock(config):
+        yield
+
+
 def _format_result(ok: bool, message: str = "", action: dict | None = None) -> str:
-    import json
     payload = {"ok": ok, "message": message or ("操作成功。" if ok else "操作失败。")}
     if action:
         payload["action"] = action
     return json.dumps(payload, ensure_ascii=False)
+
+
+def _idem_lookup(config: RunnableConfig, key: tuple) -> str | None:
+    """Return the cached result for ``key`` if this call already ran this run.
+
+    Used by every mutating tool so a repeated identical call within one run is
+    a no-op that replays the first successful result (the model occasionally
+    emits the same write twice, or parallel duplicate tool calls).
+    """
+    return _created_keys(config).get(key)
+
+
+def _idem_store(config: RunnableConfig, key: tuple, result: str) -> str:
+    """Cache a successful result under ``key`` and return it unchanged.
+
+    Also surfaces the embedded ``action`` to the run's shared ``actions`` list so
+    the client renders an operation card per mutation. This is the single choke
+    point every mutating tool's success path flows through, so populating the
+    list here covers all of them (``result.actions`` was previously always empty
+    because nothing populated it). A repeated call hits ``_idem_lookup`` and
+    returns before reaching here, so the card is recorded exactly once.
+    """
+    _created_keys(config)[key] = result
+    try:
+        action = json.loads(result).get("action")
+    except (ValueError, AttributeError):
+        action = None
+    if action:
+        _record_action(config, action)
+    return result
+
+
+def _repeat_lookup(config: RunnableConfig, resource: tuple, signature: tuple) -> str | None:
+    """Replay only the latest mutation on a resource, not any call in the run.
+
+    This suppresses adjacent/concurrent retries while allowing legitimate
+    A -> B -> A transitions later in the same agent run.
+    """
+    previous = _last_mutations(config).get(resource)
+    if previous and previous[0] == signature:
+        return previous[1]
+    return None
+
+
+def _repeat_store(config: RunnableConfig, resource: tuple, signature: tuple, result: str) -> str:
+    _last_mutations(config)[resource] = (signature, result)
+    try:
+        action = json.loads(result).get("action")
+    except (ValueError, AttributeError):
+        action = None
+    if action:
+        _record_action(config, action)
+    return result
+
+
+def _payload_key(**values: Any) -> str:
+    """Stable JSON signature for tool arguments used in idempotency keys."""
+    return json.dumps(values, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
 
 
 # ---------------------------------------------------------------------------
@@ -295,6 +387,58 @@ async def get_members(config: RunnableConfig, project_id: int | None = None) -> 
         return _format_result(False, message=str(e))
 
 
+MAX_BATCH_ITEMS = 50
+
+
+class BatchTaskItem(BaseModel):
+    """One independently configurable task inside create_tasks."""
+
+    title: str = Field(min_length=1, max_length=512)
+    status_id: int
+    description: str = ""
+    priority: int = Field(default=0, ge=0, le=4)
+    assignee_ids: list[int] | None = None
+    due_date: str | None = None
+    subtasks: list[str] | None = None
+
+
+def _task_idem_key(target: int, item: BatchTaskItem) -> tuple:
+    payload = item.model_dump()
+    payload["title"] = _normalize_key(item.title)
+    payload["assignee_ids"] = sorted(item.assignee_ids or [])
+    payload["subtasks"] = [_normalize_key(title) for title in item.subtasks or []]
+    return (
+        "create_task",
+        target,
+        _payload_key(**payload),
+    )
+
+
+async def _create_one_task(
+    db, user, target: int, title: str, description: str, status_id: int,
+    priority: int, assignee_ids: list[int] | None, due_date: str | None,
+    subtasks: list[str] | None,
+) -> tuple[Any, list[Any]]:
+    """Create one task (and its subtasks) via the service layer.
+
+    Returns (task, subtasks). Each insert goes through task_service so every
+    row gets its own ActivityLog entry under the run's shared action_batch_id —
+    the whole batch stays undoable as a unit.
+    """
+    data = TaskCreate(title=title, description=description, status_id=status_id, priority=priority)
+    if assignee_ids:
+        data.assignee_ids = assignee_ids
+    if due_date:
+        data.due_date = _parse_due_date(due_date)
+    t = await task_service.create_task(target, data, user, db)
+    subs = []
+    for sub_title in subtasks or []:
+        sub_title = (sub_title or "").strip()
+        if sub_title:
+            subs.append(await task_service.add_subtask(target, t.id, sub_title, user, db))
+    return t, subs
+
+
 @tool
 async def create_task(
     title: str,
@@ -303,11 +447,13 @@ async def create_task(
     priority: int = 0,
     assignee_ids: list[int] | None = None,
     due_date: str | None = None,
+    subtasks: list[str] | None = None,
     project_id: int | None = None,
     config: RunnableConfig = None,
 ) -> str:
-    """创建任务。status_id 必须通过 get_project_info 获取。
+    """创建单个任务（可用 subtasks 顺带建子任务）。status_id 必须先从 get_project_info 获取。
 
+    一次要创建多个任务时改用 create_tasks。
     跨项目会话中：用户已指明项目时传 project_id；不传则会向用户追问目标项目。
     """
     db, user, ctx_pid, project_ids, names = _get_ctx(config)
@@ -321,31 +467,129 @@ async def create_task(
 
     # Idempotency: the model occasionally fires two identical create_task calls
     # in one turn (same title), which used to insert duplicate tasks. Within a
-    # single run, a repeated (project, title) reuses the already-created task.
-    keys = _created_keys(config)
-    idem_key = ("create_task", target, _normalize_key(title))
-    if idem_key in keys:
-        label = f"{_proj_label(names, target)}" if ctx_pid is None else ""
-        return _format_result(
-            True,
-            message=f"任务「{title.strip()}」本轮已在{label}创建，未重复创建。",
+    # single run, a repeated (project, title) replays the first call's result.
+    item = BatchTaskItem(
+        title=title,
+        description=description,
+        status_id=status_id,
+        priority=priority,
+        assignee_ids=assignee_ids,
+        due_date=due_date,
+        subtasks=subtasks,
+    )
+    idem_key = _task_idem_key(target, item)
+    async with _locked_mutation(config):
+        cached = _idem_lookup(config, idem_key)
+        if cached is not None:
+            return cached
+        try:
+            t, subs = await _create_one_task(
+                db, user, target, title, description, status_id, priority,
+                assignee_ids, due_date, subtasks,
+            )
+            label = f"{_proj_label(names, target)}" if ctx_pid is None else ""
+            sub_note = f"（含 {len(subs)} 个子任务）" if subs else ""
+            result = _format_result(
+                True,
+                message=f"已在{label}创建任务 [{t.id}] {t.title}{sub_note}。",
+                action={"type": "create_task", "task_id": t.id, "title": t.title},
+            )
+            return _idem_store(config, idem_key, result)
+        except Exception as e:
+            return _format_result(False, message=str(e))
+
+
+@tool
+async def create_tasks(
+    tasks: list[BatchTaskItem] | None = None,
+    titles: list[str] | None = None,
+    status_id: int | None = None,
+    description: str = "",
+    priority: int = 0,
+    assignee_ids: list[int] | None = None,
+    due_date: str | None = None,
+    project_id: int | None = None,
+    config: RunnableConfig = None,
+) -> str:
+    """批量创建任务；tasks 可为每项配置独立属性。创建两个及以上任务时必须优先使用。
+
+    推荐传 tasks；兼容的 titles 模式会让所有任务共享 status_id 等公共属性。
+    status_id 必须先从 get_project_info 获取，单次最多 50 项。
+    跨项目会话中：用户已指明项目时传 project_id；不传则会向用户追问目标项目。
+    """
+    db, user, ctx_pid, project_ids, names = _get_ctx(config)
+    if tasks and titles:
+        return _format_result(False, message="tasks 和 titles 只能使用一种批量输入方式。")
+    items = list(tasks or [])
+    if titles:
+        if status_id is None:
+            return _format_result(False, message="使用 titles 批量创建时必须提供 status_id。")
+        items = [
+            BatchTaskItem(
+                title=title.strip(),
+                status_id=status_id,
+                description=description,
+                priority=priority,
+                assignee_ids=assignee_ids,
+                due_date=due_date,
+            )
+            for title in titles
+            if (title or "").strip()
+        ]
+    if not items:
+        return "没有提供任何任务标题。"
+    if len(items) > MAX_BATCH_ITEMS:
+        return _format_result(False, message=f"单次最多批量创建 {MAX_BATCH_ITEMS} 个任务，请拆分后重试。")
+    target, err = _resolve_target_project(config, project_id)
+    if target is None:
+        if err == "ASK":
+            return "目标项目不明确，已向用户提问要在哪个项目中创建，请立即结束本轮回复。"
+        return _format_result(False, message=err)
+
+    label = f"{_proj_label(names, target)}" if ctx_pid is None else ""
+    created, failed, skipped = [], [], []
+    async with _locked_mutation(config):
+        for item in items:
+            idem_key = _task_idem_key(target, item)
+            if _idem_lookup(config, idem_key) is not None:
+                skipped.append(item.title)
+                continue
+            try:
+                # A failed item rolls back to its savepoint without poisoning
+                # the rest of the batch transaction.
+                async with db.begin_nested():
+                    t, subs = await _create_one_task(
+                        db, user, target, item.title, item.description, item.status_id,
+                        item.priority, item.assignee_ids, item.due_date, item.subtasks,
+                    )
+                created.append((t, subs))
+                _idem_store(
+                    config,
+                    idem_key,
+                    _format_result(
+                        True,
+                        message=f"已在{label}创建任务 [{t.id}] {t.title}。",
+                        action={"type": "create_task", "task_id": t.id, "title": t.title},
+                    ),
+                )
+            except Exception as e:
+                failed.append(f"{item.title}（{e}）")
+
+    parts = []
+    if created:
+        parts.append(
+            f"已在{label}批量创建 {len(created)} 个任务："
+            + "、".join(f"[{t.id}] {t.title}" for t, _subs in created)
         )
-    keys.add(idem_key)
-    try:
-        data = TaskCreate(title=title, description=description, status_id=status_id, priority=priority)
-        if assignee_ids:
-            data.assignee_ids = assignee_ids
-        if due_date:
-            data.due_date = _parse_due_date(due_date)
-        t = await task_service.create_task(target, data, user, db)
-        label = f"{_proj_label(names, target)}" if ctx_pid is None else ""
-        return _format_result(
-            True,
-            message=f"已在{label}创建任务 [{t.id}] {t.title}。",
-            action={"type": "create_task", "task_id": t.id, "title": t.title},
-        )
-    except Exception as e:
-        return _format_result(False, message=str(e))
+    if skipped:
+        parts.append(f"跳过 {len(skipped)} 个本轮已创建的任务：" + "、".join(skipped))
+    if failed:
+        parts.append(f"失败 {len(failed)} 个：" + "；".join(failed))
+    if not parts:
+        parts = ["没有创建任何任务。"]
+    # No aggregate action here: each created task already recorded its own
+    # create_task action card in the loop above.
+    return _format_result(not failed, message="\n".join(parts))
 
 
 @tool
@@ -383,13 +627,20 @@ async def update_task(
             payload["is_completed"] = is_completed
         if not payload:
             return "没有提供任何要更新的字段。"
-        data = TaskUpdate(**payload)
-        t = await task_service.update_task(pid, task_id, data, user, db)
-        return _format_result(
-            True,
-            message=f"已更新任务 [{t.id}] {t.title}。",
-            action={"type": "update_task", "task_id": t.id, "title": t.title},
-        )
+        signature = ("update_task", _payload_key(**payload))
+        resource = ("task", task_id)
+        async with _locked_mutation(config):
+            cached = _repeat_lookup(config, resource, signature)
+            if cached is not None:
+                return cached
+            data = TaskUpdate(**payload)
+            t = await task_service.update_task(pid, task_id, data, user, db)
+            result = _format_result(
+                True,
+                message=f"已更新任务 [{t.id}] {t.title}。",
+                action={"type": "update_task", "task_id": t.id, "title": t.title},
+            )
+            return _repeat_store(config, resource, signature, result)
     except Exception as e:
         return _format_result(False, message=str(e))
 
@@ -402,13 +653,25 @@ async def move_task(task_id: int, status_id: int, config: RunnableConfig = None)
     if pid is None:
         return _format_result(False, message=f"未找到任务 id={task_id}（不属于你参与的项目）。")
     try:
-        data = TaskMove(status_id=status_id, order=0)
-        t = await task_service.move_task(pid, task_id, data, user, db)
-        return _format_result(
-            True,
-            message=f"已将任务 [{t.id}] {t.title} 移动到状态 {status_id}。",
-            action={"type": "move_task", "task_id": t.id, "status_id": t.status_id, "title": t.title},
-        )
+        signature = ("move_task", status_id)
+        resource = ("task", task_id)
+        async with _locked_mutation(config):
+            cached = _repeat_lookup(config, resource, signature)
+            if cached is not None:
+                return cached
+            data = TaskMove(status_id=status_id, order=0)
+            t = await task_service.move_task(pid, task_id, data, user, db)
+            result = _format_result(
+                True,
+                message=f"已将任务 [{t.id}] {t.title} 移动到状态 {status_id}。",
+                action={
+                    "type": "move_task",
+                    "task_id": t.id,
+                    "status_id": t.status_id,
+                    "title": t.title,
+                },
+            )
+            return _repeat_store(config, resource, signature, result)
     except Exception as e:
         return _format_result(False, message=str(e))
 
@@ -420,35 +683,112 @@ async def add_comment(task_id: int, content: str, config: RunnableConfig = None)
     pid = ctx_pid if ctx_pid is not None else await _find_task_project(db, task_id, project_ids)
     if pid is None:
         return _format_result(False, message=f"未找到任务 id={task_id}（不属于你参与的项目）。")
+    idem_key = ("add_comment", task_id, _normalize_key(content))
     try:
-        await task_service.add_comment(
-            pid, task_id, TaskCommentCreate(content=content), user, db
-        )
-        return _format_result(
-            True,
-            message=f"已为任务 [{task_id}] 添加评论。",
-            action={"type": "add_comment", "task_id": task_id},
-        )
+        async with _locked_mutation(config):
+            cached = _idem_lookup(config, idem_key)
+            if cached is not None:
+                return cached
+            await task_service.add_comment(
+                pid, task_id, TaskCommentCreate(content=content), user, db
+            )
+            result = _format_result(
+                True,
+                message=f"已为任务 [{task_id}] 添加评论。",
+                action={"type": "add_comment", "task_id": task_id},
+            )
+            return _idem_store(config, idem_key, result)
     except Exception as e:
         return _format_result(False, message=str(e))
 
 
 @tool
 async def add_subtask(parent_task_id: int, title: str, config: RunnableConfig = None) -> str:
-    """为任务添加子任务。"""
+    """为任务添加单个子任务。一次要添加多个子任务时请改用 add_subtasks。"""
     db, user, ctx_pid, project_ids, _names = _get_ctx(config)
     pid = ctx_pid if ctx_pid is not None else await _find_task_project(db, parent_task_id, project_ids)
     if pid is None:
         return _format_result(False, message=f"未找到任务 id={parent_task_id}（不属于你参与的项目）。")
+    # Idempotency: a repeated identical add_subtask within one run replays the
+    # first result instead of inserting a duplicate subtask (the reported bug).
+    idem_key = ("add_subtask", parent_task_id, _normalize_key(title))
     try:
-        t = await task_service.add_subtask(pid, parent_task_id, title, user, db)
-        return _format_result(
-            True,
-            message=f"已添加子任务 [{t.id}] {t.title}。",
-            action={"type": "add_subtask", "task_id": t.id, "parent_task_id": parent_task_id, "title": t.title},
-        )
+        async with _locked_mutation(config):
+            cached = _idem_lookup(config, idem_key)
+            if cached is not None:
+                return cached
+            t = await task_service.add_subtask(pid, parent_task_id, title, user, db)
+            result = _format_result(
+                True,
+                message=f"已添加子任务 [{t.id}] {t.title}。",
+                action={
+                    "type": "add_subtask",
+                    "task_id": t.id,
+                    "parent_task_id": parent_task_id,
+                    "title": t.title,
+                },
+            )
+            return _idem_store(config, idem_key, result)
     except Exception as e:
         return _format_result(False, message=str(e))
+
+
+@tool
+async def add_subtasks(parent_task_id: int, titles: list[str], config: RunnableConfig = None) -> str:
+    """批量为一个任务添加多个子任务（传入标题列表）。添加多个子任务时优先用本工具。"""
+    db, user, ctx_pid, project_ids, _names = _get_ctx(config)
+    pid = ctx_pid if ctx_pid is not None else await _find_task_project(db, parent_task_id, project_ids)
+    if pid is None:
+        return _format_result(False, message=f"未找到任务 id={parent_task_id}（不属于你参与的项目）。")
+    clean_titles = [t.strip() for t in titles if (t or "").strip()]
+    if not clean_titles:
+        return "没有提供任何子任务标题。"
+    if len(clean_titles) > MAX_BATCH_ITEMS:
+        return _format_result(False, message=f"单次最多批量添加 {MAX_BATCH_ITEMS} 个子任务，请拆分后重试。")
+
+    created, failed, skipped = [], [], []
+    async with _locked_mutation(config):
+        for title in clean_titles:
+            idem_key = ("add_subtask", parent_task_id, _normalize_key(title))
+            if _idem_lookup(config, idem_key) is not None:
+                skipped.append(title)
+                continue
+            try:
+                async with db.begin_nested():
+                    t = await task_service.add_subtask(pid, parent_task_id, title, user, db)
+                created.append(t)
+                _idem_store(
+                    config,
+                    idem_key,
+                    _format_result(
+                        True,
+                        message=f"已添加子任务 [{t.id}] {t.title}。",
+                        action={
+                            "type": "add_subtask",
+                            "task_id": t.id,
+                            "parent_task_id": parent_task_id,
+                            "title": t.title,
+                        },
+                    ),
+                )
+            except Exception as e:
+                failed.append(f"{title}（{e}）")
+
+    parts = []
+    if created:
+        parts.append(
+            f"已为任务 [{parent_task_id}] 批量添加 {len(created)} 个子任务："
+            + "、".join(f"[{t.id}] {t.title}" for t in created)
+        )
+    if skipped:
+        parts.append(f"跳过 {len(skipped)} 个本轮已添加的子任务：" + "、".join(skipped))
+    if failed:
+        parts.append(f"失败 {len(failed)} 个：" + "；".join(failed))
+    if not parts:
+        parts = ["没有添加任何子任务。"]
+    # No aggregate action: each created subtask already recorded its own
+    # add_subtask action card in the loop above.
+    return _format_result(not failed, message="\n".join(parts))
 
 
 @tool
@@ -459,12 +799,19 @@ async def update_subtask(subtask_id: int, is_completed: bool, config: RunnableCo
     if pid is None:
         return _format_result(False, message=f"未找到子任务 id={subtask_id}（不属于你参与的项目）。")
     try:
-        t = await task_service.update_subtask(pid, subtask_id, is_completed, user, db)
-        return _format_result(
-            True,
-            message=f"已更新子任务 [{t.id}] 完成状态为 {is_completed}。",
-            action={"type": "update_subtask", "task_id": t.id, "is_completed": is_completed},
-        )
+        signature = ("update_subtask", is_completed)
+        resource = ("task", subtask_id)
+        async with _locked_mutation(config):
+            cached = _repeat_lookup(config, resource, signature)
+            if cached is not None:
+                return cached
+            t = await task_service.update_subtask(pid, subtask_id, is_completed, user, db)
+            result = _format_result(
+                True,
+                message=f"已更新子任务 [{t.id}] 完成状态为 {is_completed}。",
+                action={"type": "update_subtask", "task_id": t.id, "is_completed": is_completed},
+            )
+            return _repeat_store(config, resource, signature, result)
     except Exception as e:
         return _format_result(False, message=str(e))
 
@@ -485,25 +832,26 @@ async def create_status(name: str, color: str = "#6b7280", is_done: bool = False
 
     # Same idempotency guard as create_task: avoid duplicate status columns
     # when the model repeats an identical create_status call within one run.
-    keys = _created_keys(config)
-    idem_key = ("create_status", target, _normalize_key(name))
-    if idem_key in keys:
-        label = f"{_proj_label(names, target)}" if ctx_pid is None else ""
-        return _format_result(
-            True,
-            message=f"状态列「{name.strip()}」本轮已在{label}创建，未重复创建。",
-        )
-    keys.add(idem_key)
+    idem_key = (
+        "create_status",
+        target,
+        _payload_key(name=_normalize_key(name), color=color, is_done=is_done),
+    )
     try:
-        s = await task_service.create_status(
-            target, TaskStatusCreate(name=name, color=color, is_done=is_done), user, db
-        )
-        label = f"{_proj_label(names, target)}" if ctx_pid is None else ""
-        return _format_result(
-            True,
-            message=f"已在{label}创建状态列 [{s.id}] {s.name}。",
-            action={"type": "create_status", "status_id": s.id, "name": s.name},
-        )
+        async with _locked_mutation(config):
+            cached = _idem_lookup(config, idem_key)
+            if cached is not None:
+                return cached
+            s = await task_service.create_status(
+                target, TaskStatusCreate(name=name, color=color, is_done=is_done), user, db
+            )
+            label = f"{_proj_label(names, target)}" if ctx_pid is None else ""
+            result = _format_result(
+                True,
+                message=f"已在{label}创建状态列 [{s.id}] {s.name}。",
+                action={"type": "create_status", "status_id": s.id, "name": s.name},
+            )
+            return _idem_store(config, idem_key, result)
     except Exception as e:
         return _format_result(False, message=str(e))
 
@@ -531,21 +879,30 @@ async def update_status(
             payload["is_done"] = is_done
         if not payload:
             return "没有提供任何要更新的字段。"
-        data = TaskStatusUpdate(**payload)
-        s = await task_service.update_status(pid, status_id, data, user, db)
-        return _format_result(
-            True,
-            message=f"已更新状态列 [{s.id}] {s.name}。",
-            action={"type": "update_status", "status_id": s.id, "name": s.name},
-        )
+        signature = ("update_status", _payload_key(**payload))
+        resource = ("status", status_id)
+        async with _locked_mutation(config):
+            cached = _repeat_lookup(config, resource, signature)
+            if cached is not None:
+                return cached
+            data = TaskStatusUpdate(**payload)
+            s = await task_service.update_status(pid, status_id, data, user, db)
+            result = _format_result(
+                True,
+                message=f"已更新状态列 [{s.id}] {s.name}。",
+                action={"type": "update_status", "status_id": s.id, "name": s.name},
+            )
+            return _repeat_store(config, resource, signature, result)
     except Exception as e:
         return _format_result(False, message=str(e))
 
 
 @tool
 async def delete_status(status_id: int, confirmed: bool = False, config: RunnableConfig = None) -> str:
-    """删除状态列（需要管理员权限）。这是破坏性操作：默认 confirmed=False 时不会真正删除，
-    只会返回待确认信息；必须先向用户说明影响并获得明确同意后，再以 confirmed=True 调用。"""
+    """删除状态列（需管理员权限，破坏性操作）。
+
+    默认 confirmed=False 时不真正删除，只返回待确认信息；必须先向用户说明影响并获得
+    明确同意后，再以 confirmed=True 调用。"""
     db, user, ctx_pid, project_ids, _names = _get_ctx(config)
     pid = ctx_pid if ctx_pid is not None else await _find_status_project(db, status_id, project_ids)
     if pid is None:
@@ -566,12 +923,18 @@ async def delete_status(status_id: int, confirmed: bool = False, config: Runnabl
                     "请先向用户说明影响并获得明确同意，然后使用 confirmed=true 重新调用本工具。"
                 ),
             )
-        await task_service.delete_status(pid, status_id, user, db)
-        return _format_result(
-            True,
-            message=f"已删除状态列 {status_id}。",
-            action={"type": "delete_status", "status_id": status_id},
-        )
+        idem_key = ("delete_status", status_id)
+        async with _locked_mutation(config):
+            cached = _idem_lookup(config, idem_key)
+            if cached is not None:
+                return cached
+            await task_service.delete_status(pid, status_id, user, db)
+            result = _format_result(
+                True,
+                message=f"已删除状态列 {status_id}。",
+                action={"type": "delete_status", "status_id": status_id},
+            )
+            return _idem_store(config, idem_key, result)
     except Exception as e:
         return _format_result(False, message=str(e))
 
@@ -766,27 +1129,113 @@ async def ask_user(question: str, options: list[str] | None = None, config: Runn
 # ---------------------------------------------------------------------------
 # Agent runner
 # ---------------------------------------------------------------------------
-tools = [
-    get_project_info,
-    list_tasks,
-    search_tasks,
-    get_task,
-    get_members,
-    create_task,
-    update_task,
-    move_task,
-    add_comment,
-    add_subtask,
-    update_subtask,
-    create_status,
-    update_status,
-    delete_status,
-    search_knowledge,
-    list_knowledge_docs,
-    read_knowledge_doc,
-    get_doc_content,
-    ask_user,
+MAX_TOOL_CALLS_PER_RUN = 20
+AGENT_RECURSION_LIMIT = 48
+
+
+def _batch_required_message(request) -> str | None:
+    """Reject parallel single-item creates that should be one batch call."""
+    state = request.state if isinstance(request.state, dict) else {}
+    messages = state.get("messages") or []
+    latest = messages[-1] if messages else None
+    calls = getattr(latest, "tool_calls", None) or []
+    current = request.tool_call
+    name = current.get("name")
+
+    if name == "create_task" and sum(call.get("name") == name for call in calls) >= 2:
+        return (
+            "检测到本轮同时创建多个任务。为减少工具调用，未执行这些单条请求；"
+            "请立即合并为一次 create_tasks 调用，并把每个任务放入 tasks 数组。"
+        )
+    if name == "add_subtask":
+        parent_id = (current.get("args") or {}).get("parent_task_id")
+        same_parent = sum(
+            call.get("name") == name
+            and (call.get("args") or {}).get("parent_task_id") == parent_id
+            for call in calls
+        )
+        if same_parent >= 2:
+            return (
+                "检测到本轮为同一父任务添加多个子任务。未执行这些单条请求；"
+                "请立即合并为一次 add_subtasks 调用。"
+            )
+    return None
+
+
+async def _bounded_tool_call(request, execute):
+    """Enforce a hard execution budget and runtime batch-first routing."""
+    batch_message = _batch_required_message(request)
+    if batch_message:
+        return ToolMessage(
+            content=_format_result(False, message=batch_message),
+            name=request.tool_call.get("name", ""),
+            tool_call_id=request.tool_call.get("id", ""),
+            status="error",
+        )
+
+    config = request.runtime.config
+    cfg = config.get("configurable", {})
+    budget = cfg.get("tool_budget")
+    lock = cfg.get("tool_budget_lock")
+    if budget is not None and lock is not None:
+        async with lock:
+            budget["used"] += 1
+            over_budget = budget["used"] > budget["limit"]
+        if over_budget:
+            return ToolMessage(
+                content=_format_result(
+                    False,
+                    message=(
+                        f"本轮已达到 {budget['limit']} 次工具调用上限。"
+                        "不要再调用工具，请基于已有结果直接回复用户。"
+                    ),
+                ),
+                name=request.tool_call.get("name", ""),
+                tool_call_id=request.tool_call.get("id", ""),
+                status="error",
+            )
+
+    return await execute(request)
+
+
+# Tools grouped by category. Registering a new tool = write the @tool function
+# (its docstring first line becomes the summary) and add it to the matching
+# group below — the JSON schema AND the system-prompt listing both update
+# automatically, so there is nothing else to keep in sync.
+TOOL_GROUPS: list[tuple[str, list]] = [
+    ("查询", [get_project_info, list_tasks, search_tasks, get_task, get_members]),
+    ("操作", [create_task, create_tasks, update_task, move_task, add_comment,
+              add_subtask, add_subtasks, update_subtask]),
+    ("管理", [create_status, update_status, delete_status]),
+    ("知识库", [search_knowledge, list_knowledge_docs, read_knowledge_doc, get_doc_content]),
+    ("提问", [ask_user]),
 ]
+
+# Flat list handed to LangChain; order follows TOOL_GROUPS.
+tools = [t for _group, members in TOOL_GROUPS for t in members]
+
+
+def _tool_summary(tool_obj) -> str:
+    """First line of a tool's docstring, used as its one-line summary."""
+    doc = (getattr(tool_obj, "description", None) or "").strip()
+    return doc.splitlines()[0].strip() if doc else ""
+
+
+def _build_tools_listing() -> str:
+    """Auto-generated Chinese tool catalog for the system prompt.
+
+    Derived from TOOL_GROUPS + each tool's docstring so it can never drift out
+    of sync with the actual registered tools.
+    """
+    lines = ["可用工具（按用途分组）："]
+    for group, members in TOOL_GROUPS:
+        names = " / ".join(t.name for t in members)
+        lines.append(f"- {group}：{names}")
+        for t in members:
+            summary = _tool_summary(t)
+            if summary:
+                lines.append(f"  · {t.name}：{summary}")
+    return "\n".join(lines) + "\n\n"
 
 
 _SHARED_RULES = (
@@ -808,9 +1257,15 @@ _SHARED_RULES = (
     "- delete_status 是破坏性操作。首次调用不要传 confirmed；工具会返回待确认信息。\n"
     "- 随后必须向用户说明将删除的状态列及其影响并获得明确同意（可直接在回复中询问），"
     "用户同意后再以 confirmed=true 调用 delete_status 完成删除。\n\n"
-    "工作方式：先调用查询工具确认事实，再执行操作。"
-    "创建任务/状态列时，每个条目只调用一次 create_task / create_status；"
-    "同一标题不要在同一轮重复创建，系统会自动去重。\n"
+    "工作方式：先调用查询工具确认事实，再执行操作。\n"
+    "批量优先规则：\n"
+    "- 创建两个及以上任务时必须只调用一次 create_tasks，使用 tasks 数组为每项提供独立属性；"
+    "不得并行或连续多次调用 create_task。\n"
+    "- 为同一父任务添加两个及以上子任务时必须只调用一次 add_subtasks；"
+    "不得并行或连续多次调用 add_subtask。\n"
+    "- 单次批量最多 50 项；超出时拆成尽可能少的批次。\n"
+    "创建/更新类操作每个条目只做一次：同一标题或相同调用不要在同一轮重复发起，"
+    "系统已对所有写操作做幂等去重，重复调用会被自动忽略，无需重试。\n"
     "用中文回答，保持专业友好。"
 )
 
@@ -848,12 +1303,7 @@ def _build_system_prompt(project_summary: dict) -> str:
         + _current_time_context()
         + f"当前项目：{project_summary['project_name']}\n"
         f"描述：{project_summary['project_description'] or '无'}\n\n"
-        "可用工具说明：\n"
-        "- 查询：get_project_info / list_tasks / search_tasks / get_task / get_members\n"
-        "- 操作：create_task / update_task / move_task / add_comment / add_subtask / update_subtask\n"
-        "- 管理：create_status / update_status / delete_status（需要管理员权限）\n"
-        "- 知识库：search_knowledge / list_knowledge_docs / read_knowledge_doc / get_doc_content\n"
-        "- 提问：ask_user（向用户澄清关键信息）\n\n"
+        + _build_tools_listing()
         + _SHARED_RULES
     )
 
@@ -874,12 +1324,7 @@ def _build_cross_project_prompt(project_names: dict[int, str]) -> str:
         "- 创建类写操作（create_task / create_status）必须明确目标项目：用户已指明项目时"
         "用 project_id 参数传入；用户未指明时直接调用工具（会触发向用户提问），"
         "绝不自行假设默认项目。\n\n"
-        "可用工具说明：\n"
-        "- 查询：get_project_info / list_tasks / search_tasks / get_task / get_members\n"
-        "- 操作：create_task / update_task / move_task / add_comment / add_subtask / update_subtask\n"
-        "- 管理：create_status / update_status / delete_status（需要管理员权限）\n"
-        "- 知识库：search_knowledge / list_knowledge_docs / read_knowledge_doc / get_doc_content\n"
-        "- 提问：ask_user（向用户澄清关键信息）\n\n"
+        + _build_tools_listing()
         + _SHARED_RULES
     )
 
@@ -1019,11 +1464,13 @@ async def _build_agent_run(db, user: User, project_id: int | None, user_message:
         streaming=True,
     )
 
-    agent = create_react_agent(llm, tools, prompt=SystemMessage(content=system_prompt))
+    tool_node = ToolNode(tools, awrap_tool_call=_bounded_tool_call)
+    agent = create_react_agent(llm, tool_node, prompt=SystemMessage(content=system_prompt))
 
     actions: list[dict] = []
     pending_question: dict = {}
     config: RunnableConfig = {
+        "recursion_limit": AGENT_RECURSION_LIMIT,
         "configurable": {
             "db": db,
             "user": user,
@@ -1032,8 +1479,12 @@ async def _build_agent_run(db, user: User, project_id: int | None, user_message:
             "project_names": project_names,
             "actions": actions,
             "pending_question": pending_question,
-            # Seeded per run so create_task/create_status dedupe repeated calls.
-            "created_keys": set(),
+            # Seeded per run so mutating tools dedupe repeated identical calls.
+            "created_keys": {},
+            "last_mutations": {},
+            "mutation_lock": asyncio.Lock(),
+            "tool_budget": {"used": 0, "limit": MAX_TOOL_CALLS_PER_RUN},
+            "tool_budget_lock": asyncio.Lock(),
         }
     }
 
@@ -1046,7 +1497,7 @@ async def _build_agent_run(db, user: User, project_id: int | None, user_message:
 
 
 def _finalize_result(all_messages: list, actions: list[dict], pending_question: dict | None = None,
-                     action_batch_id: str | None = None) -> dict:
+                     action_batch_id: str | None = None, steps: list[dict] | None = None) -> dict:
     final_message = all_messages[-1]
     return {
         "message": _content_to_text(final_message.content),
@@ -1054,11 +1505,32 @@ def _finalize_result(all_messages: list, actions: list[dict], pending_question: 
         "messages": all_messages,
         "pending_question": pending_question or None,
         "action_batch_id": action_batch_id,
+        "steps": steps or None,
     }
 
 
 def _error_result(message: str) -> dict:
-    return {"message": message, "actions": [], "messages": [], "pending_question": None, "action_batch_id": None}
+    return {
+        "message": message,
+        "actions": [],
+        "messages": [],
+        "pending_question": None,
+        "action_batch_id": None,
+        "steps": None,
+    }
+
+
+def _run_failure_result(
+    message: str,
+    input_messages: list,
+    actions: list[dict],
+    pending_question: dict,
+    action_batch_id: str,
+    steps: list[dict] | None = None,
+) -> dict:
+    """Return a visible, undoable result when a run fails after mutations."""
+    messages = [*input_messages, AIMessage(content=message)]
+    return _finalize_result(messages, actions, pending_question, action_batch_id, steps)
 
 
 async def run_agent(
@@ -1079,8 +1551,22 @@ async def run_agent(
     token = task_service.set_agent_batch(action_batch_id)
     try:
         result = await agent.ainvoke({"messages": input_messages}, config=config)
+    except GraphRecursionError:
+        return _run_failure_result(
+            "本轮处理已达到执行步数上限。我已停止继续调用工具；已完成的操作仍可在此消息中撤销。",
+            input_messages,
+            actions,
+            pending_question,
+            action_batch_id,
+        )
     except Exception as e:
-        return _error_result(f"抱歉，LLM 调用失败：{str(e)}")
+        return _run_failure_result(
+            f"抱歉，LLM 调用失败：{str(e)}。已完成的操作仍可在此消息中撤销。",
+            input_messages,
+            actions,
+            pending_question,
+            action_batch_id,
+        )
     finally:
         task_service.reset_agent_batch(token)
 
@@ -1120,6 +1606,7 @@ async def run_agent_stream(
     yield {"type": "status", "stage": "thinking", "message": "正在思考…"}
 
     final_messages: list | None = None
+    process_steps: list[dict] = []
     batch_token = task_service.set_agent_batch(action_batch_id)
     try:
         async for event in agent.astream_events(
@@ -1134,6 +1621,10 @@ async def run_agent_stream(
                     # chunk, or content blocks of type "thinking"/"reasoning").
                     reasoning = _extract_reasoning(chunk)
                     if reasoning:
+                        if process_steps and process_steps[-1].get("kind") == "thinking":
+                            process_steps[-1]["text"] = process_steps[-1].get("text", "") + reasoning
+                        else:
+                            process_steps.append({"kind": "thinking", "text": reasoning})
                         yield {"type": "thinking", "text": reasoning}
                     text = _content_to_text(getattr(chunk, "content", ""))
                     if text:
@@ -1141,6 +1632,14 @@ async def run_agent_stream(
             elif kind == "on_tool_start":
                 name = event.get("name", "")
                 args = event.get("data", {}).get("input")
+                step = {
+                    "kind": "tool",
+                    "id": event.get("run_id", ""),
+                    "tool": name,
+                    "args": args if isinstance(args, dict) else {},
+                    "status": "running",
+                }
+                process_steps.append(step)
                 yield {
                     "type": "tool_start",
                     # run_id pairs this start with its tool_end on the client.
@@ -1149,11 +1648,18 @@ async def run_agent_stream(
                     "args": args if isinstance(args, dict) else {},
                 }
             elif kind == "on_tool_end":
+                run_id = event.get("run_id", "")
+                output_text = _tool_output_text(event.get("data", {}).get("output"))
+                for step in reversed(process_steps):
+                    if step.get("kind") == "tool" and step.get("id") == run_id:
+                        step["status"] = "done"
+                        step["output"] = output_text
+                        break
                 yield {
                     "type": "tool_end",
-                    "id": event.get("run_id", ""),
+                    "id": run_id,
                     "name": event.get("name", ""),
-                    "output": _tool_output_text(event.get("data", {}).get("output")),
+                    "output": output_text,
                 }
             elif kind == "on_chain_end":
                 # Every internal node fires on_chain_end and they overwrite each
@@ -1164,10 +1670,30 @@ async def run_agent_stream(
                 output = event.get("data", {}).get("output")
                 if isinstance(output, dict) and "messages" in output:
                     final_messages = output["messages"]
+    except GraphRecursionError:
+        yield {
+            "type": "result",
+            "result": _run_failure_result(
+                "本轮处理已达到执行步数上限。我已停止继续调用工具；已完成的操作仍可在此消息中撤销。",
+                input_messages,
+                actions,
+                pending_question,
+                action_batch_id,
+                process_steps,
+            ),
+        }
+        return
     except Exception as e:
         yield {
             "type": "result",
-            "result": _error_result(f"抱歉，LLM 调用失败：{str(e)}"),
+            "result": _run_failure_result(
+                f"抱歉，LLM 调用失败：{str(e)}。已完成的操作仍可在此消息中撤销。",
+                input_messages,
+                actions,
+                pending_question,
+                action_batch_id,
+                process_steps,
+            ),
         }
         return
     finally:
@@ -1180,4 +1706,13 @@ async def run_agent_stream(
         }
         return
 
-    yield {"type": "result", "result": _finalize_result(final_messages, actions, pending_question, action_batch_id)}
+    yield {
+        "type": "result",
+        "result": _finalize_result(
+            final_messages,
+            actions,
+            pending_question,
+            action_batch_id,
+            process_steps,
+        ),
+    }

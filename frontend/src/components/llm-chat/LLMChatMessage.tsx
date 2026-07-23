@@ -78,55 +78,66 @@ function ToolStatusMessage({ message }: { message: ChatMessage }) {
   )
 }
 
-/** One collapsible step of the agent's live process (tool call or thinking). */
-function ProcessStepRow({ step }: { step: ProcessStep }) {
+/** ChatGPT-style single disclosure for the full reasoning/tool process. */
+function ProcessDisclosure({ steps, streaming }: { steps: ProcessStep[]; streaming?: boolean }) {
   const [expanded, setExpanded] = useState(false)
-  const running = step.status === 'running'
-  const isThinking = step.kind === 'thinking'
-  const expandable = isThinking ? Boolean(step.text) : Boolean(step.output || (step.args && Object.keys(step.args).length > 0))
+  const thinkingSteps = steps.filter((step) => step.kind === 'thinking' && step.text)
+  const toolSteps = steps.filter((step) => step.kind === 'tool')
+  const runningTool = [...toolSteps].reverse().find((step) => step.status === 'running')
+  const label = streaming
+    ? runningTool
+      ? `正在${toolLabel(runningTool.tool || '')}`
+      : '正在思考'
+    : thinkingSteps.length > 0 && toolSteps.length > 0
+      ? `已思考 · 使用了 ${toolSteps.length} 个工具`
+      : thinkingSteps.length > 0
+        ? '已思考'
+        : `使用了 ${toolSteps.length} 个工具`
 
   return (
-    <div className="w-full">
+    <div className="w-full" data-testid="process-steps">
       <button
         type="button"
-        onClick={() => expandable && setExpanded(!expanded)}
-        disabled={!expandable}
-        className={cn(
-          'flex items-center gap-1.5 text-xs text-muted-foreground transition-colors duration-150',
-          expandable && 'hover:text-foreground',
-          !expandable && 'cursor-default'
-        )}
+        onClick={() => setExpanded(!expanded)}
+        aria-expanded={expanded}
+        className="group flex min-h-7 items-center gap-1.5 text-xs text-muted-foreground transition-colors duration-150 hover:text-foreground"
       >
-        {expandable ? (
-          expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />
-        ) : (
-          <span className="inline-block w-3" />
-        )}
-        {isThinking ? <Brain className="h-3 w-3" /> : <Wrench className="h-3 w-3" />}
-        <span>{isThinking ? '思考过程' : `调用了 ${toolLabel(step.tool || '')}`}</span>
-        {running && (
+        <Brain className="h-3.5 w-3.5" />
+        <span>{label}</span>
+        {streaming && (
           <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-primary/70" />
         )}
+        <ChevronDown
+          className={cn('h-3 w-3 transition-transform duration-150', expanded && 'rotate-180')}
+        />
       </button>
       {expanded && (
-        <div className="mt-1.5 max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground scrollbar-thin">
-          {isThinking ? (
-            step.text
-          ) : (
-            <>
-              {step.args && Object.keys(step.args).length > 0 && (
-                <div className="mb-1">
-                  <span className="font-medium text-foreground/70">参数：</span>
-                  {JSON.stringify(step.args, null, 2)}
+        <div className="mt-1.5 max-h-64 overflow-y-auto border-l border-border pl-3 text-xs text-muted-foreground scrollbar-thin">
+          {thinkingSteps.map((step, index) => (
+            <div key={`thinking-${index}`} className="whitespace-pre-wrap break-words leading-relaxed">
+              {step.text}
+            </div>
+          ))}
+          {toolSteps.length > 0 && (
+            <div className={cn('space-y-2', thinkingSteps.length > 0 && 'mt-3 border-t border-border pt-2.5')}>
+              {toolSteps.map((step, index) => (
+                <div key={step.id || `${step.tool}-${index}`}>
+                  <div className="flex items-center gap-1.5 font-medium text-foreground/75">
+                    <Wrench className="h-3 w-3" />
+                    <span>{toolLabel(step.tool || '')}</span>
+                    {step.status === 'running' && <span className="text-muted-foreground">执行中</span>}
+                  </div>
+                  {step.args && Object.keys(step.args).length > 0 && (
+                    <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed">
+                      {JSON.stringify(step.args, null, 2)}
+                    </pre>
+                  )}
+                  {step.output && (
+                    <div className="mt-1 whitespace-pre-wrap break-words leading-relaxed">{step.output}</div>
+                  )}
                 </div>
-              )}
-              {step.output && (
-                <div>
-                  <span className="font-medium text-foreground/70">结果：</span>
-                  {step.output}
-                </div>
-              )}
-            </>
+              ))}
+            </div>
           )}
         </div>
       )}
@@ -271,14 +282,12 @@ export function LLMChatMessage({ message, questionActive = false, members, onAns
   return (
     <div className="w-full text-sm leading-relaxed text-foreground">
       {message.steps && message.steps.length > 0 && (
-        <div className="mb-2 space-y-1.5" data-testid="process-steps">
-          {message.steps.map((step, idx) => (
-            <ProcessStepRow key={step.id || idx} step={step} />
-          ))}
+        <div className="mb-2">
+          <ProcessDisclosure steps={message.steps} streaming={message.streaming} />
         </div>
       )}
 
-      {message.toolStatus && (
+      {message.toolStatus && (!message.steps || message.steps.length === 0) && (
         <div className="mb-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
           <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground/60" />
           {message.toolStatus}

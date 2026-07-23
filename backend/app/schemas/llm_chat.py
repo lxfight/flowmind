@@ -39,6 +39,7 @@ class LLMChatMessageOut(BaseModel):
     content: str
     tool_calls: list[dict] | None = None
     tool_results: list[dict] | None = None
+    steps: list[dict] | None = None
     actions: list[dict] | None = None
     pending_question: dict | None = None
     action_batch_id: str | None = None

@@ -41,6 +41,7 @@ _SQLITE_COLUMN_FALLBACKS = {
     ],
     "llm_chat_messages": [
         ("pending_question", "JSON"),
+        ("steps", "JSON"),
     ],
     "knowledge_docs": [
         ("status", "VARCHAR(16) NOT NULL DEFAULT 'indexed'"),
