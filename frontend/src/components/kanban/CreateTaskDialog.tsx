@@ -79,10 +79,16 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose
     setGeneratedTasks([])
     setSelectedTasks(new Set())
     try {
-      const res = await api.post('/llm/generate-tasks', {
-        project_id: projectId,
-        instruction: llmInstruction.trim(),
-      })
+      const res = await api.post(
+        '/llm/generate-tasks',
+        {
+          project_id: projectId,
+          instruction: llmInstruction.trim(),
+        },
+        // LLM generation is slow; cap the wait so the button never spins forever
+        // if the gateway or provider hangs (nginx allows up to 300s upstream).
+        { timeout: 310000 }
+      )
       const tasks: GeneratedTask[] = res.data
       if (!Array.isArray(tasks) || tasks.length === 0) {
         toast.error('LLM 未生成有效任务，请尝试更具体的描述')
@@ -90,8 +96,13 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose
       }
       setGeneratedTasks(tasks)
       setSelectedTasks(new Set(tasks.map((_, i) => i)))
-    } catch {
-      toast.error('任务生成失败，请检查 LLM 配置或稍后重试')
+    } catch (err: any) {
+      const isTimeout = err?.code === 'ECONNABORTED' || err?.response?.status === 504
+      toast.error(
+        isTimeout
+          ? 'LLM 生成超时，请简化描述后重试'
+          : '任务生成失败，请检查 LLM 配置或稍后重试'
+      )
     } finally {
       setLlmLoading(false)
     }
