@@ -71,3 +71,75 @@ async def test_notifications_are_user_scoped(client):
     # The owner can
     response = client.post(f"/api/notifications/{victim_id}/read", headers=other_headers)
     assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_batch_assignment_titles_are_distinct(client):
+    """Assigning several tasks at once must yield one notification per task,
+    each heading carrying its own task title (not a run of identical rows)."""
+    from helpers import add_member, create_project
+    from sqlalchemy import select
+
+    from app.models.notification import Notification
+
+    headers = admin_login(client)
+    project_id, statuses = create_project(client, headers, name="指派通知标题")
+    uid, _ = register_and_approve(client, headers, "assignee1")
+    add_member(client, headers, project_id, uid, role="member")
+    status_id = statuses[0]["id"]
+
+    titles = [f"批量任务-{i}" for i in range(3)]
+    for t in titles:
+        resp = client.post(
+            f"/api/projects/{project_id}/tasks",
+            headers=headers,
+            json={"title": t, "status_id": status_id, "assignee_ids": [uid]},
+        )
+        assert resp.status_code == 201, resp.text
+
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(Notification)
+            .where(Notification.user_id == uid, Notification.type == "task_assigned")
+            .order_by(Notification.id)
+        )
+        notifs = result.scalars().all()
+
+    assert len(notifs) == 3
+    heads = [n.title for n in notifs]
+    # Each notification headline is unique and names its task.
+    assert len(set(heads)) == 3
+    for t in titles:
+        assert any(t in h for h in heads)
+
+
+@pytest.mark.asyncio
+async def test_assignment_title_truncates_long_task_name(client):
+    """A very long task title must not overflow the 256-char title column."""
+    from helpers import add_member, create_project
+    from sqlalchemy import select
+
+    from app.models.notification import Notification
+
+    headers = admin_login(client)
+    project_id, statuses = create_project(client, headers, name="长标题指派")
+    uid, _ = register_and_approve(client, headers, "assignee2")
+    add_member(client, headers, project_id, uid, role="member")
+    long_title = "超长任务" * 100  # > 256 chars once embedded
+    resp = client.post(
+        f"/api/projects/{project_id}/tasks",
+        headers=headers,
+        json={"title": long_title[:512], "status_id": statuses[0]["id"], "assignee_ids": [uid]},
+    )
+    assert resp.status_code == 201, resp.text
+
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(Notification).where(Notification.user_id == uid, Notification.type == "task_assigned")
+        )
+        notif = result.scalars().one()
+    assert len(notif.title) <= 256
+    assert notif.title.endswith("」指派给你")
+    # Full task title still available in the body.
+    assert notif.body == f"任务：{long_title[:512]}"
+

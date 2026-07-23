@@ -138,6 +138,10 @@ async def _notify_task_assigned(
 ) -> None:
     """Notify newly assigned users (never the actor themselves)."""
     actor_name = actor.display_name or actor.username
+    # Include the task title in the heading so several simultaneous assignments
+    # read as distinct notifications instead of a run of identical rows. Truncate
+    # the embedded title so the 256-char notification title column never overflows.
+    short_title = task.title if len(task.title) <= 80 else task.title[:79] + "…"
     for assignee_id in assignee_ids:
         if assignee_id == actor.id:
             continue
@@ -145,7 +149,7 @@ async def _notify_task_assigned(
             db,
             user_id=assignee_id,
             type="task_assigned",
-            title=f"{actor_name} 将任务指派给你",
+            title=f"{actor_name} 将任务「{short_title}」指派给你",
             body=f"任务：{task.title}",
             link=_board_link(project_id),
         )
