@@ -18,9 +18,14 @@ services:
     restart: unless-stopped
 
   backend:
+    image: ghcr.io/lxfight/flowmind-backend:${FLOWMIND_VERSION:-local}
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        APP_VERSION: "${FLOWMIND_VERSION:-0.1.0}"
+        GIT_SHA: "${GIT_SHA:-development}"
+        BUILD_TIME: "${BUILD_TIME:-}"
     container_name: flowmind-backend
     environment:
       DATABASE_URL: postgresql+asyncpg://flowmind:flowmind_secret@postgres:5432/flowmind
@@ -37,6 +42,10 @@ services:
       EMBEDDING_API_KEY: "${EMBEDDING_API_KEY:-}"
       EMBEDDING_BASE_URL: "${EMBEDDING_BASE_URL:-}"
       KNOWLEDGE_MAX_BYTES: "${KNOWLEDGE_MAX_BYTES:-26214400}"
+      RELEASE_REPOSITORY: "${RELEASE_REPOSITORY:-lxfight/flowmind}"
+      GITHUB_TOKEN: "${GITHUB_TOKEN:-}"
+      UPDATER_URL: "http://updater:8090"
+      UPDATER_TOKEN: "${FLOWMIND_UPDATER_TOKEN:-flowmind-local-updater-change-me}"
     ports:
       - "8000:8000"
     depends_on:
@@ -47,9 +56,14 @@ services:
     restart: unless-stopped
 
   frontend:
+    image: ghcr.io/lxfight/flowmind-frontend:${FLOWMIND_VERSION:-local}
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        APP_VERSION: "${FLOWMIND_VERSION:-0.1.0}"
+        GIT_SHA: "${GIT_SHA:-development}"
+        BUILD_TIME: "${BUILD_TIME:-}"
     container_name: flowmind-frontend
     ports:
       - "80:80"
@@ -57,5 +71,33 @@ services:
       - backend
     restart: unless-stopped
 
+  updater:
+    image: ghcr.io/lxfight/flowmind-updater:${FLOWMIND_VERSION:-local}
+    build:
+      context: ./updater
+      dockerfile: Dockerfile
+      args:
+        APP_VERSION: "${FLOWMIND_VERSION:-0.1.0}"
+        GIT_SHA: "${GIT_SHA:-development}"
+        BUILD_TIME: "${BUILD_TIME:-}"
+    container_name: flowmind-updater
+    environment:
+      FLOWMIND_UPDATER_TOKEN: "${FLOWMIND_UPDATER_TOKEN:-flowmind-local-updater-change-me}"
+      FLOWMIND_PROJECT_DIR: "${PWD}"
+      FLOWMIND_UPDATE_STATE_DIR: /state
+      COMPOSE_PROJECT_NAME: flowmind
+    working_dir: "${PWD}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - "${PWD}:${PWD}"
+      - updater_state:/state
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8090/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
 volumes:
   pgdata:
+  updater_state:
