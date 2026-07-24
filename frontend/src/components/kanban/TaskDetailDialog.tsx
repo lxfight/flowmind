@@ -14,6 +14,7 @@ import {
   Sparkles,
   Paperclip,
   Download,
+  X,
 } from 'lucide-react'
 import api, { errDetail } from '../../utils/api'
 import toast from 'react-hot-toast'
@@ -76,6 +77,10 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
   const [editingCommentContent, setEditingCommentContent] = useState('')
   const [savingComment, setSavingComment] = useState(false)
   const [deletingCommentId, setDeletingCommentId] = useState<number | null>(null)
+  const [editingSubtaskId, setEditingSubtaskId] = useState<number | null>(null)
+  const [editingSubtaskTitle, setEditingSubtaskTitle] = useState('')
+  const [savingSubtaskId, setSavingSubtaskId] = useState<number | null>(null)
+  const [deletingSubtaskId, setDeletingSubtaskId] = useState<number | null>(null)
   const [suggestingStatus, setSuggestingStatus] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
@@ -254,7 +259,15 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
     if (event.actor_id && event.actor_id === currentUser?.id) return
     const payload = (event.payload || {}) as { task_id?: number }
     const isTaskEvent = ['task_updated', 'task_moved', 'task_deleted'].includes(event.type)
-    const isChildEvent = ['comment_created', 'comment_updated', 'comment_deleted', 'attachment_added', 'attachment_deleted'].includes(event.type)
+    const isChildEvent = [
+      'comment_created',
+      'comment_updated',
+      'comment_deleted',
+      'attachment_added',
+      'attachment_deleted',
+      'subtask_updated',
+      'subtask_deleted',
+    ].includes(event.type)
     if ((isTaskEvent && payload.task_id === taskId) || (isChildEvent && payload.task_id === taskId)) {
       if (wsRefreshRef.current) clearTimeout(wsRefreshRef.current)
       wsRefreshRef.current = setTimeout(() => {
@@ -371,12 +384,60 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
   }
 
   const handleSubtaskComplete = async (subtaskId: number, completed: boolean) => {
+    setSavingSubtaskId(subtaskId)
     try {
-      await api.put(`/projects/${projectId}/tasks/${subtaskId}`, { is_completed: !completed })
+      await api.patch(`/projects/${projectId}/tasks/${taskId}/subtasks/${subtaskId}`, {
+        is_completed: !completed,
+      })
       await refreshTask()
       onUpdated()
     } catch {
       toast.error('更新子任务失败')
+    } finally {
+      setSavingSubtaskId(null)
+    }
+  }
+
+  const startEditingSubtask = (subtaskId: number, title: string) => {
+    setEditingSubtaskId(subtaskId)
+    setEditingSubtaskTitle(title)
+  }
+
+  const cancelEditingSubtask = () => {
+    setEditingSubtaskId(null)
+    setEditingSubtaskTitle('')
+  }
+
+  const handleEditSubtask = async (subtaskId: number) => {
+    const title = editingSubtaskTitle.trim()
+    if (!title || savingSubtaskId !== null) return
+    setSavingSubtaskId(subtaskId)
+    try {
+      await api.patch(`/projects/${projectId}/tasks/${taskId}/subtasks/${subtaskId}`, { title })
+      cancelEditingSubtask()
+      await refreshTask()
+      onUpdated()
+      toast.success('子任务已更新')
+    } catch (err: any) {
+      toast.error(errDetail(err, '更新子任务失败'))
+    } finally {
+      setSavingSubtaskId(null)
+    }
+  }
+
+  const handleDeleteSubtask = async (subtaskId: number, title: string) => {
+    if (!confirm(`确定删除子任务「${title}」？`)) return
+    setDeletingSubtaskId(subtaskId)
+    try {
+      await api.delete(`/projects/${projectId}/tasks/${taskId}/subtasks/${subtaskId}`)
+      if (editingSubtaskId === subtaskId) cancelEditingSubtask()
+      await refreshTask()
+      onUpdated()
+      toast.success('子任务已删除')
+    } catch (err: any) {
+      toast.error(errDetail(err, '删除子任务失败'))
+    } finally {
+      setDeletingSubtaskId(null)
     }
   }
 
@@ -621,21 +682,98 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
               <p className="text-sm text-muted-foreground py-2">暂无子任务</p>
             ) : (
               task.subtasks!.map((sub) => (
-                <label
+                <div
                   key={sub.id}
-                  className="flex items-center gap-3 rounded-lg border border-border p-2.5 cursor-pointer hover:bg-accent/50 transition-colors"
+                  className="group flex min-h-11 items-center gap-3 rounded-lg border border-border p-2.5 hover:bg-accent/50 transition-colors"
                 >
                   <input
                     type="checkbox"
                     checked={sub.is_completed}
                     onChange={() => handleSubtaskComplete(sub.id, sub.is_completed)}
-                    disabled={isViewer}
+                    disabled={isViewer || savingSubtaskId === sub.id || deletingSubtaskId === sub.id}
+                    aria-label={`${sub.is_completed ? '取消完成' : '完成'}子任务「${sub.title}」`}
                     className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
                   />
-                  <span className={`text-sm ${sub.is_completed ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
-                    {sub.title}
-                  </span>
-                </label>
+                  {editingSubtaskId === sub.id ? (
+                    <>
+                      <Input
+                        value={editingSubtaskTitle}
+                        onChange={(event) => setEditingSubtaskTitle(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault()
+                            void handleEditSubtask(sub.id)
+                          } else if (event.key === 'Escape') {
+                            cancelEditingSubtask()
+                          }
+                        }}
+                        disabled={savingSubtaskId === sub.id}
+                        aria-label="编辑子任务标题"
+                        className="h-8 min-w-0 flex-1 text-sm"
+                        autoFocus
+                      />
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 shrink-0"
+                        onClick={() => void handleEditSubtask(sub.id)}
+                        disabled={!editingSubtaskTitle.trim() || savingSubtaskId === sub.id}
+                        loading={savingSubtaskId === sub.id}
+                        aria-label="保存子任务"
+                        title="保存"
+                      >
+                        <Save className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 shrink-0"
+                        onClick={cancelEditingSubtask}
+                        disabled={savingSubtaskId === sub.id}
+                        aria-label="取消编辑子任务"
+                        title="取消"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <span className={cn(
+                        'min-w-0 flex-1 break-words text-sm',
+                        sub.is_completed ? 'line-through text-muted-foreground' : 'text-foreground',
+                      )}>
+                        {sub.title}
+                      </span>
+                      {!isViewer && (
+                        <div className="flex shrink-0 items-center opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => startEditingSubtask(sub.id, sub.title)}
+                            disabled={deletingSubtaskId === sub.id}
+                            aria-label={`编辑子任务「${sub.title}」`}
+                            title="编辑"
+                          >
+                            <Edit2 className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-danger hover:text-danger"
+                            onClick={() => void handleDeleteSubtask(sub.id, sub.title)}
+                            disabled={deletingSubtaskId === sub.id}
+                            loading={deletingSubtaskId === sub.id}
+                            aria-label={`删除子任务「${sub.title}」`}
+                            title="删除"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
               ))
             )}
           </div>

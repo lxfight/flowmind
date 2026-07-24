@@ -178,6 +178,11 @@ class TaskUpdate(BaseModel):
     is_completed: bool | None = None
 
 
+class SubtaskUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=512)
+    is_completed: bool | None = None
+
+
 class TaskOut(BaseModel):
     id: int
     project_id: int

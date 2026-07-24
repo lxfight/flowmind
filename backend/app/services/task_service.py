@@ -22,6 +22,7 @@ from app.models.task import Task, TaskComment, TaskStatus
 from app.models.user import User
 from app.schemas import (
     ProjectMemberOut,
+    SubtaskUpdate,
     TaskCommentCreate,
     TaskCommentOut,
     TaskCreate,
@@ -665,6 +666,75 @@ async def update_subtask(
         snapshot=snapshot,
     )
     return TaskOut.model_validate(subtask)
+
+
+async def edit_subtask(
+    project_id: int,
+    parent_task_id: int,
+    subtask_id: int,
+    data: SubtaskUpdate,
+    user: User,
+    db: AsyncSession,
+) -> TaskOut:
+    await ensure_project_editor(project_id, user, db)
+    parent = await ensure_task_in_project(project_id, parent_task_id, db)
+    subtask = await ensure_task_in_project(project_id, subtask_id, db)
+    if parent.parent_task_id is not None or subtask.parent_task_id != parent.id:
+        raise HTTPException(status_code=404, detail="子任务不存在")
+
+    payload = data.model_dump(exclude_unset=True)
+    snapshot = None
+    if current_agent_batch():
+        snapshot = {
+            "title": subtask.title,
+            "is_completed": subtask.is_completed,
+            "completed_at": _iso(subtask.completed_at),
+        }
+    if "title" in payload:
+        subtask.title = payload["title"]
+    if "is_completed" in payload:
+        subtask.is_completed = bool(payload["is_completed"])
+        subtask.completed_at = datetime.now(UTC) if subtask.is_completed else None
+
+    await db.flush()
+    await db.refresh(subtask)
+    await db.refresh(subtask, ["assignees"])
+    _log(
+        db,
+        project_id=project_id,
+        user_id=user.id,
+        action="update",
+        target_type="subtask",
+        target_id=subtask.id,
+        summary=f"更新子任务: {subtask.title}",
+        snapshot=snapshot,
+    )
+    return TaskOut.model_validate(subtask)
+
+
+async def delete_subtask(
+    project_id: int,
+    parent_task_id: int,
+    subtask_id: int,
+    user: User,
+    db: AsyncSession,
+) -> None:
+    await ensure_project_editor(project_id, user, db)
+    parent = await ensure_task_in_project(project_id, parent_task_id, db)
+    subtask = await ensure_task_in_project(project_id, subtask_id, db)
+    if parent.parent_task_id is not None or subtask.parent_task_id != parent.id:
+        raise HTTPException(status_code=404, detail="子任务不存在")
+
+    _log(
+        db,
+        project_id=project_id,
+        user_id=user.id,
+        action="delete",
+        target_type="subtask",
+        target_id=subtask.id,
+        summary=f"删除子任务: {subtask.title}",
+    )
+    await db.delete(subtask)
 
 
 # ---------------------------------------------------------------------------

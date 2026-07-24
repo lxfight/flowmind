@@ -130,3 +130,52 @@ async def test_move_rejects_invalid_status_and_subtask_constraint(client):
         json={"status_id": statuses[1]["id"], "order": 0},
     )
     assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_project_member_can_edit_and_delete_scoped_subtasks(client):
+    admin_headers = admin_login(client)
+    member_id, member_headers = register_and_approve(client, admin_headers, "subtaskeditor")
+    project_id, statuses = create_project(client, admin_headers)
+    add_member(client, admin_headers, project_id, member_id, role="member")
+    parent = create_task(client, admin_headers, project_id, statuses[0]["id"], "父任务")
+    other_parent = create_task(client, admin_headers, project_id, statuses[0]["id"], "其他父任务")
+
+    response = client.post(
+        f"/api/projects/{project_id}/tasks",
+        headers=member_headers,
+        json={
+            "title": "待编辑子任务",
+            "status_id": statuses[0]["id"],
+            "parent_task_id": parent["id"],
+        },
+    )
+    assert response.status_code == 201, response.text
+    subtask_id = response.json()["id"]
+
+    response = client.patch(
+        f"/api/projects/{project_id}/tasks/{parent['id']}/subtasks/{subtask_id}",
+        headers=member_headers,
+        json={"title": "已编辑子任务", "is_completed": True},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["title"] == "已编辑子任务"
+    assert response.json()["is_completed"] is True
+
+    response = client.patch(
+        f"/api/projects/{project_id}/tasks/{other_parent['id']}/subtasks/{subtask_id}",
+        headers=member_headers,
+        json={"title": "越权编辑"},
+    )
+    assert response.status_code == 404
+
+    response = client.delete(
+        f"/api/projects/{project_id}/tasks/{parent['id']}/subtasks/{subtask_id}",
+        headers=member_headers,
+    )
+    assert response.status_code == 200, response.text
+    detail = client.get(
+        f"/api/projects/{project_id}/tasks/{parent['id']}", headers=member_headers
+    )
+    assert detail.status_code == 200
+    assert detail.json()["subtasks"] == []

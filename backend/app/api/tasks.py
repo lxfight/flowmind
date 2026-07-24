@@ -15,6 +15,7 @@ from app.models.project import ProjectMember
 from app.models.task import TaskComment
 from app.models.user import User
 from app.schemas import (
+    SubtaskUpdate,
     TaskCommentCreate,
     TaskCommentOut,
     TaskCommentUpdate,
@@ -122,6 +123,49 @@ async def move_task(
         actor_id=current_user.id,
     )
     return task
+
+
+@router.patch("/{task_id}/subtasks/{subtask_id}", response_model=TaskOut)
+async def update_subtask(
+    project_id: int,
+    task_id: int,
+    subtask_id: int,
+    data: SubtaskUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    subtask = await task_service.edit_subtask(
+        project_id, task_id, subtask_id, data, current_user, db
+    )
+    queue_ws_event(
+        db,
+        "subtask_updated",
+        project_id,
+        {"task_id": task_id, "subtask_id": subtask.id},
+        actor_id=current_user.id,
+    )
+    return subtask
+
+
+@router.delete("/{task_id}/subtasks/{subtask_id}")
+async def delete_subtask(
+    project_id: int,
+    task_id: int,
+    subtask_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await task_service.delete_subtask(
+        project_id, task_id, subtask_id, current_user, db
+    )
+    queue_ws_event(
+        db,
+        "subtask_deleted",
+        project_id,
+        {"task_id": task_id, "subtask_id": subtask_id},
+        actor_id=current_user.id,
+    )
+    return {"message": "子任务已删除"}
 
 
 # Task comments
