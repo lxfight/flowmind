@@ -151,6 +151,10 @@ def compose_args(*args: str) -> list[str]:
     return ["docker", "compose", "-p", COMPOSE_PROJECT, *args]
 
 
+def git_args(*args: str) -> list[str]:
+    return ["git", "-c", f"safe.directory={PROJECT_DIR}", *args]
+
+
 def set_dotenv_version(version: str) -> None:
     env_path = PROJECT_DIR / ".env"
     try:
@@ -183,15 +187,15 @@ def preflight(state: dict[str, Any], target: str) -> tuple[str, str]:
     command(state, compose_args("version"), timeout=30)
     dirty = command(
         state,
-        ["git", "status", "--porcelain", "--untracked-files=no"],
+        git_args("status", "--porcelain", "--untracked-files=no"),
         timeout=30,
     )
     if dirty:
         raise RuntimeError("working tree has tracked changes; commit or revert them before updating")
-    previous_sha = command(state, ["git", "rev-parse", "HEAD"], timeout=30).strip()
-    command(state, ["git", "fetch", "--tags", "origin"], timeout=180)
+    previous_sha = command(state, git_args("rev-parse", "HEAD"), timeout=30).strip()
+    command(state, git_args("fetch", "--tags", "origin"), timeout=180)
     target_ref = f"refs/tags/v{target}"
-    command(state, ["git", "rev-parse", "--verify", target_ref], timeout=30)
+    command(state, git_args("rev-parse", "--verify", target_ref), timeout=30)
     return previous_sha, current_version()
 
 
@@ -232,7 +236,7 @@ def wait_for_url(state: dict[str, Any], url: str, name: str, timeout: int = 120)
 
 
 def checkout_and_deploy(state: dict[str, Any], target: str) -> None:
-    command(state, ["git", "checkout", "--detach", f"refs/tags/v{target}"], timeout=120)
+    command(state, git_args("checkout", "--detach", f"refs/tags/v{target}"), timeout=120)
     set_dotenv_version(target)
     update_state(
         state,
@@ -275,7 +279,7 @@ def rollback_deployment(
         progress=92,
         message="更新失败，正在恢复上一版本镜像",
     )
-    command(state, ["git", "checkout", "--detach", previous_sha], timeout=120)
+    command(state, git_args("checkout", "--detach", previous_sha), timeout=120)
     set_dotenv_version(previous_version)
     command(
         state,
@@ -353,7 +357,7 @@ def run_operation(operation: str, target: str, request_id: str) -> None:
             {
                 "version": target,
                 "previous_version": previous_version,
-                "git_sha": command(state, ["git", "rev-parse", "HEAD"], timeout=30).strip(),
+                "git_sha": command(state, git_args("rev-parse", "HEAD"), timeout=30).strip(),
                 "deployed_at": utc_now(),
                 "backup_path": str(backup_path),
             },
