@@ -35,15 +35,48 @@ docker compose logs backend   # 查看初始管理员密码
 
 数据库结构由 Alembic 迁移管理，后端启动时自动升级到最新版本，无需手工执行。
 
-## 升级
+## 版本更新
+
+FlowMind 使用根目录 `VERSION` 作为唯一版本号，并在 `vX.Y.Z` Tag 发布时由 GitHub Actions 构建以下镜像：
+
+- `ghcr.io/lxfight/flowmind-backend:X.Y.Z`
+- `ghcr.io/lxfight/flowmind-frontend:X.Y.Z`
+- `ghcr.io/lxfight/flowmind-updater:X.Y.Z`
+
+超级管理员可在 **系统更新** 页面检查 GitHub Release、阅读发布说明并执行更新。`updater` 是独立容器，只有它挂载 Docker Socket；业务后端通过带时间戳的 HMAC 请求与其通信。
+
+生产环境必须在 `.env` 中设置随机更新密钥：
+
+```bash
+printf 'FLOWMIND_UPDATER_TOKEN=%s\n' "$(openssl rand -hex 32)" >> .env
+```
+
+更新顺序如下：
+
+1. 拒绝脏工作区、并发任务和无效版本号。
+2. 验证远端 `vX.Y.Z` Tag，检查 Docker 与可用磁盘空间。
+3. 将 PostgreSQL 备份到 `updater_state` 数据卷。
+4. 拉取指定版本镜像，重建前后端并自动执行 Alembic 迁移。
+5. 检查前后端健康状态；失败时恢复上一代码与镜像。
+
+数据库迁移不会自动降级。更新失败时备份会保留，由管理员评估后手工恢复，避免自动覆盖生产数据。
+
+没有管理界面时，可在仓库根目录执行：
+
+```bash
+scripts/update.sh 0.2.0
+```
+
+首次从旧版升级到带 updater 的版本，执行：
 
 ```bash
 git pull
-docker compose build
-docker compose up -d
+docker compose up -d --build
 ```
 
-镜像重建后启动时自动应用新的数据库迁移。配置数据（数据库卷）不受影响。
+GHCR 镜像必须对部署主机可读；私有仓库需先执行 `docker login ghcr.io`。配置数据、上传文件和数据库卷不会因容器重建而删除。
+
+匿名 GitHub API 受请求配额限制。需要稳定显示完整 Release 说明时，可在 `.env` 配置只读 `GITHUB_TOKEN`；没有 Token 或 API 被限流时，系统仍会通过 GitHub 的最新 Release 重定向识别版本号。
 
 ## 文档站部署（GitHub Pages）
 
