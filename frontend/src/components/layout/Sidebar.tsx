@@ -1,8 +1,10 @@
 import { Link } from 'react-router-dom'
+import { useEffect, useState } from 'react'
 import { NavItem } from './NavItem'
 import { Avatar } from '../ui/Avatar'
 import { cn } from '../../utils/cn'
 import { useUnreadCount } from '../../hooks/useUnreadCount'
+import { fetchUpdateStatus } from '../../api/systemUpdate'
 import {
   LayoutGrid,
   FolderKanban,
@@ -11,6 +13,7 @@ import {
   LogOut,
   Bell,
   Search,
+  CircleArrowUp,
 } from 'lucide-react'
 
 interface SidebarProps {
@@ -25,6 +28,20 @@ export function Sidebar({
   onCloseMobile,
 }: SidebarProps) {
   const { unreadCount } = useUnreadCount()
+  const [updateAvailable, setUpdateAvailable] = useState(false)
+
+  useEffect(() => {
+    if (!user?.is_superuser) return
+    let active = true
+    void fetchUpdateStatus()
+      .then((status) => {
+        if (active) setUpdateAvailable(status.update_available)
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [user?.is_superuser])
 
   return (
     <div className="flex h-full flex-col">
@@ -78,6 +95,13 @@ export function Sidebar({
             <>
               <NavItem to="/admin/users" label="用户管理" icon={Shield} onClick={onCloseMobile} />
               <NavItem to="/admin/config" label="系统配置" icon={Settings} onClick={onCloseMobile} />
+              <NavItem
+                to="/admin/update"
+                label="系统更新"
+                icon={CircleArrowUp}
+                onClick={onCloseMobile}
+                endDecorator={updateAvailable ? <span className="h-2 w-2 rounded-full bg-primary" /> : undefined}
+              />
             </>
           )}
         </nav>

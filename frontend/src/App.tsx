@@ -15,6 +15,7 @@ const ProjectReportPage = lazy(() => import('./pages/ProjectReportPage'))
 const ActivityPage = lazy(() => import('./pages/ActivityPage'))
 const AdminUsersPage = lazy(() => import('./pages/AdminUsersPage'))
 const AdminConfigPage = lazy(() => import('./pages/AdminConfigPage'))
+const SystemUpdatePage = lazy(() => import('./pages/SystemUpdatePage'))
 const ProfilePage = lazy(() => import('./pages/ProfilePage'))
 const NotificationsPage = lazy(() => import('./pages/NotificationsPage'))
 const TaskSearchPage = lazy(() => import('./pages/TaskSearchPage'))
@@ -102,6 +103,14 @@ export default function App() {
               />
               {/* 不用 AdminRoute（其会静默重定向），由页面内部对非超管展示无权限提示 */}
               <Route path="admin/config" element={<AdminConfigPage />} />
+              <Route
+                path="admin/update"
+                element={
+                  <AdminRoute>
+                    <SystemUpdatePage />
+                  </AdminRoute>
+                }
+              />
               <Route path="*" element={<NotFoundPage />} />
             </Route>
           </Routes>
