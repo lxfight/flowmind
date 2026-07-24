@@ -96,6 +96,20 @@ GHCR 镜像必须对部署主机可读；私有仓库需先执行 `docker login 
 
 匿名 GitHub API 受请求配额限制。需要稳定显示完整 Release 说明时，可在 `.env` 配置只读 `GITHUB_TOKEN`；没有 Token 或 API 被限流时，系统仍会通过 GitHub 的最新 Release 重定向识别版本号。
 
+updater 获取版本代码时保持执行完整的 `git fetch --tags`。它会先使用仓库的 `origin`；官方 GitHub 超时或失败后，再依次尝试以下 Git Smart HTTP 加速前缀：
+
+- `https://edgeone.gh-proxy.com`
+- `https://hk.gh-proxy.com`
+- `https://gh-proxy.com`
+- `https://gh.dpik.top`
+
+加速地址的使用格式为 `加速前缀/完整 GitHub 仓库 URL`。它们是第三方服务，只在 `origin` 拉取失败后临时用于获取 Tags，不会替换仓库 `origin`。可在 `.env` 自定义顺序，或在安全策略不允许第三方中转时禁用：
+
+```bash
+FLOWMIND_GITHUB_ACCELERATORS=off
+FLOWMIND_GIT_FETCH_TIMEOUT=45
+```
+
 ## 文档站部署（GitHub Pages）
 
 本仓库自带 GitHub Actions 工作流（`.github/workflows/deploy-docs.yml`）：`main` 分支上 `docs-site/` 目录或该工作流变更时，自动构建 VitePress 站点并发布到 GitHub Pages。
