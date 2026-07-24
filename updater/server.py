@@ -191,7 +191,11 @@ def preflight(state: dict[str, Any], target: str) -> tuple[str, str]:
         timeout=30,
     )
     if dirty:
-        raise RuntimeError("working tree has tracked changes; commit or revert them before updating")
+        changed = ", ".join(line[3:] for line in dirty.splitlines()[:10])
+        raise RuntimeError(
+            "working tree has tracked changes; move deployment settings to .env "
+            f"or commit/revert these files before updating: {changed}"
+        )
     previous_sha = command(state, git_args("rev-parse", "HEAD"), timeout=30).strip()
     command(state, git_args("fetch", "--tags", "origin"), timeout=180)
     target_ref = f"refs/tags/v{target}"
