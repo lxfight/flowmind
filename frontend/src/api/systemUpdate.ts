@@ -43,6 +43,12 @@ export interface UpdateOverview {
   updater: UpdaterStatus
 }
 
+export interface ReleaseListResponse {
+  items: ReleaseInfo[]
+  checked_at: string | null
+  error: string | null
+}
+
 export interface UpdateRun {
   id: number
   request_id: string
@@ -67,6 +73,10 @@ export async function fetchUpdateStatus(): Promise<UpdateOverview> {
 
 export async function checkForUpdates(): Promise<UpdateOverview> {
   return (await api.post('/admin/update/check')).data
+}
+
+export async function fetchReleases(limit = 20): Promise<ReleaseListResponse> {
+  return (await api.get('/admin/update/releases', { params: { limit } })).data
 }
 
 export async function applyUpdate(version: string, requestId: string): Promise<void> {
