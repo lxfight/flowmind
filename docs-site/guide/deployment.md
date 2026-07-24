@@ -74,6 +74,14 @@ git pull
 docker compose up -d --build
 ```
 
+旧版 updater 如果因仓库所有权检查报错 `detected dubious ownership`，在仓库根目录执行一次：
+
+```bash
+docker compose exec -T updater git config --global --add safe.directory "$PWD"
+```
+
+然后回到系统更新页重试。更新到包含修复的版本后，updater 会为每次 Git 调用安全地限定当前项目目录，不再依赖容器内的全局配置。
+
 GHCR 镜像必须对部署主机可读；私有仓库需先执行 `docker login ghcr.io`。配置数据、上传文件和数据库卷不会因容器重建而删除。
 
 匿名 GitHub API 受请求配额限制。需要稳定显示完整 Release 说明时，可在 `.env` 配置只读 `GITHUB_TOKEN`；没有 Token 或 API 被限流时，系统仍会通过 GitHub 的最新 Release 重定向识别版本号。
