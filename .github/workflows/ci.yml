@@ -5,6 +5,35 @@ on:
   pull_request:
 
 jobs:
+  release-metadata:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Validate version metadata
+        run: scripts/check-version.sh
+      - name: Validate Conventional Commits
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_BEFORE: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            range="${BASE_SHA}..${HEAD_SHA}"
+          elif [[ -n "${EVENT_BEFORE}" && "${EVENT_BEFORE}" != "0000000000000000000000000000000000000000" ]]; then
+            range="${EVENT_BEFORE}..${HEAD_SHA}"
+          elif git rev-parse "${HEAD_SHA}^" >/dev/null 2>&1; then
+            range="${HEAD_SHA}^..${HEAD_SHA}"
+          else
+            range="${HEAD_SHA}"
+          fi
+          scripts/check-commit-messages.sh "${range}"
+
   frontend:
     runs-on: ubuntu-latest
     defaults:

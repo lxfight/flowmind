@@ -14,16 +14,15 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      build_time: ${{ steps.version.outputs.build_time }}
     steps:
       - uses: actions/checkout@v4
       - id: version
         shell: bash
         run: |
-          version="$(tr -d '[:space:]' < VERSION)"
-          test "v${version}" = "${GITHUB_REF_NAME}"
-          test "${version}" = "$(node -p "require('./frontend/package.json').version")"
-          test "${version}" = "$(sed -n 's/^version = "\([^"]*\)"/\1/p' backend/pyproject.toml | head -n1)"
+          version="$(scripts/check-version.sh "${GITHUB_REF_NAME}")"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "build_time=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
 
   publish:
     needs: validate
@@ -55,13 +54,24 @@ jobs:
           build-args: |
             APP_VERSION=${{ needs.validate.outputs.version }}
             GIT_SHA=${{ github.sha }}
-            BUILD_TIME=${{ github.event.head_commit.timestamp }}
+            BUILD_TIME=${{ needs.validate.outputs.build_time }}
 
   release:
     needs: [validate, publish]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Generate release notes
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --latest --strip header
+        env:
+          OUTPUT: RELEASE_NOTES.md
+          GITHUB_REPO: ${{ github.repository }}
       - uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          body_path: RELEASE_NOTES.md
+          files: RELEASE_NOTES.md
