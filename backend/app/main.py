@@ -13,6 +13,7 @@ from sqlalchemy import select, text, update
 from app.api import (
     admin,
     admin_config,
+    admin_update,
     attachments,
     auth,
     knowledge,
@@ -25,6 +26,7 @@ from app.api import (
     ws,
 )
 from app.core.database import Base, async_session_factory, engine
+from app.core.version import APP_VERSION, version_info
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +149,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="FlowMind API",
     description="LLM-powered intelligent task management system",
-    version="0.1.0",
+    version=APP_VERSION,
     lifespan=lifespan,
 )
 
@@ -163,6 +165,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(admin.router)
 app.include_router(admin_config.router)
+app.include_router(admin_update.router)
 app.include_router(projects.router)
 app.include_router(tasks.router)
 app.include_router(statuses.router)
@@ -183,4 +186,9 @@ app.mount("/api/uploads", StaticFiles(directory=str(upload_dir_path)), name="upl
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "ok", "service": "FlowMind"}
+    return {"status": "ok", "service": "FlowMind", **version_info()}
+
+
+@app.get("/api/system/version")
+async def system_version():
+    return version_info()

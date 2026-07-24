@@ -10,6 +10,11 @@ class Settings(BaseSettings):
 
     app_name: str = "FlowMind"
     debug: bool = False
+    release_repository: str = "lxfight/flowmind"
+    github_token: str = ""
+    update_check_ttl_seconds: int = 6 * 60 * 60
+    updater_url: str = "http://updater:8090"
+    updater_token: str = ""
 
     # Local timezone used when surfacing "current time" to the LLM assistant.
     # The server runs in UTC, but users see times in their local zone; this makes
