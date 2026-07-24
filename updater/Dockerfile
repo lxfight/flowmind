@@ -2,7 +2,7 @@ FROM python:3.12-alpine
 
 RUN apk add --no-cache docker-cli docker-cli-compose git curl postgresql-client
 
-ARG APP_VERSION=0.2.0
+ARG APP_VERSION=0.2.1
 ARG GIT_SHA=development
 ARG BUILD_TIME=
 

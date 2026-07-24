@@ -27,7 +27,7 @@ BACKEND_HEALTH_URL = os.getenv(
 )
 FRONTEND_HEALTH_URL = os.getenv("FLOWMIND_FRONTEND_HEALTH_URL", "http://frontend/")
 MIN_FREE_BYTES = int(os.getenv("FLOWMIND_UPDATE_MIN_FREE_BYTES", str(1024**3)))
-APP_VERSION = os.getenv("APP_VERSION", "0.2.0")
+APP_VERSION = os.getenv("APP_VERSION", "0.2.1")
 RELEASE_REPOSITORY = os.getenv("FLOWMIND_RELEASE_REPOSITORY", "lxfight/flowmind").strip()
 STATE_PATH = STATE_DIR / "update.json"
 DEPLOYMENT_PATH = STATE_DIR / "deployment.json"

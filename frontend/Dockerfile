@@ -5,7 +5,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
-ARG APP_VERSION=0.2.0
+ARG APP_VERSION=0.2.1
 ARG GIT_SHA=development
 ARG BUILD_TIME=
 ENV VITE_APP_VERSION=$APP_VERSION

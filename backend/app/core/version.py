@@ -5,9 +5,9 @@ from pathlib import Path
 def _development_version() -> str:
     version_file = Path(__file__).resolve().parents[3] / "VERSION"
     try:
-        return version_file.read_text(encoding="utf-8").strip() or "0.2.0"
+        return version_file.read_text(encoding="utf-8").strip() or "0.2.1"
     except OSError:
-        return "0.2.0"
+        return "0.2.1"
 
 
 APP_VERSION = os.getenv("APP_VERSION") or _development_version()

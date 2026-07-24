@@ -23,7 +23,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
       args:
-        APP_VERSION: "${FLOWMIND_VERSION:-0.2.0}"
+        APP_VERSION: "${FLOWMIND_VERSION:-0.2.1}"
         GIT_SHA: "${GIT_SHA:-development}"
         BUILD_TIME: "${BUILD_TIME:-}"
     container_name: flowmind-backend
@@ -61,7 +61,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        APP_VERSION: "${FLOWMIND_VERSION:-0.2.0}"
+        APP_VERSION: "${FLOWMIND_VERSION:-0.2.1}"
         GIT_SHA: "${GIT_SHA:-development}"
         BUILD_TIME: "${BUILD_TIME:-}"
     container_name: flowmind-frontend
@@ -77,7 +77,7 @@ services:
       context: ./updater
       dockerfile: Dockerfile
       args:
-        APP_VERSION: "${FLOWMIND_VERSION:-0.2.0}"
+        APP_VERSION: "${FLOWMIND_VERSION:-0.2.1}"
         GIT_SHA: "${GIT_SHA:-development}"
         BUILD_TIME: "${BUILD_TIME:-}"
     container_name: flowmind-updater

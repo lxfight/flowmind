@@ -1,6 +1,6 @@
 [project]
 name = "flowmind"
-version = "0.2.0"
+version = "0.2.1"
 description = "FlowMind - LLM-powered intelligent task management system"
 requires-python = ">=3.11"
 dependencies = [
