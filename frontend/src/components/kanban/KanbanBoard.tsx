@@ -22,6 +22,7 @@ import { KanbanCard } from './KanbanCard'
 import { CreateTaskDialog } from './CreateTaskDialog'
 import { TaskDetailDialog } from './TaskDetailDialog'
 import { StatusManagerDialog } from './StatusManagerDialog'
+import { filterAndSortTasks, type TaskSortKey } from './taskView'
 import { LLMChatPanel } from '../llm-chat/LLMChatPanel'
 import { loadOpenState, saveOpenState } from '../llm-chat/floatingGeometry'
 import { AlertCircle, ArrowDown, ArrowUp, Columns3, Filter, Loader2, MessageSquare, Plus, RefreshCw, Search, X } from 'lucide-react'
@@ -41,9 +42,7 @@ const PRIORITY_OPTIONS = [
   { value: 4, label: '紧急' },
 ]
 
-type SortKey = 'manual' | 'created_at' | 'updated_at' | 'priority' | 'due_date'
-
-const SORT_OPTIONS: { value: SortKey; label: string }[] = [
+const SORT_OPTIONS: { value: TaskSortKey; label: string }[] = [
   { value: 'manual', label: '手动排序' },
   { value: 'created_at', label: '创建时间' },
   { value: 'updated_at', label: '更新时间' },
@@ -84,10 +83,9 @@ export default function KanbanBoard() {
   const [searchQuery, setSearchQuery] = useState('')
   const [assigneeFilter, setAssigneeFilter] = useState<number | null>(null)
   const [priorityFilter, setPriorityFilter] = useState<number | null>(null)
-  const [sortKey, setSortKey] = useState<SortKey>('manual')
+  const [sortKey, setSortKey] = useState<TaskSortKey>('manual')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [members, setMembers] = useState<MemberOption[]>([])
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const wsRefreshRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const currentUserId = useAuthStore((s) => s.user?.id)
 
@@ -97,18 +95,30 @@ export default function KanbanBoard() {
     useSensor(KeyboardSensor)
   )
 
-  const fetchTasks = useCallback(async (search?: string, assigneeId?: number | null) => {
+  const fetchTasks = useCallback(async () => {
     if (!projectId) return
-    const params: Record<string, string> = { page: '1', page_size: '100' }
-    if (search) params.search = search
-    if (assigneeId) params.assignee_id = String(assigneeId)
-    const res = await api.get(`/projects/${projectId}/tasks`, { params })
-    return res.data.items as TaskSummary[]
+    const firstPage = await api.get(`/projects/${projectId}/tasks`, {
+      params: { page: 1, page_size: 100 },
+    })
+    const firstItems = firstPage.data.items as TaskSummary[]
+    const pageCount = Math.ceil(Number(firstPage.data.total || firstItems.length) / 100)
+    if (pageCount <= 1) return firstItems
+
+    const remainingPages = await Promise.all(
+      Array.from({ length: pageCount - 1 }, (_, index) =>
+        api.get(`/projects/${projectId}/tasks`, {
+          params: { page: index + 2, page_size: 100 },
+        })
+      )
+    )
+    return firstItems.concat(
+      remainingPages.flatMap((response) => response.data.items as TaskSummary[])
+    )
   }, [projectId])
 
-  const loadTasks = useCallback(async (search?: string, assigneeId?: number | null, showError = true) => {
+  const loadTasks = useCallback(async (showError = true) => {
     try {
-      const nextTasks = await fetchTasks(search, assigneeId)
+      const nextTasks = await fetchTasks()
       if (nextTasks) setTasks(nextTasks)
       return nextTasks
     } catch (err) {
@@ -150,22 +160,16 @@ export default function KanbanBoard() {
       .catch(() => toast.error('加载成员列表失败'))
 
     return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current)
       if (wsRefreshRef.current) clearTimeout(wsRefreshRef.current)
     }
   }, [projectId, loadBoard])
 
   const handleSearchChange = (value: string) => {
     setSearchQuery(value)
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => {
-      void loadTasks(value, assigneeFilter).catch(() => {})
-    }, 300)
   }
 
   const handleAssigneeFilter = (id: number | null) => {
     setAssigneeFilter(id)
-    void loadTasks(searchQuery, id).catch(() => {})
   }
 
   const clearFilters = () => {
@@ -174,15 +178,20 @@ export default function KanbanBoard() {
     setPriorityFilter(null)
     setSortKey('manual')
     setSortDir('asc')
-    void loadTasks(undefined, null).catch(() => {})
   }
 
-  const hasActiveFilters = searchQuery || assigneeFilter !== null || priorityFilter !== null || sortKey !== 'manual'
+  const hasTaskFilters = Boolean(searchQuery) || assigneeFilter !== null || priorityFilter !== null
+  const hasActiveFilters = hasTaskFilters || sortKey !== 'manual'
 
-  // 优先级过滤在已加载任务上纯前端进行（任务随看板全量加载）
   const visibleTasks = useMemo(
-    () => (priorityFilter === null ? tasks : tasks.filter((t) => t.priority === priorityFilter)),
-    [tasks, priorityFilter]
+    () => filterAndSortTasks(tasks, {
+      searchQuery,
+      assigneeId: assigneeFilter,
+      priority: priorityFilter,
+      sortKey,
+      sortDirection: sortDir,
+    }),
+    [tasks, searchQuery, assigneeFilter, priorityFilter, sortKey, sortDir]
   )
 
   // Real-time sync: refresh the board when other clients mutate the project.
@@ -196,27 +205,13 @@ export default function KanbanBoard() {
       if (event.type.startsWith('status_')) {
         void loadBoard().catch(() => {})
       } else {
-        void loadTasks(searchQuery, assigneeFilter, false).catch(() => {})
+        void loadTasks(false).catch(() => {})
       }
     }, 300)
   })
 
   const getTasksByStatus = (statusId: number) => {
-    const list = visibleTasks.filter((t) => t.status_id === statusId)
-    if (sortKey === 'manual') return list.sort((a, b) => a.order - b.order)
-    const dir = sortDir === 'asc' ? 1 : -1
-    return [...list].sort((a, b) => {
-      if (sortKey === 'priority') return (a.priority - b.priority) * dir
-      const av = a[sortKey]
-      const bv = b[sortKey]
-      if (sortKey === 'due_date') {
-        // 无截止日期的任务始终排在最后
-        if (!av && !bv) return 0
-        if (!av) return 1
-        if (!bv) return -1
-      }
-      return (new Date(av as string).getTime() - new Date(bv as string).getTime()) * dir
-    })
+    return visibleTasks.filter((task) => task.status_id === statusId)
   }
 
   // Reset board-local UI state only when the project actually changes
@@ -288,7 +283,7 @@ export default function KanbanBoard() {
       toast.error('移动失败，已还原')
       return
     }
-    void loadTasks(searchQuery, assigneeFilter, false).catch(() => {
+    void loadTasks(false).catch(() => {
       toast.error('任务已移动，但刷新失败')
     })
   }
@@ -319,7 +314,7 @@ export default function KanbanBoard() {
     )
     try {
       await api.put(`/projects/${projectId}/tasks/${taskId}`, { assignee_ids: userIds })
-      void loadTasks(searchQuery, assigneeFilter, false).catch(() => {})
+      void loadTasks(false).catch(() => {})
     } catch {
       setTasks(previousTasks)
       toast.error('指派失败，已还原')
@@ -339,10 +334,10 @@ export default function KanbanBoard() {
         ].includes(a.type)
       )
       if (needsRefresh) {
-        void loadTasks(searchQuery, assigneeFilter, false)
+        void loadTasks(false)
       }
     },
-    [loadTasks, searchQuery, assigneeFilter]
+    [loadTasks]
   )
 
   return (
@@ -443,7 +438,7 @@ export default function KanbanBoard() {
             <div className="flex items-center gap-1">
               <Select
                 value={sortKey}
-                onChange={(e) => setSortKey(e.target.value as SortKey)}
+                onChange={(e) => setSortKey(e.target.value as TaskSortKey)}
                 className="w-full sm:w-auto text-sm"
                 aria-label="列内排序方式"
               >
@@ -478,7 +473,7 @@ export default function KanbanBoard() {
               </Button>
             )}
             <Badge variant="secondary" className="sm:ml-auto text-xs">
-              {priorityFilter !== null ? `${visibleTasks.length} / ${tasks.length} 个任务` : `${tasks.length} 个任务`}
+              {hasTaskFilters ? `${visibleTasks.length} / ${tasks.length} 个任务` : `${tasks.length} 个任务`}
             </Badge>
           </div>
         </div>
@@ -599,7 +594,7 @@ export default function KanbanBoard() {
           statuses={statuses.map((s) => ({ id: s.id, name: s.name }))}
           onClose={() => setDetailTaskId(null)}
           onUpdated={() => {
-            void loadTasks(searchQuery, assigneeFilter).catch(() => {})
+            void loadTasks().catch(() => {})
           }}
         />
       )}
