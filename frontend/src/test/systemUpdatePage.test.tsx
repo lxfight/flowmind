@@ -70,8 +70,7 @@ describe('SystemUpdatePage', () => {
     const user = userEvent.setup()
     render(<SystemUpdatePage />)
 
-    await waitFor(() => expect(fetchReleases).toHaveBeenCalled())
-    await user.click(screen.getByRole('tab', { name: '更新日志' }))
+    await user.click(await screen.findByRole('tab', { name: '更新日志' }))
 
     expect(screen.getByText('FlowMind 0.2.0')).toBeInTheDocument()
     expect(screen.getByText('可更新')).toBeInTheDocument()
