@@ -26,7 +26,7 @@ BACKEND_HEALTH_URL = os.getenv(
 )
 FRONTEND_HEALTH_URL = os.getenv("FLOWMIND_FRONTEND_HEALTH_URL", "http://frontend/")
 MIN_FREE_BYTES = int(os.getenv("FLOWMIND_UPDATE_MIN_FREE_BYTES", str(1024**3)))
-APP_VERSION = os.getenv("APP_VERSION", "0.1.0")
+APP_VERSION = os.getenv("APP_VERSION", "0.2.0")
 STATE_PATH = STATE_DIR / "update.json"
 DEPLOYMENT_PATH = STATE_DIR / "deployment.json"
 LOCK_PATH = STATE_DIR / "update.lock"

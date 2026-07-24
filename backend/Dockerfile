@@ -10,7 +10,7 @@ COPY pyproject.toml uv.lock ./
 RUN pip install --no-cache-dir uv==0.11.28 && \
     uv sync --frozen --no-dev --no-install-project
 
-ARG APP_VERSION=0.1.0
+ARG APP_VERSION=0.2.0
 ARG GIT_SHA=development
 ARG BUILD_TIME=
 
