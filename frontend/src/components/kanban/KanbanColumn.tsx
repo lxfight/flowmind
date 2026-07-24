@@ -11,7 +11,7 @@ import { cn } from '../../utils/cn'
 import type { TaskStatus, TaskCard, MemberOption } from '../../types'
 
 interface Props {
-  status: Pick<TaskStatus, 'id' | 'name' | 'color' | 'task_count'>
+  status: Pick<TaskStatus, 'id' | 'name' | 'color' | 'is_done' | 'task_count'>
   tasks: TaskCard[]
   members: MemberOption[]
   readOnly?: boolean
@@ -82,6 +82,7 @@ export function KanbanColumn({ status, tasks, members, readOnly = false, columnW
                   task={task}
                   members={members}
                   readOnly={readOnly}
+                  completed={status.is_done || task.is_completed}
                   onClick={() => onTaskClick(task.id)}
                   onAssign={onAssignTask ? (userIds) => onAssignTask(task.id, userIds) : undefined}
                 />

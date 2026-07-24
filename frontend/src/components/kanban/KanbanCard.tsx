@@ -15,6 +15,7 @@ interface Props {
   members: MemberOption[]
   isDragOverlay?: boolean
   readOnly?: boolean
+  completed?: boolean
   onClick?: () => void
   onAssign?: (userIds: number[]) => void
 }
@@ -27,7 +28,7 @@ const priorityConfig = {
   4: { label: '紧急', variant: 'danger' as const },
 }
 
-export function KanbanCard({ task, members, isDragOverlay, readOnly = false, onClick, onAssign }: Props) {
+export function KanbanCard({ task, members, isDragOverlay, readOnly = false, completed = false, onClick, onAssign }: Props) {
   const {
     attributes,
     listeners,
@@ -64,6 +65,7 @@ export function KanbanCard({ task, members, isDragOverlay, readOnly = false, onC
       hover={false}
       className={cn(
         'relative group kanban-card-edge p-3 rounded-lg border border-border bg-card text-card-foreground',
+        completed && 'border-border/50 bg-muted/20 shadow-none',
         !isDragOverlay && !isDragging && 'cursor-pointer transition-shadow duration-150',
         isDragging && 'opacity-40',
         isDragOverlay && 'shadow-xl rotate-1 scale-[1.02] cursor-grabbing'
@@ -92,7 +94,7 @@ export function KanbanCard({ task, members, isDragOverlay, readOnly = false, onC
       >
         {/* Header: priority + relative time */}
         <div className="flex items-center justify-between gap-2">
-          <Badge variant={priority.variant} className="gap-1 text-[10px] h-5 px-1.5">
+          <Badge variant={priority.variant} className={cn('gap-1 text-[10px] h-5 px-1.5', completed && 'opacity-55')}>
             <AlertCircle className="h-3 w-3" aria-hidden="true" />
             {priority.label}
           </Badge>
@@ -104,7 +106,10 @@ export function KanbanCard({ task, members, isDragOverlay, readOnly = false, onC
         </div>
 
         {/* Title */}
-        <p className="text-sm font-medium leading-snug text-foreground">{task.title}</p>
+        <p className={cn(
+          'text-sm font-medium leading-snug text-foreground',
+          completed && 'text-muted-foreground line-through decoration-muted-foreground/50'
+        )}>{task.title}</p>
 
         {/* Subtask progress */}
         {task.subtask_count > 0 && (
@@ -115,7 +120,10 @@ export function KanbanCard({ task, members, isDragOverlay, readOnly = false, onC
             </div>
             <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
               <div
-                className="h-full rounded-full bg-primary transition-all duration-300"
+                className={cn(
+                  'h-full rounded-full bg-primary transition-all duration-300',
+                  completed && 'bg-muted-foreground/35'
+                )}
                 style={{ width: `${subtaskProgress}%` }}
               />
             </div>
