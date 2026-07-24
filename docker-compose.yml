@@ -86,6 +86,9 @@ services:
       FLOWMIND_PROJECT_DIR: "${PWD}"
       FLOWMIND_UPDATE_STATE_DIR: /state
       COMPOSE_PROJECT_NAME: flowmind
+      FLOWMIND_RELEASE_REPOSITORY: "${RELEASE_REPOSITORY:-lxfight/flowmind}"
+      FLOWMIND_GITHUB_ACCELERATORS: "${FLOWMIND_GITHUB_ACCELERATORS:-}"
+      FLOWMIND_GIT_FETCH_TIMEOUT: "${FLOWMIND_GIT_FETCH_TIMEOUT:-45}"
     working_dir: "${PWD}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

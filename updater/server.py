@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 
 PORT = int(os.getenv("PORT", "8090"))
@@ -27,12 +28,19 @@ BACKEND_HEALTH_URL = os.getenv(
 FRONTEND_HEALTH_URL = os.getenv("FLOWMIND_FRONTEND_HEALTH_URL", "http://frontend/")
 MIN_FREE_BYTES = int(os.getenv("FLOWMIND_UPDATE_MIN_FREE_BYTES", str(1024**3)))
 APP_VERSION = os.getenv("APP_VERSION", "0.2.0")
+RELEASE_REPOSITORY = os.getenv("FLOWMIND_RELEASE_REPOSITORY", "lxfight/flowmind").strip()
 STATE_PATH = STATE_DIR / "update.json"
 DEPLOYMENT_PATH = STATE_DIR / "deployment.json"
 LOCK_PATH = STATE_DIR / "update.lock"
 BACKUP_DIR = STATE_DIR / "backups"
 SEMVER = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:[-+]([0-9A-Za-z.-]+))?$")
 ACTIVE = {"queued", "preparing", "backing_up", "downloading", "deploying", "verifying", "rolling_back"}
+DEFAULT_GITHUB_ACCELERATORS = (
+    "https://edgeone.gh-proxy.com",
+    "https://hk.gh-proxy.com",
+    "https://gh-proxy.com",
+    "https://gh.dpik.top",
+)
 state_lock = threading.Lock()
 
 
@@ -155,6 +163,66 @@ def git_args(*args: str) -> list[str]:
     return ["git", "-c", f"safe.directory={PROJECT_DIR}", *args]
 
 
+def github_accelerators(value: str | None = None) -> tuple[str, ...]:
+    configured = os.getenv("FLOWMIND_GITHUB_ACCELERATORS", "") if value is None else value
+    configured = configured.strip()
+    if configured.lower() in {"off", "none", "false", "0"}:
+        return ()
+    candidates = configured.split(",") if configured else DEFAULT_GITHUB_ACCELERATORS
+    result: list[str] = []
+    for candidate in candidates:
+        base = candidate.strip().rstrip("/")
+        parsed = urlparse(base)
+        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+            continue
+        if base not in result:
+            result.append(base)
+    return tuple(result)
+
+
+def git_fetch_timeout() -> int:
+    try:
+        configured = int(os.getenv("FLOWMIND_GIT_FETCH_TIMEOUT", "45"))
+    except ValueError:
+        configured = 45
+    return max(15, min(configured, 300))
+
+
+def git_fetch_sources() -> tuple[tuple[str, str], ...]:
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", RELEASE_REPOSITORY):
+        raise RuntimeError("FLOWMIND_RELEASE_REPOSITORY must be in owner/repository format")
+    repository_url = f"https://github.com/{RELEASE_REPOSITORY}.git"
+    accelerated = tuple(
+        (urlparse(base).hostname or base, f"{base}/{repository_url}")
+        for base in github_accelerators()
+    )
+    return (("GitHub", "origin"), *accelerated)
+
+
+def fetch_tags(state: dict[str, Any]) -> None:
+    errors: list[str] = []
+    for name, source in git_fetch_sources():
+        add_log(state, f"正在从 {name} 获取 Tags")
+        try:
+            command(
+                state,
+                git_args(
+                    "-c", "http.lowSpeedLimit=1024",
+                    "-c", "http.lowSpeedTime=15",
+                    "fetch", "--tags", source,
+                ),
+                timeout=git_fetch_timeout(),
+            )
+        except (RuntimeError, subprocess.TimeoutExpired) as exc:
+            errors.append(f"{name}: {str(exc)[-300:]}")
+            add_log(state, f"{name} 拉取失败，尝试下一个源")
+            continue
+        add_log(state, f"已从 {name} 获取 Tags")
+        return
+
+    raise RuntimeError("unable to fetch tags; " + "; ".join(errors))
+
+
 def set_dotenv_version(version: str) -> None:
     env_path = PROJECT_DIR / ".env"
     try:
@@ -197,8 +265,8 @@ def preflight(state: dict[str, Any], target: str) -> tuple[str, str]:
             f"or commit/revert these files before updating: {changed}"
         )
     previous_sha = command(state, git_args("rev-parse", "HEAD"), timeout=30).strip()
-    command(state, git_args("fetch", "--tags", "origin"), timeout=180)
     target_ref = f"refs/tags/v{target}"
+    fetch_tags(state)
     command(state, git_args("rev-parse", "--verify", target_ref), timeout=30)
     return previous_sha, current_version()
 
