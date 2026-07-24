@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +15,7 @@ from app.models.system_update import SystemUpdateRun
 from app.models.user import User
 from app.services.update_service import (
     normalize_version,
+    release_service,
     update_overview,
     updater_client,
 )
@@ -95,6 +96,14 @@ async def check_for_updates(
     overview = await update_overview(force=True)
     await _sync_run(db, overview["updater"])
     return overview
+
+
+@router.get("/releases")
+async def list_releases(
+    limit: int = Query(default=20, ge=1, le=50),
+    current_user: User = Depends(get_current_superuser),
+):
+    return await release_service.list_releases(limit=limit)
 
 
 @router.post("/apply")
