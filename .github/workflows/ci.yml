@@ -125,3 +125,13 @@ jobs:
             python -m "tests_e2e.$script" || failed=1
           done
           exit "$failed"
+
+  updater:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Run updater tests
+        run: python -m unittest discover -s updater -p "test_*.py" -v
