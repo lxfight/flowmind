@@ -126,8 +126,19 @@ async def _require_admin(project_id: int, user: User, db: AsyncSession) -> None:
 # ---------------------------------------------------------------------------
 # Notification helpers
 # ---------------------------------------------------------------------------
-def _board_link(project_id: int) -> str:
-    return f"/project/{project_id}/board"
+def _board_link(
+    project_id: int,
+    *,
+    task_id: int | None = None,
+    comment_id: int | None = None,
+) -> str:
+    link = f"/project/{project_id}/board"
+    if task_id is None:
+        return link
+    link += f"?task={task_id}"
+    if comment_id is not None:
+        link += f"&comment={comment_id}"
+    return link
 
 
 async def _notify_task_assigned(
@@ -152,7 +163,7 @@ async def _notify_task_assigned(
             type="task_assigned",
             title=f"{actor_name} 将任务「{short_title}」指派给你",
             body=f"任务：{task.title}",
-            link=_board_link(project_id),
+            link=_board_link(project_id, task_id=task.id),
         )
 
 
@@ -562,7 +573,7 @@ async def add_comment(
 
     # --- notifications: mentions take precedence, otherwise notify assignee + creator
     actor_name = user.display_name or user.username
-    link = _board_link(project_id)
+    link = _board_link(project_id, task_id=task_id, comment_id=comment.id)
     excerpt = data.content.strip().replace("\n", " ")[:100]
     # Only resolves mentions to members of this project; actor is skipped.
     mentioned_ids = await notify_mentions(

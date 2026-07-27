@@ -107,7 +107,7 @@ with TestClient(app) as client:
           data["unread_count"] == sum(1 for n in data["items"] if not n["is_read"]),
           f"unread={data['unread_count']}")
     check("task_assigned link correct",
-          any(n["type"] == "task_assigned" and n["link"] == f"/project/{pid}/board"
+          any(n["type"] == "task_assigned" and n["link"] == f"/project/{pid}/board?task={task_id}"
               for n in data["items"]), "")
 
     r = client.get("/api/notifications/unread-count", headers=bob_headers)

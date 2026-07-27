@@ -129,7 +129,11 @@ with TestClient(app) as client:
     check("due_soon notification", "due_soon" in new_types, str(new_types))
     check("due_overdue notification", "due_overdue" in new_types, str(new_types))
     soon_notif = next(n for n in n1 if n["type"] == "due_soon")
-    check("due_soon link", soon_notif["link"] == f"/project/{pid}/board", soon_notif["link"])
+    check(
+        "due_soon link",
+        soon_notif["link"] == f"/project/{pid}/board?task={t_soon}",
+        soon_notif["link"],
+    )
 
     # --- 5. second scan: no duplicates
     counters2 = run_scan()

@@ -51,7 +51,7 @@ async def scan_due_tasks(db: AsyncSession, now: datetime | None = None) -> dict:
     counters = {"due_soon": 0, "due_overdue": 0}
     for task in result.scalars().all():
         due = _as_utc(task.due_date)
-        link = f"/project/{task.project_id}/board"
+        link = f"/project/{task.project_id}/board?task={task.id}"
         if due < now:
             if task.due_overdue_notified_at is not None:
                 continue

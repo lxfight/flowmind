@@ -35,7 +35,8 @@ async def test_multi_assignee_create_notify_and_replace(client):
     # Both assignees get a task_assigned notification.
     for headers in (alice_headers, bob_headers):
         listing = client.get("/api/notifications", headers=headers).json()
-        assert any(n["type"] == "task_assigned" for n in listing["items"]), listing
+        assignment = next(n for n in listing["items"] if n["type"] == "task_assigned")
+        assert assignment["link"] == f"/project/{project_id}/board?task={task['id']}"
 
     # Assignee list filter matches tasks where the user is among assignees.
     response = client.get(

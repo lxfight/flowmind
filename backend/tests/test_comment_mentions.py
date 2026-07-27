@@ -37,10 +37,15 @@ async def test_mention_notifies_project_member(client):
     add_member(client, headers, project_id, member_id, role="member")
     task = create_task(client, headers, project_id, statuses[0]["id"], "提及任务")
 
-    _comment(client, headers, project_id, task["id"], "请 @mentionmember 看一下这个任务")
+    comment = _comment(client, headers, project_id, task["id"], "请 @mentionmember 看一下这个任务")
 
     types = _notification_types(client, member_headers)
     assert "mention" in types
+    notifications = client.get("/api/notifications", headers=member_headers).json()["items"]
+    mention = next(n for n in notifications if n["type"] == "mention")
+    assert mention["link"] == (
+        f"/project/{project_id}/board?task={task['id']}&comment={comment['id']}"
+    )
 
 
 @pytest.mark.asyncio
