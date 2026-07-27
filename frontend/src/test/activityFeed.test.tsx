@@ -48,7 +48,7 @@ describe('ActivityFeed', () => {
     expect(vi.mocked(api.get).mock.calls[1][1]?.params).toEqual({ page: 2, page_size: 100 })
     expect(events[0]).toHaveTextContent('创建了项目')
     expect(events[1]).toHaveTextContent('更新了最新任务')
-    expect(screen.getByText('2 条动态')).toBeInTheDocument()
+    expect(screen.getByLabelText('第 1 条，共 2 条动态')).toBeInTheDocument()
   })
 
   it('shows the empty state when the project has no activity', async () => {

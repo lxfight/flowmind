@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { motion, useReducedMotion } from 'framer-motion'
 import {
   AlertCircle,
   ArrowLeft,
@@ -44,6 +45,9 @@ interface Props {
 }
 
 const PAGE_SIZE = 100
+const TIMELINE_HEIGHT = 480
+const TIMELINE_ITEM_WIDTH = 284
+const NODE_Y = [234, 198, 266, 218]
 
 const actionPresentation: Record<string, {
   icon: React.ComponentType<{ className?: string }>
@@ -106,6 +110,7 @@ function formatEventTime(value: string) {
   const date = new Date(value)
   return {
     date: date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' }),
+    numericDate: `${String(date.getMonth() + 1).padStart(2, '0')}.${String(date.getDate()).padStart(2, '0')}`,
     time: date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }),
     full: date.toLocaleString('zh-CN', { hour12: false }),
   }
@@ -128,6 +133,7 @@ function initials(name: string) {
 }
 
 export function ActivityFeed({ projectId }: Props) {
+  const reduceMotion = useReducedMotion()
   const [activities, setActivities] = useState<Activity[]>([])
   const [total, setTotal] = useState(0)
   const [loadedCount, setLoadedCount] = useState(0)
@@ -136,6 +142,7 @@ export function ActivityFeed({ projectId }: Props) {
   const [reloadKey, setReloadKey] = useState(0)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(false)
+  const [activeIndex, setActiveIndex] = useState(0)
   const scrollerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -193,7 +200,12 @@ export function ActivityFeed({ projectId }: Props) {
     if (!scroller) return
     setCanScrollLeft(scroller.scrollLeft > 4)
     setCanScrollRight(scroller.scrollLeft + scroller.clientWidth < scroller.scrollWidth - 4)
-  }, [])
+    const firstEvent = scroller.querySelector<HTMLElement>('[data-testid="activity-event"]')
+    if (firstEvent && activities.length > 0) {
+      const nextIndex = Math.round(scroller.scrollLeft / firstEvent.offsetWidth)
+      setActiveIndex(Math.min(Math.max(nextIndex, 0), activities.length - 1))
+    }
+  }, [activities.length])
 
   useEffect(() => {
     const frame = requestAnimationFrame(updateScrollState)
@@ -252,11 +264,20 @@ export function ActivityFeed({ projectId }: Props) {
   return (
     <div className="min-w-0">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <span className="rounded-full border border-border bg-card px-2.5 py-1 font-medium text-foreground tnum">
-            {activities.length} 条动态
-          </span>
-          <span className="tnum">{formatRange(activities)}</span>
+        <div className="flex min-w-0 items-end gap-3">
+          <div className="flex items-baseline gap-1 tnum" aria-label={`第 ${activeIndex + 1} 条，共 ${activities.length} 条动态`}>
+            <span className="text-3xl font-bold leading-none text-foreground">
+              {String(activeIndex + 1).padStart(2, '0')}
+            </span>
+            <span className="text-xs font-semibold text-muted-foreground">
+              / {String(activities.length).padStart(2, '0')}
+            </span>
+          </div>
+          <div className="mb-0.5 h-7 w-px bg-border" aria-hidden="true" />
+          <div className="mb-0.5 min-w-0 text-[11px] leading-4 text-muted-foreground">
+            <span className="block font-semibold text-foreground">项目全量动态</span>
+            <span className="block truncate tnum">{formatRange(activities)}</span>
+          </div>
         </div>
         <div className="flex items-center gap-1">
           <Button
@@ -271,9 +292,9 @@ export function ActivityFeed({ projectId }: Props) {
           </Button>
           <span className="mx-1 h-4 w-px bg-border" />
           <Button
-            variant="outline"
+            variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className="h-8 w-8 bg-card shadow-sm"
             onClick={() => scrollTimeline(-1)}
             disabled={!canScrollLeft}
             aria-label="向左浏览"
@@ -282,9 +303,9 @@ export function ActivityFeed({ projectId }: Props) {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <Button
-            variant="outline"
+            variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className="h-8 w-8 bg-card shadow-sm"
             onClick={() => scrollTimeline(1)}
             disabled={!canScrollRight}
             aria-label="向右浏览"
@@ -295,16 +316,14 @@ export function ActivityFeed({ projectId }: Props) {
         </div>
       </div>
 
-      <div className="relative overflow-hidden rounded-sm border border-border bg-card/50">
+      <div className="relative overflow-hidden">
         <div
           ref={scrollerRef}
-          className="scrollbar-thin snap-x snap-proximity overflow-x-auto overflow-y-hidden overscroll-x-contain scroll-smooth"
+          className="scrollbar-thin snap-x snap-proximity overflow-x-auto overflow-y-hidden overscroll-x-contain scroll-smooth pb-2"
           onScroll={updateScrollState}
           aria-label="项目动态时间轴"
         >
-          <div className="relative flex min-w-max px-8 sm:px-10">
-            <div className="absolute left-8 right-8 top-[236px] h-px bg-border sm:left-10 sm:right-10" aria-hidden="true" />
-
+          <div className="relative flex min-w-max px-4 sm:px-7">
             {activities.map((activity, index) => {
               const action = actionPresentation[activity.action] ?? {
                 icon: Clock3,
@@ -321,36 +340,100 @@ export function ActivityFeed({ projectId }: Props) {
               const time = formatEventTime(activity.created_at)
               const above = index % 2 === 0
               const isLatest = index === activities.length - 1
+              const nodeY = NODE_Y[index % NODE_Y.length]
+              const nextNodeY = NODE_Y[(index + 1) % NODE_Y.length]
+              const cardTop = [8, 284, 20, 300][index % 4]
+              const connectorPath = above
+                ? `M 142 ${cardTop + 168} C 106 ${cardTop + 182}, 178 ${nodeY - 16}, 142 ${nodeY}`
+                : `M 142 ${nodeY} C 178 ${nodeY + 20}, 106 ${cardTop - 18}, 142 ${cardTop}`
+              const segmentEndX = isLatest ? 148 : TIMELINE_ITEM_WIDTH
+              const timelinePath = `M 0 ${nodeY} C ${segmentEndX * 0.32} ${nodeY}, ${segmentEndX * 0.68} ${nextNodeY}, ${segmentEndX} ${nextNodeY}`
 
               return (
                 <article
                   key={activity.id}
                   data-testid="activity-event"
-                  className="relative h-[472px] w-[252px] flex-none snap-center sm:w-[292px]"
+                  className="relative h-[480px] w-[264px] flex-none snap-center sm:w-[284px]"
                 >
-                  <div
-                    className={cn(
-                      'absolute left-3 right-3 h-[168px] rounded-sm border bg-card p-4 shadow-card transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-foreground/20 hover:shadow-md',
-                      above ? 'top-5' : 'top-[284px]',
-                      isLatest && 'border-primary/40',
-                    )}
+                  <svg
+                    viewBox={`0 0 ${TIMELINE_ITEM_WIDTH} ${TIMELINE_HEIGHT}`}
+                    preserveAspectRatio="none"
+                    className="pointer-events-none absolute left-1/2 top-0 h-full w-full overflow-visible"
+                    aria-hidden="true"
                   >
-                    <div className="flex items-center justify-between gap-2">
+                    <path
+                      d={timelinePath}
+                      fill="none"
+                      className="stroke-border/45"
+                      strokeWidth="8"
+                      strokeLinecap="round"
+                    />
+                    <motion.path
+                      d={timelinePath}
+                      fill="none"
+                      className="stroke-primary/55"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      initial={reduceMotion ? false : { pathLength: 0, opacity: 0 }}
+                      animate={{ pathLength: 1, opacity: 1 }}
+                      transition={{ duration: 0.7, delay: Math.min(index, 10) * 0.035, ease: [0.16, 1, 0.3, 1] }}
+                    />
+                  </svg>
+
+                  <svg
+                    viewBox={`0 0 ${TIMELINE_ITEM_WIDTH} ${TIMELINE_HEIGHT}`}
+                    preserveAspectRatio="none"
+                    className="pointer-events-none absolute inset-0 h-full w-full text-border"
+                    aria-hidden="true"
+                  >
+                    <motion.path
+                      d={connectorPath}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeDasharray="3 5"
+                      strokeLinecap="round"
+                      initial={reduceMotion ? false : { pathLength: 0, opacity: 0 }}
+                      animate={{ pathLength: 1, opacity: 1 }}
+                      transition={{ duration: 0.55, delay: Math.min(index, 10) * 0.035 + 0.12 }}
+                    />
+                  </svg>
+
+                  <motion.div
+                    className={cn(
+                      'absolute left-3 right-3 z-10 h-[168px] overflow-hidden rounded-md bg-card/90 p-4 backdrop-blur-sm ring-1 transition-shadow duration-300 dark:ring-white/[0.06]',
+                      index === activeIndex ? 'shadow-lg ring-black/[0.08]' : 'shadow-card ring-black/[0.035]',
+                      isLatest && 'ring-primary/30',
+                    )}
+                    style={{ top: cardTop }}
+                    initial={reduceMotion ? false : { opacity: 0, y: above ? -18 : 18 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    whileHover={reduceMotion ? undefined : { y: -6, rotate: above ? -0.35 : 0.35 }}
+                    transition={{ duration: 0.48, delay: Math.min(index, 8) * 0.04, ease: [0.16, 1, 0.3, 1] }}
+                  >
+                    <span className="pointer-events-none absolute bottom-1 right-2 text-[42px] font-bold leading-none text-foreground/[0.035] tnum" aria-hidden="true">
+                      {time.numericDate}
+                    </span>
+
+                    <div className="relative z-10 flex items-center justify-between gap-2">
                       <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] font-semibold', action.className)}>
                         <ActionIcon className="h-3.5 w-3.5" />
                         {action.label}
                       </span>
-                      <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-                        <TargetIcon className="h-3.5 w-3.5" />
-                        {target.label}
+                      <span className="flex items-center gap-2 text-[10px] font-semibold text-muted-foreground tnum">
+                        <span>{String(index + 1).padStart(2, '0')}</span>
+                        <span className="inline-flex items-center gap-1 text-[11px] font-normal">
+                          <TargetIcon className="h-3.5 w-3.5" />
+                          {target.label}
+                        </span>
                       </span>
                     </div>
 
-                    <p className="mt-3 line-clamp-3 min-h-[3.75rem] text-sm font-medium leading-5 text-foreground" title={activity.summary}>
+                    <p className="relative z-10 mt-2 line-clamp-3 min-h-[3.75rem] text-sm font-semibold leading-5 text-foreground" title={activity.summary}>
                       {activity.summary}
                     </p>
 
-                    <div className="mt-3 flex items-center justify-between gap-3 border-t border-border/70 pt-2.5">
+                    <div className="relative z-10 mt-2 flex items-center justify-between gap-3 pt-0.5">
                       <span className="flex min-w-0 items-center gap-2">
                         <span className="flex h-7 w-7 flex-none items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground">
                           {initials(activity.user_name)}
@@ -362,31 +445,31 @@ export function ActivityFeed({ projectId }: Props) {
                         {time.time}
                       </time>
                     </div>
-                  </div>
+                  </motion.div>
 
-                  <div
+                  <motion.div
                     className={cn(
-                      'absolute left-1/2 w-px -translate-x-1/2 bg-border',
-                      above ? 'top-[188px] h-12' : 'top-[236px] h-12',
-                    )}
-                    aria-hidden="true"
-                  />
-                  <div
-                    className={cn(
-                      'absolute left-1/2 top-[226px] z-10 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full border-[3px] border-card shadow-sm',
+                      'absolute left-1/2 z-10 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full border-[3px] border-background shadow-sm',
                       action.markerClassName,
                       isLatest && 'ring-4 ring-primary/15',
                     )}
+                    style={{ top: nodeY - 10 }}
+                    initial={reduceMotion ? false : { scale: 0, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ type: 'spring', stiffness: 380, damping: 24, delay: Math.min(index, 10) * 0.035 + 0.18 }}
                     aria-hidden="true"
                   >
                     <span className="h-1.5 w-1.5 rounded-full bg-white/90" />
-                  </div>
+                  </motion.div>
                 </article>
               )
             })}
 
-            <div className="relative h-[472px] w-12 flex-none" aria-hidden="true">
-              <ArrowRight className="absolute left-1 top-[228px] h-4 w-4 text-muted-foreground" />
+            <div className="relative h-[480px] w-16 flex-none" aria-hidden="true">
+              <ArrowRight
+                className="absolute left-1 h-4 w-4 text-primary/50"
+                style={{ top: NODE_Y[activities.length % NODE_Y.length] - 8 }}
+              />
             </div>
           </div>
         </div>
