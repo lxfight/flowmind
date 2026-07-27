@@ -1,26 +1,46 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, type ComponentType } from 'react'
 import { useParams } from 'react-router-dom'
-import { Search, UserPlus, X, Trash2, Users } from 'lucide-react'
+import {
+  Crown,
+  Eye,
+  Plus,
+  Search,
+  ShieldCheck,
+  Trash2,
+  UserPlus,
+  UserRound,
+  Users,
+  X,
+} from 'lucide-react'
 import api, { errDetail } from '../utils/api'
 import { useProjectRole } from '../hooks/useProjectRole'
 import { useAuthStore } from '../stores/authStore'
 import toast from 'react-hot-toast'
-import { PageHeader } from '../components/layout/PageHeader'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { Select } from '../components/ui/Select'
-import { Card, CardContent } from '../components/ui/Card'
 import { Badge } from '../components/ui/Badge'
 import { Avatar } from '../components/ui/Avatar'
 import { EmptyState } from '../components/ui/EmptyState'
+import { cn } from '../utils/cn'
 import type { ProjectMember, UserInfo } from '../types'
 
-const ROLE_CONFIG: Record<string, { label: string; variant: 'default' | 'primary' | 'secondary' | 'success' | 'warning' | 'danger' | 'info' | 'outline' }> = {
-  owner: { label: '所有者', variant: 'warning' },
-  admin: { label: '管理员', variant: 'primary' },
-  member: { label: '成员', variant: 'secondary' },
-  viewer: { label: '查看者', variant: 'outline' },
+const ROLE_CONFIG: Record<string, {
+  label: string
+  variant: 'primary' | 'secondary' | 'warning' | 'outline'
+  icon: ComponentType<{ className?: string }>
+}> = {
+  owner: { label: '所有者', variant: 'warning', icon: Crown },
+  admin: { label: '管理员', variant: 'primary', icon: ShieldCheck },
+  member: { label: '成员', variant: 'secondary', icon: UserRound },
+  viewer: { label: '查看者', variant: 'outline', icon: Eye },
 }
+
+const MANAGED_ROLES = [
+  { value: 'admin', label: '管理员' },
+  { value: 'member', label: '成员' },
+  { value: 'viewer', label: '查看者' },
+]
 
 export default function ProjectMembersPage() {
   const { projectId } = useParams()
@@ -31,7 +51,7 @@ export default function ProjectMembersPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<UserInfo[]>([])
   const [searching, setSearching] = useState(false)
-  const [adding, setAdding] = useState(false)
+  const [addingUserId, setAddingUserId] = useState<number | null>(null)
   const [updatingUserId, setUpdatingUserId] = useState<number | null>(null)
 
   const loadMembers = useCallback(async () => {
@@ -77,7 +97,7 @@ export default function ProjectMembersPage() {
 
   const handleAddMember = async (userId: number) => {
     if (!projectId) return
-    setAdding(true)
+    setAddingUserId(userId)
     try {
       await api.post(`/projects/${projectId}/members`, { user_id: userId, role: 'member' })
       toast.success('成员添加成功')
@@ -87,8 +107,9 @@ export default function ProjectMembersPage() {
       loadMembers()
     } catch {
       toast.error('添加失败')
+    } finally {
+      setAddingUserId(null)
     }
-    setAdding(false)
   }
 
   const handleRemoveMember = async (userId: number, username: string) => {
@@ -118,29 +139,36 @@ export default function ProjectMembersPage() {
   }
 
   const canManage = userRole === 'owner' || userRole === 'admin'
+  const adminCount = members.filter((member) => member.role === 'owner' || member.role === 'admin').length
+
+  const canManageMember = (member: ProjectMember) => (
+    canManage
+    && member.role !== 'owner'
+    && member.user_id !== currentUser?.id
+    && (userRole === 'owner' || member.role !== 'admin')
+  )
 
   const RoleBadge = ({ role }: { role: string }) => {
     const cfg = ROLE_CONFIG[role] || ROLE_CONFIG.member
-    return <Badge variant={cfg.variant}>{cfg.label}</Badge>
+    const RoleIcon = cfg.icon
+    return (
+      <Badge variant={cfg.variant} className="gap-1.5 whitespace-nowrap px-2.5 py-1">
+        <RoleIcon className="h-3.5 w-3.5" />
+        {cfg.label}
+      </Badge>
+    )
   }
 
   const RoleSelect = ({ member }: { member: ProjectMember }) => {
     const available = userRole === 'owner'
-      ? [
-          { value: 'admin', label: '管理员' },
-          { value: 'member', label: '成员' },
-          { value: 'viewer', label: '查看者' },
-        ]
-      : [
-          { value: 'member', label: '成员' },
-          { value: 'viewer', label: '查看者' },
-        ]
+      ? MANAGED_ROLES
+      : MANAGED_ROLES.filter((role) => role.value !== 'admin')
     return (
       <Select
         value={member.role}
         onChange={(e) => handleRoleChange(member, e.target.value)}
         disabled={updatingUserId === member.user_id}
-        className="h-7 text-xs w-28"
+        className="h-8 w-28 border-border bg-card py-1 text-xs sm:w-32"
         aria-label={`修改 ${member.username} 的角色`}
       >
         {available.map((r) => (
@@ -152,78 +180,90 @@ export default function ProjectMembersPage() {
 
   return (
     <div className="mx-auto w-full max-w-[1600px]">
-      <PageHeader
-        title="项目成员"
-        description="管理项目成员及其权限"
-        actions={
-          canManage && (
-            <Button size="sm" onClick={() => setShowAdd(true)} className="gap-1.5">
-              <UserPlus className="h-4 w-4" />
-              添加成员
-            </Button>
-          )
-        }
-      />
+      <header className="mb-6 flex flex-wrap items-center justify-between gap-4 px-1">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="flex h-10 w-10 flex-none items-center justify-center rounded-md bg-primary/10 text-primary">
+            <Users className="h-5 w-5" />
+          </span>
+          <div className="min-w-0">
+            <h1 className="text-xl font-semibold text-foreground">项目成员</h1>
+            <p className="mt-0.5 text-xs text-muted-foreground tnum">
+              {members.length} 位协作者 · {adminCount} 位管理员
+            </p>
+          </div>
+        </div>
+        {canManage && (
+          <Button size="sm" onClick={() => setShowAdd(true)} className="gap-1.5">
+            <UserPlus className="h-4 w-4" />
+            添加成员
+          </Button>
+        )}
+      </header>
 
       {showAdd && (
-        <Card className="mb-6">
-          <CardContent className="p-4 space-y-3">
-            <div className="flex items-center gap-2">
-              <Search className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+        <section className="mb-6 overflow-hidden rounded-md border border-border bg-card" aria-label="添加项目成员">
+          <div className="flex items-center gap-2 border-b border-border p-3">
+            <div className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 placeholder="搜索用户名或昵称..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 autoFocus
-                className="flex-1"
+                className="h-9 border-0 bg-muted/60 pl-9 shadow-none focus-visible:ring-1"
               />
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 flex-shrink-0"
-                onClick={() => { setShowAdd(false); setSearchQuery(''); setSearchResults([]) }}
-                aria-label="关闭"
-              >
-                <X className="h-4 w-4" />
-              </Button>
             </div>
-            {searching && <p className="text-sm text-muted-foreground">{searchQuery.trim() ? '搜索中...' : '加载候选用户...'}</p>}
-            {!searching && searchResults.length > 0 && (
-              <div>
-                <p className="text-xs text-muted-foreground mb-1.5">
-                  {searchQuery.trim() ? '搜索结果' : '候选用户（点击添加）'}
-                </p>
-                <div className="space-y-1">
-                  {searchResults.map((u) => (
-                    <div key={u.id} className="flex items-center justify-between rounded-lg p-2 hover:bg-accent">
-                      <div className="flex items-center gap-2">
-                        <Avatar name={u.display_name || u.username} src={u.avatar_url} size="sm" />
-                        <div>
-                          <p className="text-sm font-medium">{u.display_name || u.username}</p>
-                          <p className="text-xs text-muted-foreground">@{u.username}</p>
-                        </div>
-                      </div>
-                      <Button
-                        size="sm"
-                        onClick={() => handleAddMember(u.id)}
-                        disabled={adding}
-                        loading={adding}
-                      >
-                        添加
-                      </Button>
-                    </div>
-                  ))}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 flex-shrink-0"
+              onClick={() => { setShowAdd(false); setSearchQuery(''); setSearchResults([]) }}
+              aria-label="关闭添加成员"
+              title="关闭"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+
+          <div className="max-h-72 overflow-y-auto">
+            {searching && (
+              <p className="px-4 py-6 text-center text-sm text-muted-foreground">
+                {searchQuery.trim() ? '搜索中...' : '加载候选用户...'}
+              </p>
+            )}
+            {!searching && searchResults.map((user) => (
+              <div
+                key={user.id}
+                className="flex min-h-14 items-center justify-between gap-3 border-b border-border/70 px-4 py-2.5 last:border-b-0 hover:bg-muted/35"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <Avatar name={user.display_name || user.username} src={user.avatar_url} size="sm" />
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-foreground">{user.display_name || user.username}</p>
+                    <p className="truncate text-xs text-muted-foreground">@{user.username}</p>
+                  </div>
                 </div>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 flex-none"
+                  onClick={() => handleAddMember(user.id)}
+                  disabled={addingUserId !== null}
+                  loading={addingUserId === user.id}
+                  aria-label={`添加成员 ${user.username}`}
+                  title="添加成员"
+                >
+                  <Plus className={cn('h-4 w-4', addingUserId === user.id && 'hidden')} />
+                </Button>
               </div>
+            ))}
+            {!searching && searchResults.length === 0 && (
+              <p className="px-4 py-6 text-center text-sm text-muted-foreground">
+                {searchQuery ? '未找到用户' : '暂无可添加的用户'}
+              </p>
             )}
-            {searchQuery && !searching && searchResults.length === 0 && (
-              <p className="text-sm text-muted-foreground">未找到用户</p>
-            )}
-            {!searchQuery && !searching && searchResults.length === 0 && (
-              <p className="text-sm text-muted-foreground">暂无可添加的用户</p>
-            )}
-          </CardContent>
-        </Card>
+          </div>
+        </section>
       )}
 
       {members.length === 0 ? (
@@ -233,39 +273,51 @@ export default function ProjectMembersPage() {
           description="添加成员到项目协作"
         />
       ) : (
-        <div className="space-y-2">
+        <section className="overflow-hidden border-y border-border" aria-label="项目成员名册">
+          <div className="hidden grid-cols-[minmax(0,1fr)_9rem_2.5rem] items-center gap-3 border-b border-border bg-muted/30 px-3 py-2 text-[10px] font-semibold text-muted-foreground sm:grid">
+            <span>成员</span>
+            <span>项目角色</span>
+            <span className="sr-only">操作</span>
+          </div>
           {members.map((m) => (
-            <Card key={m.id}>
-              <CardContent className="flex items-center justify-between p-4">
-                <div className="flex items-center gap-3">
-                  <Avatar name={m.display_name || m.username} src={m.avatar_url} size="md" />
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <p className="font-medium text-sm">{m.display_name || m.username}</p>
-                      {canManage && m.role !== 'owner' && m.user_id !== currentUser?.id ? (
-                        <RoleSelect member={m} />
-                      ) : (
-                        <RoleBadge role={m.role} />
-                      )}
-                    </div>
-                    <p className="text-xs text-muted-foreground">@{m.username}</p>
+            <div
+              key={m.id}
+              className="grid min-h-[68px] grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-border/75 px-3 py-3 transition-colors last:border-b-0 hover:bg-muted/25 sm:grid-cols-[minmax(0,1fr)_9rem_2.5rem]"
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <Avatar name={m.display_name || m.username} src={m.avatar_url} size="md" />
+                <div className="min-w-0">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <p className="truncate text-sm font-medium text-foreground">{m.display_name || m.username}</p>
+                    {m.user_id === currentUser?.id && (
+                      <span className="flex-none rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">你</span>
+                    )}
                   </div>
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">@{m.username}</p>
                 </div>
-                {canManage && m.role !== 'owner' && (
+              </div>
+
+              <div className="flex justify-end sm:justify-start">
+                {canManageMember(m) ? <RoleSelect member={m} /> : <RoleBadge role={m.role} />}
+              </div>
+
+              <div className="flex w-8 justify-end">
+                {canManageMember(m) && (
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-8 w-8 text-muted-foreground hover:text-danger"
+                    className="h-8 w-8 text-muted-foreground hover:bg-danger/10 hover:text-danger"
                     onClick={() => handleRemoveMember(m.user_id, m.username)}
                     aria-label={`移除成员 ${m.username}`}
+                    title="移除成员"
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           ))}
-        </div>
+        </section>
       )}
     </div>
   )

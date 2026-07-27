@@ -211,6 +211,50 @@ async def test_assignee_and_member_role_must_respect_project(client):
     assert response.status_code == 400
 
 
+@pytest.mark.asyncio
+async def test_project_admin_can_see_but_not_manage_another_admin(client):
+    superuser_headers = _login(
+        client,
+        "admin",
+        os.environ.get("FLOWMIND_ADMIN_PASSWORD", "testadmin"),
+    )
+    owner_id, owner_headers = _register_and_approve(client, superuser_headers, "role-owner")
+    response = client.put(
+        f"/api/admin/users/{owner_id}?can_create_project=true",
+        headers=superuser_headers,
+    )
+    assert response.status_code == 200, response.text
+    actor_id, actor_headers = _register_and_approve(client, superuser_headers, "role-admin-a")
+    target_id, _ = _register_and_approve(client, superuser_headers, "role-admin-b")
+    project_id, _ = _create_project(client, owner_headers)
+
+    for user_id in (actor_id, target_id):
+        response = client.post(
+            f"/api/projects/{project_id}/members",
+            headers=owner_headers,
+            json={"user_id": user_id, "role": "admin"},
+        )
+        assert response.status_code == 200, response.text
+
+    response = client.get(f"/api/projects/{project_id}/members", headers=actor_headers)
+    assert response.status_code == 200, response.text
+    target = next(member for member in response.json() if member["user_id"] == target_id)
+    assert target["role"] == "admin"
+
+    response = client.put(
+        f"/api/projects/{project_id}/members/{target_id}",
+        headers=actor_headers,
+        json={"role": "member"},
+    )
+    assert response.status_code == 403
+
+    response = client.delete(
+        f"/api/projects/{project_id}/members/{target_id}",
+        headers=actor_headers,
+    )
+    assert response.status_code == 403
+
+
 def test_llm_and_knowledge_input_limits():
     assert KnowledgeQuery(question="问题", top_k=20).top_k == 20
     with pytest.raises(ValueError):
