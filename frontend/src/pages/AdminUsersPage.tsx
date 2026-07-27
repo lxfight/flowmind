@@ -9,6 +9,7 @@ import { Button } from '../components/ui/Button'
 import { Switch } from '../components/ui/Switch'
 import { Badge } from '../components/ui/Badge'
 import { Avatar } from '../components/ui/Avatar'
+import { confirmAction } from '../components/ui/confirmAction'
 import { cn } from '../utils/cn'
 
 interface UserInfo {
@@ -70,7 +71,13 @@ export default function AdminUsersPage() {
   }
 
   const handleReject = async (userId: number) => {
-    if (!confirm('确定禁用该用户？')) return
+    if (!(await confirmAction({
+      title: '禁用用户',
+      description: '该用户将无法继续登录，已有项目数据不会被删除。',
+      confirmLabel: '禁用用户',
+      tone: 'warning',
+      icon: 'warning',
+    }))) return
     setActionId(userId)
     try {
       await api.post(`/admin/users/${userId}/reject`)
@@ -107,7 +114,13 @@ export default function AdminUsersPage() {
   }
 
   const handleResetPassword = async (userId: number) => {
-    if (!confirm('确定重置该用户密码？新密码将随机生成。')) return
+    if (!(await confirmAction({
+      title: '重置用户密码',
+      description: '系统将生成新的随机密码，原密码会立即失效。',
+      confirmLabel: '重置密码',
+      tone: 'warning',
+      icon: 'reset',
+    }))) return
     setActionId(userId)
     try {
       const res = await api.post(`/admin/users/${userId}/reset-password`)

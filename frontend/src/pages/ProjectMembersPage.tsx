@@ -22,6 +22,7 @@ import { Select } from '../components/ui/Select'
 import { Badge } from '../components/ui/Badge'
 import { Avatar } from '../components/ui/Avatar'
 import { EmptyState } from '../components/ui/EmptyState'
+import { confirmAction } from '../components/ui/confirmAction'
 import { cn } from '../utils/cn'
 import type { ProjectMember, UserInfo } from '../types'
 
@@ -114,7 +115,13 @@ export default function ProjectMembersPage() {
 
   const handleRemoveMember = async (userId: number, username: string) => {
     if (!projectId) return
-    if (!confirm(`确定移除成员 ${username}？`)) return
+    if (!(await confirmAction({
+      title: '移除项目成员',
+      description: `${username} 将失去该项目的访问权限。`,
+      confirmLabel: '移除成员',
+      tone: 'danger',
+      icon: 'delete',
+    }))) return
     try {
       await api.delete(`/projects/${projectId}/members/${userId}`)
       toast.success('成员已移除')

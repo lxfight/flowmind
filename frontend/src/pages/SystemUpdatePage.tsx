@@ -27,6 +27,7 @@ import { PageHeader } from '../components/layout/PageHeader'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { MarkdownContent } from '../components/ui/MarkdownContent'
+import { confirmAction } from '../components/ui/confirmAction'
 import { errDetail } from '../utils/api'
 import { cn } from '../utils/cn'
 
@@ -175,7 +176,13 @@ export default function SystemUpdatePage() {
   const handleApply = async () => {
     const version = overview?.latest?.version
     if (!version || starting) return
-    if (!confirm(`确定更新到 FlowMind ${version}？更新期间服务会短暂重启。`)) return
+    if (!(await confirmAction({
+      title: `更新到 FlowMind ${version}`,
+      description: '更新期间服务会短暂重启，当前连接可能中断。',
+      confirmLabel: '开始更新',
+      tone: 'warning',
+      icon: 'warning',
+    }))) return
     setStarting(true)
     try {
       await applyUpdate(version, requestId())
@@ -191,7 +198,13 @@ export default function SystemUpdatePage() {
   const handleRollback = async () => {
     const version = overview?.updater.previous_version
     if (!version || starting) return
-    if (!confirm(`确定回滚到 FlowMind ${version}？数据库不会自动降级。`)) return
+    if (!(await confirmAction({
+      title: `回滚到 FlowMind ${version}`,
+      description: '应用服务将回退到上一版本，数据库结构不会自动降级。',
+      confirmLabel: '开始回滚',
+      tone: 'warning',
+      icon: 'reset',
+    }))) return
     setStarting(true)
     try {
       await rollbackUpdate(version, requestId())

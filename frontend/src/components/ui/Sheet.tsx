@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useId, useRef, type ReactNode } f
 import { AnimatePresence, motion } from 'framer-motion'
 import { X } from 'lucide-react'
 import { cn } from '../../utils/cn'
+import { isTopModalLayer, registerModalLayer } from './modalStack'
 
 export interface SheetProps {
   open: boolean
@@ -33,17 +34,30 @@ export function Sheet({ open, onClose, children, side = 'right', className, aria
   const panelRef = useRef<HTMLDivElement>(null)
   const previousFocus = useRef<HTMLElement | null>(null)
   const originalOverflow = useRef('')
+  const layer = useRef(Symbol('sheet'))
+  const onCloseRef = useRef(onClose)
+
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
 
   // ESC to close
   useEffect(() => {
+    if (!open) return
+    const unregister = registerModalLayer(layer.current)
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && open) {
-        onClose()
+      if (e.key === 'Escape' && isTopModalLayer(layer.current)) {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        onCloseRef.current()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [open, onClose])
+    return () => {
+      unregister()
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [open])
 
   // Lock body scroll + focus management
   useEffect(() => {
@@ -96,7 +110,7 @@ export function Sheet({ open, onClose, children, side = 'right', className, aria
           exit={{ opacity: 0 }}
         >
           <motion.div
-            className="absolute inset-0 bg-black/50 dark:bg-black/70"
+            className="absolute inset-0 bg-black/45 backdrop-blur-[3px] dark:bg-black/70"
             onClick={onClose}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -111,10 +125,10 @@ export function Sheet({ open, onClose, children, side = 'right', className, aria
             aria-label={ariaLabel}
             tabIndex={-1}
             className={cn(
-              'absolute bg-card text-card-foreground shadow-2xl outline-none',
+              'absolute border-border bg-card/95 text-card-foreground shadow-[0_24px_80px_-28px_rgba(0,0,0,0.7)] outline-none backdrop-blur-xl',
               isBottom
-                ? 'bottom-0 left-0 right-0 max-h-[92vh] rounded-t-2xl'
-                : 'top-0 h-full w-full sm:w-96',
+                ? 'bottom-0 left-0 right-0 max-h-[92vh] rounded-t-[8px] border-t'
+                : 'top-0 h-full w-full border-x sm:w-96',
               side === 'left' ? 'left-0' : side === 'right' ? 'right-0' : '',
               className
             )}
@@ -122,7 +136,7 @@ export function Sheet({ open, onClose, children, side = 'right', className, aria
             initial="hidden"
             animate="visible"
             exit="exit"
-            transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+            transition={{ type: 'spring', stiffness: 420, damping: 34, mass: 0.8 }}
           >
             <SheetContext.Provider value={{ titleId }}>
               {isBottom && (
@@ -174,6 +188,7 @@ export interface SheetCloseProps {
 export function SheetClose({ onClose, label = '关闭' }: SheetCloseProps) {
   return (
     <button
+      type="button"
       onClick={onClose}
       aria-label={label}
       className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

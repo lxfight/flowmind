@@ -3,6 +3,7 @@ import { lazy, Suspense, useEffect } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'react-hot-toast'
 import { useAuthStore } from './stores/authStore'
+import { ConfirmDialogHost } from './components/ui/ConfirmDialog'
 
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/RegisterPage'))
@@ -115,6 +116,7 @@ export default function App() {
             </Route>
           </Routes>
         </Suspense>
+        <ConfirmDialogHost />
       </BrowserRouter>
       <Toaster position="top-right" />
     </QueryClientProvider>

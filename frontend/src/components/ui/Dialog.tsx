@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useId, useRef, type ReactNode } f
 import { AnimatePresence, motion } from 'framer-motion'
 import { X } from 'lucide-react'
 import { cn } from '../../utils/cn'
+import { isTopModalLayer, registerModalLayer } from './modalStack'
 
 export interface DialogProps {
   open: boolean
@@ -34,17 +35,30 @@ export function Dialog({ open, onClose, children, className, ariaLabel }: Dialog
   const panelRef = useRef<HTMLDivElement>(null)
   const previousFocus = useRef<HTMLElement | null>(null)
   const originalOverflow = useRef('')
+  const layer = useRef(Symbol('dialog'))
+  const onCloseRef = useRef(onClose)
+
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
 
   // ESC to close
   useEffect(() => {
+    if (!open) return
+    const unregister = registerModalLayer(layer.current)
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && open) {
-        onClose()
+      if (e.key === 'Escape' && isTopModalLayer(layer.current)) {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        onCloseRef.current()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [open, onClose])
+    return () => {
+      unregister()
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [open])
 
   // Lock body scroll + focus management
   useEffect(() => {
@@ -78,7 +92,7 @@ export function Dialog({ open, onClose, children, className, ariaLabel }: Dialog
           transition={{ duration: 0.15 }}
         >
           <motion.div
-            className="absolute inset-0 bg-black/50 dark:bg-black/70"
+            className="absolute inset-0 bg-black/45 backdrop-blur-[3px] dark:bg-black/70"
             onClick={onClose}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -93,13 +107,13 @@ export function Dialog({ open, onClose, children, className, ariaLabel }: Dialog
             aria-label={ariaLabel}
             tabIndex={-1}
             className={cn(
-              'relative z-10 w-full max-w-lg rounded-[8px] border border-border bg-card p-0 text-card-foreground shadow-lg outline-none',
+              'relative z-10 w-full max-w-lg rounded-[8px] border border-border/90 bg-card/95 p-0 text-card-foreground shadow-[0_28px_90px_-32px_rgba(0,0,0,0.65)] outline-none backdrop-blur-xl',
               className
             )}
-            initial={{ opacity: 0, scale: 0.96, y: 8 }}
+            initial={{ opacity: 0, scale: 0.975, y: 14 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: 8 }}
-            transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+            exit={{ opacity: 0, scale: 0.98, y: 8 }}
+            transition={{ type: 'spring', stiffness: 420, damping: 34, mass: 0.8 }}
             onClick={(e) => e.stopPropagation()}
           >
             <DialogContext.Provider value={{ titleId, descId }}>
@@ -119,7 +133,7 @@ export interface DialogHeaderProps {
 
 export function DialogHeader({ children, className }: DialogHeaderProps) {
   return (
-    <div className={cn('flex flex-col space-y-1.5 px-6 pt-6 pb-4', className)}>
+    <div className={cn('flex flex-col space-y-1.5 border-b border-border bg-muted/[0.16] px-6 pb-5 pt-6', className)}>
       {children}
     </div>
   )
@@ -132,7 +146,7 @@ export interface DialogFooterProps {
 
 export function DialogFooter({ children, className }: DialogFooterProps) {
   return (
-    <div className={cn('flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2 px-6 pb-6 pt-2', className)}>
+    <div className={cn('flex flex-col-reverse gap-2 border-t border-border bg-card/95 px-6 pb-6 pt-4 sm:flex-row sm:justify-end', className)}>
       {children}
     </div>
   )
@@ -160,7 +174,7 @@ export function DialogTitle({ children, className, showClose = false, onClose }:
           type="button"
           onClick={onClose}
           aria-label="关闭"
-          className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex h-8 w-8 flex-none items-center justify-center rounded-[8px] text-muted-foreground transition-[color,background-color,transform] hover:bg-accent hover:text-foreground active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <X className="h-4 w-4" aria-hidden="true" />
         </button>
@@ -172,7 +186,7 @@ export function DialogTitle({ children, className, showClose = false, onClose }:
 export function DialogDescription({ children, className }: { children: ReactNode; className?: string }) {
   const ctx = useDialogContext()
   return (
-    <p id={ctx?.descId} className={cn('text-sm text-muted-foreground', className)}>
+    <p id={ctx?.descId} className={cn('text-sm leading-6 text-muted-foreground', className)}>
       {children}
     </p>
   )

@@ -226,23 +226,26 @@ function UndoBatchControl({
         <Undo2 className="h-3 w-3" />
         撤销本轮操作
       </button>
-      <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)} ariaLabel="撤销本轮操作">
-        <DialogHeader>
-          <DialogTitle>撤销本轮操作</DialogTitle>
-          <DialogDescription>
-            将撤销助手本轮执行的 {count} 项操作（恢复或删除相应任务、评论、状态列）。此操作不可再次撤销。
-          </DialogDescription>
+      <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)} className="max-w-md overflow-hidden" ariaLabel="撤销本轮操作">
+        <DialogHeader className="relative overflow-hidden px-6 pb-6 pt-6">
+          <span className="absolute inset-y-0 left-0 w-1 bg-warning" aria-hidden="true" />
+          <div className="flex items-start gap-4">
+            <span className="flex h-11 w-11 flex-none items-center justify-center rounded-[8px] bg-warning/10 text-warning">
+              <Undo2 className="h-5 w-5" aria-hidden="true" />
+            </span>
+            <div className="min-w-0 pt-0.5">
+              <p className="mb-1 text-[10px] font-semibold text-muted-foreground">确认操作</p>
+              <DialogTitle className="text-xl leading-tight">撤销本轮操作</DialogTitle>
+              <DialogDescription className="mt-2">
+                将撤销助手本轮执行的 {count} 项操作，恢复或删除相应任务、评论与状态列。此操作不可再次撤销。
+              </DialogDescription>
+            </div>
+          </div>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="ghost" onClick={() => setConfirmOpen(false)}>
-            取消
-          </Button>
-          <Button
-            onClick={() => {
-              setConfirmOpen(false)
-              onUndoBatch(message.action_batch_id!)
-            }}
-          >
+          <Button variant="ghost" onClick={() => setConfirmOpen(false)}>取消</Button>
+          <Button onClick={() => { setConfirmOpen(false); onUndoBatch(message.action_batch_id!) }}>
+            <Undo2 className="h-4 w-4" />
             确认撤销
           </Button>
         </DialogFooter>

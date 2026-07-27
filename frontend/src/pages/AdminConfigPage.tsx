@@ -29,6 +29,7 @@ import { Button } from '../components/ui/Button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card'
 import { Badge } from '../components/ui/Badge'
 import { Input } from '../components/ui/Input'
+import { confirmAction } from '../components/ui/confirmAction'
 import { cn } from '../utils/cn'
 
 const GROUPS: { title: string; keys: string[] }[] = [
@@ -265,7 +266,13 @@ function ConnectivityCard({ items, onSaved }: { items: ConfigItem[]; onSaved: ()
     if (emb.baseUrl) targets.push({ key: 'embedding_base_url', label: 'Embedding Base URL', value: emb.baseUrl })
     if (emb.model) targets.push({ key: 'llm_embedding_model', label: 'Embedding 模型', value: emb.model })
     if (targets.length === 0) return
-    if (!confirm(`将以下 ${targets.length} 项测试参数保存为配置并立即生效？\n${targets.map((t) => `- ${t.label}`).join('\n')}`)) return
+    if (!(await confirmAction({
+      title: `保存 ${targets.length} 项连接参数`,
+      description: `${targets.map((target) => target.label).join('、')} 将写入系统配置并立即生效。`,
+      confirmLabel: '保存并生效',
+      tone: 'warning',
+      icon: 'warning',
+    }))) return
     setSaving(true)
     const failed: string[] = []
     for (const t of targets) {
@@ -408,7 +415,13 @@ function ConfigRow({
   }
 
   const handleReset = async () => {
-    if (!confirm(`确定将「${item.label}」恢复为默认值？当前的数据库覆盖值将被清除。`)) return
+    if (!(await confirmAction({
+      title: '恢复默认配置',
+      description: `「${item.label}」的数据库覆盖值将被清除。`,
+      confirmLabel: '恢复默认',
+      tone: 'warning',
+      icon: 'reset',
+    }))) return
     setResetting(true)
     try {
       await deleteConfig(item.key)

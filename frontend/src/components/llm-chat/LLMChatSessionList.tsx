@@ -8,6 +8,7 @@ import {
   DropdownMenuSeparator,
 } from '../ui/DropdownMenu'
 import { cn } from '../../utils/cn'
+import { confirmAction } from '../ui/confirmAction'
 import type { ChatSession } from '../../types'
 
 interface Props {
@@ -110,8 +111,14 @@ export function LLMChatSessionList({
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
-                    onClick={() => {
-                      if (confirm('确定删除该会话？')) onDelete(session.id)
+                    onClick={async () => {
+                      if (await confirmAction({
+                        title: '删除助手会话',
+                        description: `「${session.title}」的对话记录将被永久删除。`,
+                        confirmLabel: '删除会话',
+                        tone: 'danger',
+                        icon: 'delete',
+                      })) onDelete(session.id)
                     }}
                     className="text-danger hover:text-danger"
                   >

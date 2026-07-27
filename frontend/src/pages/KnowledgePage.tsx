@@ -24,6 +24,7 @@ import { Input } from '../components/ui/Input'
 import { Textarea } from '../components/ui/Textarea'
 import { Badge } from '../components/ui/Badge'
 import { EmptyState } from '../components/ui/EmptyState'
+import { confirmAction } from '../components/ui/confirmAction'
 import { cn } from '../utils/cn'
 import toast from 'react-hot-toast'
 
@@ -124,7 +125,13 @@ export default function KnowledgePage() {
 
   const handleDelete = async (doc: Doc) => {
     if (!projectId) return
-    if (!confirm(`确定删除文档「${doc.title}」？`)) return
+    if (!(await confirmAction({
+      title: '删除知识文档',
+      description: `「${doc.title}」及其索引片段将被永久删除。`,
+      confirmLabel: '删除文档',
+      tone: 'danger',
+      icon: 'delete',
+    }))) return
     setDeletingId(doc.id)
     try {
       await api.delete(`/projects/${projectId}/knowledge/${doc.id}`)
