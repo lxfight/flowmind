@@ -2,16 +2,20 @@ import {
   ClipboardList,
   MessageSquare,
   AtSign,
+  Clock,
   UserCheck,
   UserX,
   UserPlus,
   Info,
+  TriangleAlert,
 } from 'lucide-react'
 
 export const NOTIFICATION_TYPE_ICONS: Record<string, typeof Info> = {
   task_assigned: ClipboardList,
   comment: MessageSquare,
   mention: AtSign,
+  due_soon: Clock,
+  due_overdue: TriangleAlert,
   user_approved: UserCheck,
   user_rejected: UserX,
   member_added: UserPlus,
@@ -21,6 +25,8 @@ export const NOTIFICATION_TYPE_COLORS: Record<string, string> = {
   task_assigned: 'text-blue-500 bg-blue-500/10',
   comment: 'text-green-500 bg-green-500/10',
   mention: 'text-purple-500 bg-purple-500/10',
+  due_soon: 'text-amber-600 bg-amber-500/10',
+  due_overdue: 'text-red-500 bg-red-500/10',
   user_approved: 'text-emerald-500 bg-emerald-500/10',
   user_rejected: 'text-red-500 bg-red-500/10',
   member_added: 'text-amber-500 bg-amber-500/10',
@@ -38,4 +44,3 @@ export function formatNotificationTime(iso: string): string {
   if (days < 7) return `${days} 天前`
   return date.toLocaleDateString('zh-CN')
 }
-
