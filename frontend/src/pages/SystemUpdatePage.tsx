@@ -229,7 +229,12 @@ export default function SystemUpdatePage() {
   }
 
   if (loading) {
-    return <div className="p-6 text-sm text-muted-foreground">正在读取版本信息...</div>
+    return (
+      <div className="flex min-h-64 items-center justify-center border-y border-border text-sm text-muted-foreground">
+        <RefreshCw className="mr-2 h-4 w-4 animate-spin text-primary" />
+        正在读取版本信息
+      </div>
+    )
   }
 
   return (

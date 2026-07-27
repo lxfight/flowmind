@@ -180,7 +180,7 @@ function TestSection({
   probe: ConfigTestProbe | null
 }) {
   return (
-    <div className="rounded-lg border border-border p-4">
+    <section className="min-w-0 p-4">
       <h4 className="text-sm font-semibold">{title}</h4>
       <p className="mt-1 break-all text-[11px] text-muted-foreground">{summary}</p>
       <div className="mt-3 space-y-2.5">
@@ -222,7 +222,7 @@ function TestSection({
           <ProbeResult probe={probe} />
         </div>
       )}
-    </div>
+    </section>
   )
 }
 
@@ -314,7 +314,7 @@ function ConnectivityCard({ items, onSaved }: { items: ConfigItem[]; onSaved: ()
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="grid grid-cols-1 divide-y divide-border border-y border-border lg:grid-cols-2 lg:divide-x lg:divide-y-0">
           <TestSection
             title="LLM 对话"
             summary={llmSummary}
@@ -421,7 +421,7 @@ function ConfigRow({
   }
 
   return (
-    <Card>
+    <Card className="rounded-none border-x-0 border-t-0 last:border-b-0">
       <CardContent className="p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0 flex-1">
@@ -577,7 +577,7 @@ export default function AdminConfigPage() {
         return (
           <div key={group.title} className="mb-8">
             <h3 className="mb-3 text-sm font-semibold text-muted-foreground">{group.title}</h3>
-            <div className="space-y-2">
+            <div className="border-y border-border">
               {groupItems.map((item) => (
                 <ConfigRow
                   key={item.key}

@@ -1,13 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
-import { Users, Check, X, RefreshCw, Key } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, Clock3, Key, RefreshCw, UserCheck, UserX, Users, X } from 'lucide-react'
 import api from '../utils/api'
 import toast from 'react-hot-toast'
 import { PageHeader } from '../components/layout/PageHeader'
 import { Button } from '../components/ui/Button'
 import { Switch } from '../components/ui/Switch'
-import { Card, CardContent } from '../components/ui/Card'
 import { Badge } from '../components/ui/Badge'
 import { Avatar } from '../components/ui/Avatar'
 import { cn } from '../utils/cn'
@@ -135,16 +134,34 @@ export default function AdminUsersPage() {
     <div className="mx-auto h-full w-full max-w-[1600px] overflow-y-auto">
       <PageHeader title="用户管理" description="审批、禁用、重置密码及管理项目创建权限" />
 
+        <section className="mb-8 grid border-y border-border sm:grid-cols-3" aria-label="用户概览">
+          {[
+            { label: '待审批', value: pendingUsers.length, icon: Clock3, tone: pendingUsers.length > 0 ? 'text-warning' : 'text-muted-foreground' },
+            { label: '活跃用户', value: activeUsers.length, icon: UserCheck, tone: 'text-success' },
+            { label: '已禁用', value: disabledUsers.length, icon: UserX, tone: disabledUsers.length > 0 ? 'text-danger' : 'text-muted-foreground' },
+          ].map((metric) => {
+            const Icon = metric.icon
+            return (
+              <div key={metric.label} className="flex items-end justify-between border-b border-border px-4 py-5 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0">
+                <div>
+                  <p className="text-[10px] font-semibold text-muted-foreground">{metric.label}</p>
+                  <p className="tnum mt-2 text-3xl font-semibold leading-none text-foreground">{String(metric.value).padStart(2, '0')}</p>
+                </div>
+                <Icon className={cn('h-4 w-4', metric.tone)} />
+              </div>
+            )
+          })}
+        </section>
+
         {pendingUsers.length > 0 && (
           <div className="mb-8">
             <h3 className="text-sm font-semibold text-warning mb-3 flex items-center gap-1.5">
               <Users className="h-4 w-4" />
               待审批 ({pendingUsers.length})
             </h3>
-            <div className="space-y-2">
+            <div className="divide-y divide-border/70 border-y border-warning/30 bg-warning/[0.025]">
               {pendingUsers.map((u) => (
-                <Card key={u.id}>
-                  <CardContent className="flex items-center justify-between p-4">
+                <div key={u.id} className="flex flex-col justify-between gap-4 px-3 py-4 sm:flex-row sm:items-center">
                     <div className="flex items-center gap-3 min-w-0">
                       <Avatar name={u.display_name || u.username} src={u.avatar_url} size="sm" />
                       <div className="min-w-0">
@@ -152,7 +169,7 @@ export default function AdminUsersPage() {
                         <p className="text-xs text-muted-foreground truncate">@{u.username} · {u.email}</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
+                    <div className="flex flex-shrink-0 items-center gap-2">
                       <Button
                         size="sm"
                         onClick={() => handleApprove(u.id, false)}
@@ -173,8 +190,7 @@ export default function AdminUsersPage() {
                         拒绝
                       </Button>
                     </div>
-                  </CardContent>
-                </Card>
+                </div>
               ))}
             </div>
           </div>
@@ -184,10 +200,9 @@ export default function AdminUsersPage() {
           <h3 className="text-sm font-semibold text-muted-foreground mb-3">
             活跃用户 ({activeUsers.length})
           </h3>
-          <div className="space-y-2">
+          <div className="divide-y divide-border/70 border-y border-border">
             {activeUsers.map((u) => (
-              <Card key={u.id}>
-                <CardContent className="p-4">
+              <div key={u.id} className="px-3 py-4 transition-colors hover:bg-muted/20">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                     <div className="flex items-center gap-3">
                       <Avatar name={u.display_name || u.username} src={u.avatar_url} size="sm" />
@@ -241,8 +256,7 @@ export default function AdminUsersPage() {
                       )}
                     </div>
                   </div>
-                </CardContent>
-              </Card>
+              </div>
             ))}
           </div>
         </div>
@@ -252,10 +266,9 @@ export default function AdminUsersPage() {
             <h3 className="text-sm font-semibold text-muted-foreground mb-3">
               已禁用 ({disabledUsers.length})
             </h3>
-            <div className="space-y-2">
+            <div className="divide-y divide-border/60 border-y border-border opacity-65">
               {disabledUsers.map((u) => (
-                <Card key={u.id} className="opacity-60">
-                  <CardContent className="flex items-center justify-between p-4">
+                <div key={u.id} className="flex items-center justify-between gap-4 px-3 py-4">
                     <div className="flex items-center gap-3">
                       <Avatar name={u.display_name || u.username} src={u.avatar_url} size="sm" />
                       <div>
@@ -273,8 +286,7 @@ export default function AdminUsersPage() {
                       <Check className="h-3.5 w-3.5" />
                       启用
                     </Button>
-                  </CardContent>
-                </Card>
+                </div>
               ))}
             </div>
           </div>
@@ -284,22 +296,28 @@ export default function AdminUsersPage() {
           <div className="mt-6 flex items-center justify-center gap-3">
             <Button
               variant="outline"
-              size="sm"
+              size="icon"
+              className="h-8 w-8"
               disabled={page <= 1}
               onClick={() => loadUsers(page - 1)}
+              aria-label="上一页"
+              title="上一页"
             >
-              上一页
+              <ChevronLeft className="h-4 w-4" />
             </Button>
             <span className="text-xs text-muted-foreground">
               第 {page} / {Math.ceil(total / PAGE_SIZE)} 页（共 {total} 人）
             </span>
             <Button
               variant="outline"
-              size="sm"
+              size="icon"
+              className="h-8 w-8"
               disabled={page >= Math.ceil(total / PAGE_SIZE)}
               onClick={() => loadUsers(page + 1)}
+              aria-label="下一页"
+              title="下一页"
             >
-              下一页
+              <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
         )}

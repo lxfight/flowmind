@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { CalendarClock, Loader2, Search, SearchX } from 'lucide-react'
+import { ArrowDown, ArrowUpRight, CalendarClock, Loader2, Search, SearchX } from 'lucide-react'
 import api from '../utils/api'
 import { searchTasks, type TaskSearchItem } from '../api/tasks'
 import { PageHeader } from '../components/layout/PageHeader'
@@ -174,18 +174,17 @@ export default function TaskSearchPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1400px] space-y-6">
-      <PageHeader title="任务搜索" description="跨项目搜索你有权访问的任务" />
+    <div className="mx-auto w-full max-w-[1500px]">
+      <PageHeader title="任务搜索" description="跨项目检索任务，并直接进入对应任务上下文。" />
 
-      {/* Search + filters */}
-      <div className="surface p-4 space-y-3">
+      <section className="mb-8 space-y-3 border-y border-border px-1 py-4" aria-label="任务筛选">
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="搜索任务标题或描述..."
-            className="pl-9"
+            placeholder="搜索任务标题或描述"
+            className="h-12 border-x-0 border-t-0 bg-transparent pl-10 text-base shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
           />
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -237,12 +236,12 @@ export default function TaskSearchPage() {
           />
           只看逾期未完成
         </label>
-      </div>
+      </section>
 
       {/* Results */}
       {loading ? (
-        <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 搜索中...
+        <div className="flex min-h-64 items-center justify-center border-y border-border text-sm text-muted-foreground">
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 正在检索任务
         </div>
       ) : tasks.length === 0 ? (
         <EmptyState
@@ -252,8 +251,11 @@ export default function TaskSearchPage() {
         />
       ) : (
         <>
-          <p className="text-xs text-muted-foreground">共 {total} 个任务</p>
-          <div className="surface divide-y divide-border/50 overflow-hidden">
+          <div className="mb-3 flex items-center justify-between px-1 text-xs text-muted-foreground">
+            <span>任务名册</span>
+            <span className="tnum">共 {total} 项</span>
+          </div>
+          <div className="divide-y divide-border/70 border-y border-border">
             {tasks.map((t) => {
               const prio = priorityConfig[t.priority as keyof typeof priorityConfig] || priorityConfig[0]
               const isOverdue = !!t.due_date && !t.is_completed && new Date(t.due_date) < new Date()
@@ -261,8 +263,8 @@ export default function TaskSearchPage() {
                 <button
                   key={t.id}
                   type="button"
-                  onClick={() => navigate(`/project/${t.project_id}/board`)}
-                  className="flex w-full items-center gap-3 px-5 py-3.5 text-left transition-colors hover:bg-accent"
+                  onClick={() => navigate(`/project/${t.project_id}/board?task=${t.id}`)}
+                  className="group grid w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 px-3 py-4 text-left transition-colors hover:bg-muted/25 sm:px-4"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
@@ -332,6 +334,7 @@ export default function TaskSearchPage() {
                   ) : (
                     <span className="shrink-0 text-xs text-muted-foreground">未指派</span>
                   )}
+                  <ArrowUpRight className="h-4 w-4 text-muted-foreground transition-transform duration-300 group-hover:translate-x-0.5 group-hover:text-foreground" />
                 </button>
               )
             })}
@@ -344,7 +347,9 @@ export default function TaskSearchPage() {
                 onClick={() => runSearch(tasks.length, true)}
                 loading={loadingMore}
               >
-                加载更多（{tasks.length}/{total}）
+                <ArrowDown className="h-4 w-4" />
+                加载更多
+                <span className="tnum text-muted-foreground">{tasks.length}/{total}</span>
               </Button>
             </div>
           )}

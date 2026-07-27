@@ -1,13 +1,28 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAuthStore } from '../stores/authStore'
-import { User, Mail, Lock, Save, Key, Camera, Link2 } from 'lucide-react'
+import { Camera, Key, Link2, Lock, Mail, Save, User, type LucideIcon } from 'lucide-react'
+import type { ReactNode } from 'react'
 import api, { errDetail } from '../utils/api'
 import toast from 'react-hot-toast'
 import { PageHeader } from '../components/layout/PageHeader'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Avatar } from '../components/ui/Avatar'
+
+function ProfileSection({ icon: Icon, title, description, children }: { icon: LucideIcon; title: string; description: string; children: ReactNode }) {
+  return (
+    <section className="grid gap-5 border-t border-border py-7 last:border-b md:grid-cols-[11rem_minmax(0,1fr)] md:gap-10">
+      <div>
+        <span className="mb-3 flex h-9 w-9 items-center justify-center rounded-[8px] bg-muted text-muted-foreground">
+          <Icon className="h-4 w-4" />
+        </span>
+        <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
+      </div>
+      <div className="min-w-0 space-y-4">{children}</div>
+    </section>
+  )
+}
 
 export default function ProfilePage() {
   const { user, loadUser } = useAuthStore()
@@ -104,20 +119,12 @@ export default function ProfilePage() {
   if (!user) return null
 
   return (
-    <div className="max-w-xl mx-auto space-y-6">
-      <PageHeader title="个人资料设置" description="管理你的头像、昵称和登录密码" />
+    <div className="mx-auto w-full max-w-5xl">
+      <PageHeader title="个人资料" description="管理头像、身份信息和账号安全。" />
 
-      {/* Avatar */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-1.5">
-            <Camera className="h-4 w-4 text-muted-foreground" />
-            头像
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      <ProfileSection icon={Camera} title="头像" description="用于项目成员和任务协作中的身份识别。">
           <div className="flex items-center gap-4">
-            <Avatar name={user.display_name || user.username} src={avatarUrl || user.avatar_url} size="lg" />
+            <Avatar name={user.display_name || user.username} src={avatarUrl || user.avatar_url} size="lg" className="h-16 w-16" />
             <div className="flex-1 space-y-2">
               <input
                 type="file"
@@ -157,17 +164,10 @@ export default function ProfilePage() {
               </div>
             </div>
           </div>
-        </CardContent>
-      </Card>
+      </ProfileSection>
 
-      <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-1.5">
-              <User className="h-4 w-4 text-muted-foreground" />
-              基本信息
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
+      <ProfileSection icon={User} title="身份信息" description="昵称和邮箱会展示在项目协作界面。">
+            <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <label className="text-sm font-medium">用户名（不可修改）</label>
               <Input value={user.username} disabled className="bg-muted cursor-not-allowed" />
@@ -191,6 +191,7 @@ export default function ProfilePage() {
                 placeholder="输入邮箱"
               />
             </div>
+            </div>
             <div className="flex justify-end">
               <Button
                 onClick={handleSaveProfile}
@@ -202,17 +203,10 @@ export default function ProfilePage() {
                 保存修改
               </Button>
             </div>
-          </CardContent>
-        </Card>
+      </ProfileSection>
 
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-1.5">
-              <Lock className="h-4 w-4 text-muted-foreground" />
-              修改密码
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
+      <ProfileSection icon={Lock} title="账号安全" description="更新密码后，现有登录状态保持不变。">
+            <div className="grid gap-4 sm:grid-cols-3">
             <div className="space-y-1.5">
               <label className="text-sm font-medium">原密码</label>
               <Input
@@ -240,6 +234,7 @@ export default function ProfilePage() {
                 placeholder="再次输入新密码"
               />
             </div>
+            </div>
             <div className="flex justify-end">
               <Button
                 onClick={handleChangePassword}
@@ -251,8 +246,7 @@ export default function ProfilePage() {
                 修改密码
               </Button>
             </div>
-          </CardContent>
-        </Card>
-      </div>
+      </ProfileSection>
+    </div>
   )
 }
