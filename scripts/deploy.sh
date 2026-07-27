@@ -157,13 +157,14 @@ fi
 
 export DOCKER_BUILDKIT=1
 export COMPOSE_BAKE=true
+docker compose config --quiet
 
 if ((${#SERVICES[@]} > 0)); then
   echo "[deploy] 使用 BuildKit 依赖缓存构建服务: ${SERVICES[*]}"
   docker compose build "${SERVICES[@]}"
-  docker compose up -d --no-build "${SERVICES[@]}"
+  docker compose up -d --no-build --wait --wait-timeout 180 "${SERVICES[@]}"
 else
   echo "[deploy] 使用 BuildKit 依赖缓存构建全部服务"
   docker compose build
-  docker compose up -d --no-build
+  docker compose up -d --no-build --wait --wait-timeout 180
 fi
