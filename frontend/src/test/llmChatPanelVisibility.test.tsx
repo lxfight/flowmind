@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 
 // --- Mocks -----------------------------------------------------------------
 
@@ -36,9 +37,23 @@ vi.mock('../utils/api', () => ({
   },
 }))
 
+vi.mock('../components/kanban/TaskDetailDialog', () => ({
+  TaskDetailDialog: ({ taskId, focusCommentId }: { taskId: number; focusCommentId?: number | null }) => (
+    <div data-testid="task-detail-target">{taskId}:{focusCommentId ?? 'none'}</div>
+  ),
+}))
+
 import KanbanBoard from '../components/kanban/KanbanBoard'
 
 // --- Tests -----------------------------------------------------------------
+
+function renderBoard(entry = '/project/1/board') {
+  return render(
+    <MemoryRouter initialEntries={[entry]}>
+      <KanbanBoard />
+    </MemoryRouter>
+  )
+}
 
 describe('LLM chat floating window (KanbanBoard integration)', () => {
   beforeEach(() => {
@@ -46,14 +61,14 @@ describe('LLM chat floating window (KanbanBoard integration)', () => {
   })
 
   it('shows the floating trigger button on the board when the window is closed', async () => {
-    render(<KanbanBoard />)
+    renderBoard()
     await screen.findByText('任务看板')
     const trigger = await screen.findByRole('button', { name: '打开 LLM 助手' })
     expect(trigger).toBeInTheDocument()
   })
 
   it('opens the floating window (role=dialog) when the trigger is clicked', async () => {
-    render(<KanbanBoard />)
+    renderBoard()
     const trigger = await screen.findByRole('button', { name: '打开 LLM 助手' })
     await userEvent.click(trigger)
 
@@ -73,7 +88,7 @@ describe('LLM chat floating window (KanbanBoard integration)', () => {
   })
 
   it('opens the window from the toolbar button as well', async () => {
-    render(<KanbanBoard />)
+    renderBoard()
     const btn = await screen.findByRole('button', { name: 'LLM 助手' })
     await userEvent.click(btn)
     const panel = await screen.findByRole('dialog', { name: 'LLM 助手面板' })
@@ -84,13 +99,13 @@ describe('LLM chat floating window (KanbanBoard integration)', () => {
 
   it('restores the open state from localStorage', async () => {
     localStorage.setItem('flowmind.llmChatOpen', '1')
-    render(<KanbanBoard />)
+    renderBoard()
     const panel = await screen.findByRole('dialog', { name: 'LLM 助手面板' })
     expect(panel).toBeInTheDocument()
   })
 
   it('closes via the header close button and shows the trigger again', async () => {
-    render(<KanbanBoard />)
+    renderBoard()
     const trigger = await screen.findByRole('button', { name: '打开 LLM 助手' })
     await userEvent.click(trigger)
     await screen.findByRole('dialog', { name: 'LLM 助手面板' })
@@ -106,7 +121,7 @@ describe('LLM chat floating window (KanbanBoard integration)', () => {
     const previousWidth = window.innerWidth
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
     try {
-      render(<KanbanBoard />)
+      renderBoard()
       const trigger = await screen.findByRole('button', { name: '打开 LLM 助手' })
       await userEvent.click(trigger)
 
@@ -116,5 +131,11 @@ describe('LLM chat floating window (KanbanBoard integration)', () => {
     } finally {
       Object.defineProperty(window, 'innerWidth', { configurable: true, value: previousWidth })
     }
+  })
+
+  it('opens the exact task and comment from a notification deep link', async () => {
+    renderBoard('/project/1/board?task=42&comment=7')
+
+    expect(await screen.findByTestId('task-detail-target')).toHaveTextContent('42:7')
   })
 })

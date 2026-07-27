@@ -11,7 +11,7 @@ import {
   type DragStartEvent,
   type DragEndEvent,
 } from '@dnd-kit/core'
-import { useParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import api from '../../utils/api'
 import { useProjectRole } from '../../hooks/useProjectRole'
 import { useProjectSocket } from '../../hooks/useProjectSocket'
@@ -23,6 +23,7 @@ import { CreateTaskDialog } from './CreateTaskDialog'
 import { TaskDetailDialog } from './TaskDetailDialog'
 import { StatusManagerDialog } from './StatusManagerDialog'
 import { filterAndSortTasks, type TaskSortKey } from './taskView'
+import { parseBoardDeepLink, withoutTaskDeepLink } from './boardDeepLink'
 import { LLMChatPanel } from '../llm-chat/LLMChatPanel'
 import { loadOpenState, saveOpenState } from '../llm-chat/floatingGeometry'
 import { AlertCircle, ArrowDown, ArrowUp, Columns3, Filter, Loader2, MessageSquare, Plus, RefreshCw, Search, X } from 'lucide-react'
@@ -52,6 +53,8 @@ const SORT_OPTIONS: { value: TaskSortKey; label: string }[] = [
 
 export default function KanbanBoard() {
   const { projectId } = useParams()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const deepLink = parseBoardDeepLink(searchParams)
   const userRole = useProjectRole()
   const isViewer = userRole === 'viewer'
   const canManageStatuses = userRole === 'owner' || userRole === 'admin'
@@ -228,6 +231,19 @@ export default function KanbanBoard() {
     setActiveTask(null)
     setCreateStatusId(null)
   }, [projectId, setShowChat])
+
+  useEffect(() => {
+    if (deepLink.taskId === null) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- URL deep links control the detail dialog
+    setDetailTaskId(deepLink.taskId)
+  }, [deepLink.taskId])
+
+  const closeTaskDetail = () => {
+    setDetailTaskId(null)
+    if (searchParams.has('task') || searchParams.has('comment')) {
+      setSearchParams(withoutTaskDeepLink(searchParams), { replace: true })
+    }
+  }
 
   const handleDragStart = (event: DragStartEvent) => {
     if (isViewer) return
@@ -591,8 +607,9 @@ export default function KanbanBoard() {
         <TaskDetailDialog
           taskId={detailTaskId}
           projectId={parseInt(projectId!)}
+          focusCommentId={detailTaskId === deepLink.taskId ? deepLink.commentId : null}
           statuses={statuses.map((s) => ({ id: s.id, name: s.name }))}
-          onClose={() => setDetailTaskId(null)}
+          onClose={closeTaskDetail}
           onUpdated={() => {
             void loadTasks().catch(() => {})
           }}

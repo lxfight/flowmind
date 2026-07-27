@@ -43,6 +43,7 @@ import type { MemberOption, StatusOption, TaskAttachment, TaskDetail } from '../
 interface Props {
   taskId: number
   projectId: number
+  focusCommentId?: number | null
   statuses: StatusOption[]
   onClose: () => void
   onUpdated: () => void
@@ -59,7 +60,14 @@ const priorityOptions = [
 /** Consistent section header style across description/subtasks/attachments/comments */
 const SECTION_TITLE = 'text-xs font-semibold uppercase tracking-wider text-muted-foreground'
 
-export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdated }: Props) {
+export function TaskDetailDialog({
+  taskId,
+  projectId,
+  focusCommentId,
+  statuses,
+  onClose,
+  onUpdated,
+}: Props) {
   const currentUser = useAuthStore((s) => s.user)
   const userRole = useProjectRole()
   const isViewer = userRole === 'viewer'
@@ -83,6 +91,17 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
   const [deletingSubtaskId, setDeletingSubtaskId] = useState<number | null>(null)
   const [suggestingStatus, setSuggestingStatus] = useState(false)
   const [deleting, setDeleting] = useState(false)
+
+  useEffect(() => {
+    if (!task || !focusCommentId) return
+    const frame = requestAnimationFrame(() => {
+      document.getElementById(`task-comment-${focusCommentId}`)?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [task, focusCommentId])
 
   // Attachments
   const [attachments, setAttachments] = useState<TaskAttachment[]>([])
@@ -906,7 +925,14 @@ export function TaskDetailDialog({ taskId, projectId, statuses, onClose, onUpdat
                 const canDeleteComment = isOwn || canDelete || currentUser?.is_superuser
                 const isEditingComment = editingCommentId === c.id
                 return (
-                  <div key={c.id} className="group rounded-lg border border-border bg-muted/30 p-3">
+                  <div
+                    key={c.id}
+                    id={`task-comment-${c.id}`}
+                    className={cn(
+                      'group rounded-lg border border-border bg-muted/30 p-3 transition-shadow',
+                      focusCommentId === c.id && 'border-primary/60 bg-primary/5 ring-2 ring-primary/20'
+                    )}
+                  >
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-xs font-medium">{c.user?.display_name}</span>
                       <span className="text-xs text-muted-foreground">
