@@ -21,6 +21,15 @@ def _load_migration():
     return module
 
 
+def test_backfill_skips_database_without_notifications_table():
+    engine = sa.create_engine("sqlite://")
+
+    with engine.begin() as connection:
+        migration = _load_migration()
+        migration.op = Operations(MigrationContext.configure(connection))
+        migration.upgrade()
+
+
 def test_backfill_notification_deep_links():
     engine = sa.create_engine("sqlite://")
     metadata = sa.MetaData()

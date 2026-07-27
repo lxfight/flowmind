@@ -52,6 +52,11 @@ def _seconds_between(left: datetime, right: datetime) -> float:
 
 def upgrade() -> None:
     bind = op.get_bind()
+    # Older deployments created this table through metadata.create_all(), but
+    # it is absent from the historical Alembic baseline used by fresh installs.
+    if not sa.inspect(bind).has_table("notifications"):
+        return
+
     notifications = sa.table(
         "notifications",
         sa.column("id", sa.Integer),
