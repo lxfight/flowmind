@@ -1,12 +1,56 @@
+from unittest.mock import AsyncMock
+
 import httpx
 import pytest
 
+from app.api import admin_update
 from app.services.update_service import (
     ReleaseService,
     normalize_version,
     release_html_to_markdown,
     version_is_newer,
 )
+
+
+@pytest.mark.asyncio
+async def test_reconcile_started_request_syncs_matching_updater(monkeypatch):
+    updater = {
+        "available": True,
+        "request_id": "request-123",
+        "status": "deploying",
+    }
+    status = AsyncMock(return_value=updater)
+    sync_run = AsyncMock()
+    db = AsyncMock()
+    monkeypatch.setattr(admin_update.updater_client, "status", status)
+    monkeypatch.setattr(admin_update, "_sync_run", sync_run)
+
+    result = await admin_update._reconcile_started_request(db, "request-123")
+
+    assert result == updater
+    sync_run.assert_awaited_once_with(db, updater)
+    db.commit.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_reconcile_started_request_ignores_another_request(monkeypatch):
+    status = AsyncMock(
+        return_value={
+            "available": True,
+            "request_id": "another-request",
+            "status": "deploying",
+        }
+    )
+    sync_run = AsyncMock()
+    db = AsyncMock()
+    monkeypatch.setattr(admin_update.updater_client, "status", status)
+    monkeypatch.setattr(admin_update, "_sync_run", sync_run)
+
+    result = await admin_update._reconcile_started_request(db, "request-123")
+
+    assert result is None
+    sync_run.assert_not_awaited()
+    db.commit.assert_not_awaited()
 
 
 @pytest.mark.parametrize(

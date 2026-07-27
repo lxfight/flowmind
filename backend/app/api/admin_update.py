@@ -58,6 +58,17 @@ async def _sync_run(db: AsyncSession, updater: dict[str, Any]) -> None:
         run.finished_at = _parse_datetime(updater.get("finished_at")) or datetime.now(UTC)
 
 
+async def _reconcile_started_request(
+    db: AsyncSession, request_id: str
+) -> dict[str, Any] | None:
+    updater = await updater_client.status()
+    if not updater.get("available") or updater.get("request_id") != request_id:
+        return None
+    await _sync_run(db, updater)
+    await db.commit()
+    return updater
+
+
 def _run_payload(run: SystemUpdateRun, actor_name: str | None = None) -> dict[str, Any]:
     return {
         "id": run.id,
@@ -125,7 +136,12 @@ async def apply_update(
     if existing:
         if existing.target_version != target_version:
             raise HTTPException(status_code=409, detail="请求 ID 已用于其他版本")
-        return {"run": _run_payload(existing), "idempotent_replay": True}
+        updater = await _reconcile_started_request(db, request_id)
+        return {
+            "run": _run_payload(existing),
+            "updater": updater,
+            "idempotent_replay": True,
+        }
 
     overview = await update_overview()
     latest = overview.get("latest")
@@ -156,6 +172,9 @@ async def apply_update(
             {"version": target_version, "request_id": request_id},
         )
     except (RuntimeError, httpx.HTTPError, ValueError) as exc:
+        updater = await _reconcile_started_request(db, request_id)
+        if updater is not None:
+            return {"run": _run_payload(run), "updater": updater, "reconciled": True}
         run.status = "failed"
         run.error = str(exc)[:4000]
         run.finished_at = datetime.now(UTC)
@@ -185,7 +204,12 @@ async def rollback_update(
     if existing:
         if existing.target_version != target_version:
             raise HTTPException(status_code=409, detail="请求 ID 已用于其他版本")
-        return {"run": _run_payload(existing), "idempotent_replay": True}
+        updater = await _reconcile_started_request(db, request_id)
+        return {
+            "run": _run_payload(existing),
+            "updater": updater,
+            "idempotent_replay": True,
+        }
 
     run = SystemUpdateRun(
         request_id=request_id,
@@ -207,6 +231,9 @@ async def rollback_update(
             {"version": target_version, "request_id": request_id},
         )
     except (RuntimeError, httpx.HTTPError) as exc:
+        updater = await _reconcile_started_request(db, request_id)
+        if updater is not None:
+            return {"run": _run_payload(run), "updater": updater, "reconciled": True}
         run.status = "failed"
         run.error = str(exc)[:4000]
         run.finished_at = datetime.now(UTC)
