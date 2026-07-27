@@ -98,7 +98,7 @@ export function LLMChatInput({
     <div className="shrink-0 border-t border-border/60 bg-background px-3 pb-3 pt-2.5">
       <div
         className={cn(
-          'relative rounded-2xl border border-input bg-muted/20 transition-shadow duration-200',
+          'relative rounded-[8px] border border-input bg-muted/20 transition-shadow duration-200',
           'focus-within:border-foreground/25 focus-within:bg-background focus-within:shadow-[0_2px_12px_-4px_hsl(var(--foreground)/0.12)]',
           disabled && 'opacity-70'
         )}

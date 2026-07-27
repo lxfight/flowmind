@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Bell, CheckCheck, Info } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, Bell, BellOff, CheckCheck, Info, Loader2 } from 'lucide-react'
 import {
   fetchNotifications,
   markAllNotificationsRead,
@@ -114,9 +114,17 @@ export function NotificationBell() {
 
           <div className="max-h-96 overflow-y-auto">
             {loading ? (
-              <div className="px-4 py-8 text-center text-sm text-muted-foreground">加载中...</div>
+              <div className="flex items-center justify-center px-4 py-8 text-sm text-muted-foreground">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                正在接收通知
+              </div>
             ) : notifications.length === 0 ? (
-              <div className="px-4 py-8 text-center text-sm text-muted-foreground">暂无通知</div>
+              <div className="flex flex-col items-center px-4 py-8 text-center text-sm text-muted-foreground">
+                <span className="mb-3 flex h-9 w-9 items-center justify-center rounded-[8px] bg-muted">
+                  <BellOff className="h-4 w-4" />
+                </span>
+                暂无通知
+              </div>
             ) : (
               notifications.map((n) => {
                 const Icon = NOTIFICATION_TYPE_ICONS[n.type] ?? Info
@@ -127,13 +135,13 @@ export function NotificationBell() {
                     type="button"
                     onClick={() => handleClickItem(n)}
                     className={cn(
-                      'flex w-full items-start gap-3 border-b border-border/50 px-4 py-3 text-left transition-colors hover:bg-accent',
+                      'group flex w-full items-start gap-3 border-b border-border/50 px-4 py-3 text-left transition-colors hover:bg-accent',
                       !n.is_read && 'bg-primary/5'
                     )}
                   >
                     <span
                       className={cn(
-                        'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full',
+                        'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px]',
                         color
                       )}
                     >
@@ -162,6 +170,7 @@ export function NotificationBell() {
                         {formatNotificationTime(n.created_at)}
                       </span>
                     </span>
+                    <ArrowUpRight className="mt-2 h-3.5 w-3.5 flex-none text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
                   </button>
                 )
               })
@@ -172,9 +181,10 @@ export function NotificationBell() {
             <Link
               to="/notifications"
               onClick={() => setOpen(false)}
-              className="block text-center text-xs text-primary transition-colors hover:underline"
+              className="flex items-center justify-center gap-1.5 text-center text-xs text-primary transition-colors hover:underline"
             >
               查看全部通知
+              <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
         </div>

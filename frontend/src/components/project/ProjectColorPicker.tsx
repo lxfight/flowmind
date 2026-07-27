@@ -97,7 +97,7 @@ export function ProjectColorPicker({ value, onChange, disabled, projectName }: P
   return (
     <div className="space-y-3">
       {/* 实时预览：色条 + 浅色衍生背景 + 色点 + 项目名 */}
-      <div className="overflow-hidden rounded-xl border border-border" aria-live="polite">
+      <div className="overflow-hidden rounded-[8px] border border-border" aria-live="polite">
         <div className="h-1.5 transition-colors" style={{ backgroundColor: normalized }} />
         <div
           className="p-3 transition-colors"

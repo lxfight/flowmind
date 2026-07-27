@@ -126,7 +126,7 @@ export function LLMChatPanel({ projectId, open, onClose, onActions, members }: P
       return
     }
     if (result.skipped.length > 0) {
-      toast(`已撤销 ${result.undone.length} 项，${result.skipped.length} 项因数据已变化而跳过`, { icon: '⚠️' })
+      toast(`已撤销 ${result.undone.length} 项，${result.skipped.length} 项因数据已变化而跳过`)
     } else {
       toast.success('已撤销本轮操作')
     }

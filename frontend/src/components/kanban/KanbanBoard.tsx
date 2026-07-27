@@ -359,9 +359,12 @@ export default function KanbanBoard() {
   return (
     <div className="relative h-full min-w-0">
       <div className="h-full min-w-0 overflow-auto">
-        <div className="surface p-4 mb-4">
+        <section className="mb-5 border-y border-border px-1 py-4" aria-label="看板工具栏">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-            <h3 className="section-title">任务看板</h3>
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">任务看板</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">拖拽任务推进状态，筛选当前工作焦点</p>
+            </div>
             <div className="flex items-center gap-2">
               {canManageStatuses && (
                 <Button
@@ -492,15 +495,15 @@ export default function KanbanBoard() {
               {hasTaskFilters ? `${visibleTasks.length} / ${tasks.length} 个任务` : `${tasks.length} 个任务`}
             </Badge>
           </div>
-        </div>
+        </section>
 
         {boardLoading ? (
-          <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card p-10 text-center">
+          <div className="flex flex-col items-center justify-center border-y border-border p-10 text-center">
             <Loader2 className="h-7 w-7 text-primary animate-spin mb-3" />
             <p className="body-text">正在加载看板...</p>
           </div>
         ) : boardError ? (
-          <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card p-10 text-center">
+          <div className="flex flex-col items-center justify-center border-y border-border p-10 text-center">
             <AlertCircle className="h-8 w-8 text-danger mb-3" />
             <p className="text-sm text-foreground mb-4">{boardError}</p>
             <Button variant="outline" size="sm" onClick={loadBoard} className="gap-1.5">
@@ -511,7 +514,7 @@ export default function KanbanBoard() {
         ) : (
           <>
             {statuses.length === 0 ? (
-              <div className="rounded-xl border border-border bg-card p-10 text-center body-text">
+              <div className="border-y border-border p-10 text-center body-text">
                 暂无任务状态
               </div>
             ) : (

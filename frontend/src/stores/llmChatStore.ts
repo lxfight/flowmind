@@ -332,7 +332,7 @@ export const useLLMChatStore = create<LLMChatState>((set, get) => ({
             args: data.args || {},
             status: 'running',
           })
-          patchAssistant({ toolStatus: `🔧 正在${toolLabel(data.name || '')}…` })
+          patchAssistant({ toolStatus: `正在${toolLabel(data.name || '')}…` })
         } else if (event === 'tool_end') {
           finishToolStep(data.id, data.name || '', data.output || '')
           patchAssistant({ toolStatus: null })

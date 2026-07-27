@@ -13,6 +13,7 @@ import api, { errDetail } from '../../utils/api'
 import toast from 'react-hot-toast'
 import { cn } from '../../utils/cn'
 import type { TaskStatus } from '../../types'
+import { Loader2, Trash2 } from 'lucide-react'
 
 interface Props {
   projectId: number
@@ -139,7 +140,7 @@ export function StatusManagerDialog({ projectId, onClose, onUpdated }: Props) {
             {statuses.map((status) => (
               <div
                 key={status.id}
-                className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-lg border border-border bg-muted/30 p-3"
+                className="flex flex-col gap-3 border-b border-border/70 px-1 py-3 last:border-b-0 sm:flex-row sm:items-center"
               >
                 <div className="flex items-center gap-2 flex-1 min-w-0">
                   <span
@@ -204,11 +205,12 @@ export function StatusManagerDialog({ projectId, onClose, onUpdated }: Props) {
                     onClick={() => handleDelete(status)}
                     disabled={deletingId === status.id}
                     aria-label={`删除状态列 ${status.name}`}
+                    title="删除状态列"
                   >
                     {deletingId === status.id ? (
-                      <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />
+                      <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
-                      <span className="text-sm">×</span>
+                      <Trash2 className="h-4 w-4" />
                     )}
                   </Button>
                 </div>
@@ -217,7 +219,7 @@ export function StatusManagerDialog({ projectId, onClose, onUpdated }: Props) {
           </div>
         )}
 
-        <div className="rounded-lg border border-border p-3 space-y-3">
+        <div className="space-y-3 border-y border-border bg-muted/20 p-3">
           <h4 className="text-sm font-medium">添加状态列</h4>
           <div className="flex flex-col sm:flex-row gap-2">
             <Input

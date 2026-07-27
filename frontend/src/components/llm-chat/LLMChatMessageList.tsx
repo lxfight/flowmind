@@ -94,7 +94,7 @@ export function LLMChatMessageList({ messages, streaming, members, crossProject,
                   key={prompt}
                   type="button"
                   onClick={() => onExampleClick?.(prompt)}
-                  className="rounded-xl border border-border bg-background px-3 py-2 text-left text-xs text-muted-foreground transition-colors duration-150 hover:border-foreground/20 hover:text-foreground"
+                  className="rounded-[8px] border border-border bg-background px-3 py-2 text-left text-xs text-muted-foreground transition-colors duration-150 hover:border-foreground/20 hover:text-foreground"
                 >
                   {prompt}
                 </button>

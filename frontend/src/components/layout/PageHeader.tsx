@@ -12,11 +12,12 @@ interface PageHeaderProps {
 
 export function PageHeader({ title, description, breadcrumbs, actions, className }: PageHeaderProps) {
   return (
-    <div className={cn('surface p-5 mb-6', className)}>
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+    <header className={cn('relative mb-8 border-b border-border px-1 pb-6', className)}>
+      <span className="absolute -bottom-px left-1 h-px w-16 bg-primary" aria-hidden="true" />
+      <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           {breadcrumbs && breadcrumbs.length > 0 && (
-            <nav className="flex items-center gap-1.5 text-xs text-muted-foreground mb-2">
+            <nav className="mb-3 flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground">
               {breadcrumbs.map((crumb, idx) => (
                 <div key={idx} className="flex items-center gap-1.5">
                   {idx > 0 && <span className="text-border">/</span>}
@@ -29,11 +30,11 @@ export function PageHeader({ title, description, breadcrumbs, actions, className
               ))}
             </nav>
           )}
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">{title}</h1>
-          {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
+          <h1 className="text-3xl font-semibold leading-tight text-foreground sm:text-4xl">{title}</h1>
+          {description && <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">{description}</p>}
         </div>
-        {actions && <div className="flex items-center gap-2 shrink-0">{actions}</div>}
+        {actions && <div className="flex flex-none items-center gap-2">{actions}</div>}
       </div>
-    </div>
+    </header>
   )
 }

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Send, Search } from 'lucide-react'
+import { BookOpen, Loader2, Search, Send } from 'lucide-react'
 import api from '../../utils/api'
 import {
   Dialog,
@@ -10,7 +10,6 @@ import {
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
 import { Badge } from '../ui/Badge'
-import { Card, CardContent } from '../ui/Card'
 
 interface Props {
   projectId: number
@@ -98,19 +97,21 @@ export function KnowledgeQueryDialog({ projectId, onClose }: Props) {
         </div>
 
         {loading && (
-          <div className="py-8 text-center">
-            <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-4 border-muted border-t-primary" />
+          <div className="border-y border-border py-8 text-center">
+            <Loader2 className="mx-auto mb-3 h-7 w-7 animate-spin text-primary" />
             <p className="body-text">正在查询知识库...</p>
           </div>
         )}
 
         {answer && !loading && (
           <div className="space-y-4">
-            <Card className="border-primary/20 bg-primary/5">
-              <CardContent className="p-4">
-                <p className="text-sm text-foreground whitespace-pre-wrap">{answer}</p>
-              </CardContent>
-            </Card>
+            <section className="border-y border-primary/20 bg-primary/[0.035] px-4 py-4">
+              <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-primary">
+                <BookOpen className="h-3.5 w-3.5" />
+                知识库回答
+              </div>
+              <p className="whitespace-pre-wrap text-sm leading-6 text-foreground">{answer}</p>
+            </section>
 
             {sources.length > 0 ? (
               <div>
@@ -119,7 +120,7 @@ export function KnowledgeQueryDialog({ projectId, onClose }: Props) {
                   {sources.map((s, i) => (
                     <div
                       key={i}
-                      className="flex items-center justify-between rounded-lg bg-muted px-3 py-1.5 text-sm"
+                      className="flex items-center justify-between border-b border-border/70 px-1 py-2 text-sm last:border-b-0"
                     >
                       <span className="truncate pr-2">{s.title}</span>
                       <Badge variant="secondary" className="text-[10px] h-5 flex-shrink-0">
@@ -130,7 +131,7 @@ export function KnowledgeQueryDialog({ projectId, onClose }: Props) {
                 </div>
               </div>
             ) : (
-              <div className="rounded-lg border border-dashed border-border px-3 py-2 text-sm text-muted-foreground">
+              <div className="border-y border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
                 知识库中未找到相关内容
               </div>
             )}

@@ -261,7 +261,7 @@ export function LLMChatMessage({ message, questionActive = false, members, onAns
     return (
       <div className="flex w-full justify-end">
         <div className="max-w-[80%]">
-          <div className="rounded-2xl bg-muted px-3.5 py-2.5 text-sm leading-relaxed text-foreground">
+          <div className="rounded-[8px] bg-muted px-3.5 py-2.5 text-sm leading-relaxed text-foreground">
             <div className="whitespace-pre-wrap">
               {members && members.length > 0 ? (
                 <MentionText content={message.content} members={members} />

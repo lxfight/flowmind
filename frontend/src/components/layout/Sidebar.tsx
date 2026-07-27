@@ -46,8 +46,8 @@ export function Sidebar({
   return (
     <div className="flex h-full flex-col">
       {/* Brand */}
-      <div className="flex items-center gap-2.5 px-3 py-4">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+      <div className="flex items-center gap-2.5 px-5 py-5">
+        <div className="flex h-9 w-9 items-center justify-center rounded-[8px] bg-primary text-primary-foreground shadow-sm">
           <FolderKanban className="h-4 w-4" />
         </div>
         <div>
@@ -110,11 +110,10 @@ export function Sidebar({
       {/* Middle spacer reserved for future features */}
       <div className="flex-1 min-h-0" aria-hidden="true" />
 
-      {/* User card */}
-      <div className="mx-3 mb-3 p-3 surface">
+      <div className="border-t border-border px-4 py-4">
         <Link
           to="/profile"
-          className="flex items-center gap-3 mb-3 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="mb-3 flex items-center gap-3 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={() => onCloseMobile?.()}
         >
           <Avatar name={user?.display_name || user?.username || 'User'} src={user?.avatar_url} size="md" />
@@ -129,7 +128,7 @@ export function Sidebar({
             onLogout()
           }}
           className={cn(
-            'flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground'
+            'flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground'
           )}
         >
           <LogOut className="h-4 w-4" />

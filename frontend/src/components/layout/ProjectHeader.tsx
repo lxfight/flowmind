@@ -42,16 +42,16 @@ export function ProjectHeader({ project }: ProjectHeaderProps) {
   const canEdit = user?.is_superuser || project.current_user_role === 'owner'
 
   return (
-    <div className="surface p-5 mb-6">
-      <div className="flex items-start gap-3 mb-4">
+    <section className="relative mb-8 border-b border-border px-1">
+      <div className="mb-4 flex items-start gap-3">
         <span
-          className="mt-1.5 h-3 w-3 rounded-full flex-shrink-0"
+          className="mt-1 h-10 w-1 flex-none rounded-full"
           style={{ backgroundColor: project.color }}
         />
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <h2 className="text-xl font-semibold tracking-tight text-foreground">{project.name}</h2>
+              <h2 className="text-2xl font-semibold leading-tight text-foreground">{project.name}</h2>
               {project.description && (
                 <p className="mt-0.5 text-sm text-muted-foreground truncate">{project.description}</p>
               )}
@@ -76,7 +76,7 @@ export function ProjectHeader({ project }: ProjectHeaderProps) {
         </div>
       </div>
 
-      <nav className="flex items-center gap-1 overflow-x-auto scrollbar-thin">
+      <nav className="flex items-center gap-1 overflow-x-auto scrollbar-thin" aria-label="项目页面">
         {tabs.map((tab) => {
           const fullPath = `/project/${project.id}/${tab.path}`
           const active = location.pathname.startsWith(fullPath)
@@ -88,16 +88,16 @@ export function ProjectHeader({ project }: ProjectHeaderProps) {
               to={fullPath}
               style={active ? { color: 'var(--project-accent, hsl(var(--primary)))' } : undefined}
               className={cn(
-                'relative flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap transition-colors',
+                'relative flex h-10 items-center gap-1.5 whitespace-nowrap px-3 text-sm font-medium transition-colors',
                 active
                   ? 'text-primary'
-                  : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
               )}
             >
               {active && (
                 <span
-                  className="absolute inset-0 rounded-lg bg-primary/10"
-                  style={{ backgroundColor: 'color-mix(in srgb, var(--project-accent, hsl(var(--primary))) 10%, transparent)' }}
+                  className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-primary"
+                  style={{ backgroundColor: 'var(--project-accent, hsl(var(--primary)))' }}
                   aria-hidden="true"
                 />
               )}
@@ -115,6 +115,6 @@ export function ProjectHeader({ project }: ProjectHeaderProps) {
           onUpdated={(updated) => setCurrentProject(updated)}
         />
       )}
-    </div>
+    </section>
   )
 }

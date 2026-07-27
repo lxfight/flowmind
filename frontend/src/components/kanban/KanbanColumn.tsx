@@ -40,7 +40,7 @@ export function KanbanColumn({ status, tasks, members, readOnly = false, columnW
       )}
       style={columnWidth ? ({ '--kanban-col-w': `${columnWidth}px` } as React.CSSProperties) : undefined}
     >
-      <CardHeader className="sticky top-0 z-10 rounded-t-xl bg-card px-3 py-3 flex-row items-center justify-between gap-2 space-y-0 border-b border-border/60">
+      <CardHeader className="sticky top-0 z-10 rounded-t-[8px] bg-card px-3 py-3 flex-row items-center justify-between gap-2 space-y-0 border-b border-border/60">
         <div className="flex items-center gap-2 min-w-0">
           <span
             className="h-2.5 w-2.5 rounded-full flex-shrink-0"
@@ -94,7 +94,7 @@ export function KanbanColumn({ status, tasks, members, readOnly = false, columnW
             <EmptyState
               title="暂无任务"
               description={readOnly ? '该状态列下没有任务' : '点击 + 按钮或拖拽任务到此处'}
-              className="bg-transparent border-none shadow-none"
+              className="min-h-[80px] border-none bg-transparent py-4 shadow-none"
             />
           )}
         </div>

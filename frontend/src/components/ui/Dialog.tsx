@@ -93,7 +93,7 @@ export function Dialog({ open, onClose, children, className, ariaLabel }: Dialog
             aria-label={ariaLabel}
             tabIndex={-1}
             className={cn(
-              'relative z-10 w-full max-w-lg rounded-xl border border-border bg-card p-0 text-card-foreground shadow-lg outline-none',
+              'relative z-10 w-full max-w-lg rounded-[8px] border border-border bg-card p-0 text-card-foreground shadow-lg outline-none',
               className
             )}
             initial={{ opacity: 0, scale: 0.96, y: 8 }}

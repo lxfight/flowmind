@@ -46,17 +46,17 @@ export function AppShell({
     <div className="flex h-screen overflow-hidden bg-background">
       {/* Desktop sidebar */}
       <aside
-        className="relative hidden lg:flex flex-col gap-2 p-3 pr-1.5 shrink-0"
+        className="relative hidden shrink-0 flex-col border-r border-border bg-card/55 lg:flex"
         style={{ width: sidebarWidth }}
       >
-        <div className="surface h-full overflow-hidden">{sidebar}</div>
+        <div className="h-full overflow-hidden">{sidebar}</div>
         <div
           role="separator"
           aria-orientation="vertical"
           aria-label="调整侧栏宽度"
           title="拖拽调整侧栏宽度"
           onPointerDown={startSidebarResize}
-          className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize rounded-full transition-colors hover:bg-primary/30 active:bg-primary/50"
+          className="absolute -right-0.5 top-0 h-full w-1 cursor-col-resize transition-colors hover:bg-primary/30 active:bg-primary/50"
           style={{ touchAction: 'none' }}
         />
       </aside>
