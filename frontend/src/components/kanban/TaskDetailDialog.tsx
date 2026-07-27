@@ -35,6 +35,7 @@ import { Select } from '../ui/Select'
 import { Badge } from '../ui/Badge'
 import { Separator } from '../ui/Separator'
 import { MarkdownContent } from '../ui/MarkdownContent'
+import { confirmAction } from '../ui/confirmAction'
 import { AssigneePicker } from './AssigneePicker'
 import { MentionText } from './MentionText'
 import { cn } from '../../utils/cn'
@@ -240,7 +241,13 @@ export function TaskDetailDialog({
   }
 
   const handleDeleteAttachment = async (attachment: TaskAttachment) => {
-    if (!confirm(`确定删除附件「${attachment.filename}」？`)) return
+    if (!(await confirmAction({
+      title: '删除任务附件',
+      description: `附件「${attachment.filename}」将被永久删除。`,
+      confirmLabel: '删除附件',
+      tone: 'danger',
+      icon: 'delete',
+    }))) return
     setDeletingAttachmentId(attachment.id)
     try {
       await api.delete(`/projects/${projectId}/tasks/${taskId}/attachments/${attachment.id}`)
@@ -330,7 +337,13 @@ export function TaskDetailDialog({
   }
 
   const handleDeleteComment = async (commentId: number) => {
-    if (!confirm('确定删除这条评论？')) return
+    if (!(await confirmAction({
+      title: '删除评论',
+      description: '这条评论将从任务动态中永久移除。',
+      confirmLabel: '删除评论',
+      tone: 'danger',
+      icon: 'delete',
+    }))) return
     setDeletingCommentId(commentId)
     try {
       await api.delete(`/projects/${projectId}/tasks/${taskId}/comments/${commentId}`)
@@ -445,7 +458,13 @@ export function TaskDetailDialog({
   }
 
   const handleDeleteSubtask = async (subtaskId: number, title: string) => {
-    if (!confirm(`确定删除子任务「${title}」？`)) return
+    if (!(await confirmAction({
+      title: '删除子任务',
+      description: `「${title}」将从当前任务中永久移除。`,
+      confirmLabel: '删除子任务',
+      tone: 'danger',
+      icon: 'delete',
+    }))) return
     setDeletingSubtaskId(subtaskId)
     try {
       await api.delete(`/projects/${projectId}/tasks/${taskId}/subtasks/${subtaskId}`)
@@ -494,7 +513,13 @@ export function TaskDetailDialog({
 
   const handleDelete = async () => {
     if (!task) return
-    if (!confirm(`确定删除任务「${task.title}」？此操作不可撤销。`)) return
+    if (!(await confirmAction({
+      title: '删除任务',
+      description: `「${task.title}」及其评论、子任务和附件将被永久删除。`,
+      confirmLabel: '删除任务',
+      tone: 'danger',
+      icon: 'delete',
+    }))) return
     setDeleting(true)
     try {
       await api.delete(`/projects/${projectId}/tasks/${taskId}`)
@@ -510,11 +535,10 @@ export function TaskDetailDialog({
 
   if (loading) {
     return (
-      <Dialog open onClose={onClose}>
-        <div className="p-6 space-y-4">
-          <div className="h-6 w-3/4 rounded bg-muted animate-pulse" />
-          <div className="h-4 w-1/2 rounded bg-muted animate-pulse" />
-          <div className="h-20 rounded bg-muted animate-pulse" />
+      <Dialog open onClose={onClose} className="max-w-2xl overflow-hidden">
+        <div className="flex min-h-72 flex-col items-center justify-center border-y border-border px-6 py-12 text-sm text-muted-foreground">
+          <Loader2 className="mb-3 h-6 w-6 animate-spin text-primary" />
+          正在读取任务上下文
         </div>
       </Dialog>
     )
@@ -522,16 +546,16 @@ export function TaskDetailDialog({
 
   if (error || !task) {
     return (
-      <Dialog open onClose={onClose}>
-        <DialogHeader>
-          <DialogTitle showClose onClose={onClose}>任务详情</DialogTitle>
+      <Dialog open onClose={onClose} className="max-w-xl overflow-hidden">
+        <DialogHeader className="relative overflow-hidden">
+          <span className="absolute inset-y-0 left-0 w-1 bg-danger" aria-hidden="true" />
+          <DialogTitle showClose onClose={onClose} className="flex items-center gap-2 text-xl">
+            <AlertTriangle className="h-5 w-5 text-danger" />
+            无法打开任务
+          </DialogTitle>
           <DialogDescription>{error || '任务不存在或无权访问'}</DialogDescription>
         </DialogHeader>
-        <div className="px-6 pb-6">
-          <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/50 p-4 mb-4 text-sm text-muted-foreground">
-            <AlertTriangle className="h-4 w-4 text-danger" />
-            无法加载任务详情，请检查网络或权限
-          </div>
+        <div className="px-6 py-6">
           <Button variant="outline" onClick={loadTaskDetail} className="gap-1.5">
             <RotateCcw className="h-4 w-4" />
             重试
@@ -545,26 +569,31 @@ export function TaskDetailDialog({
   const isOverdue = task.due_date && !task.is_completed && new Date(task.due_date) < new Date()
 
   return (
-    <Dialog open onClose={onClose} className="max-w-2xl">
-      <DialogHeader className="pb-2">
+    <Dialog open onClose={onClose} className="max-h-[calc(100dvh-2rem)] max-w-4xl overflow-hidden">
+      <div className="flex max-h-[calc(100dvh-2rem)] flex-col">
+      <DialogHeader className="relative flex-none overflow-hidden px-5 pb-5 pt-5 sm:px-7 sm:pt-6">
+        <span className={cn('absolute inset-y-0 left-0 w-1', task.is_completed ? 'bg-success' : 'bg-primary')} aria-hidden="true" />
         <div className="flex items-start gap-3">
-          <div className="flex-1 min-w-0">
-            {isEditing ? (
+          <span className={cn('flex h-10 w-10 flex-none items-center justify-center rounded-[8px]', task.is_completed ? 'bg-success/10 text-success' : 'bg-primary/10 text-primary')}>
+            <ListTodo className="h-5 w-5" aria-hidden="true" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="mb-1 text-[10px] font-semibold text-muted-foreground tnum">TASK / {task.id}</p>
+            <DialogTitle
+              showClose
+              onClose={onClose}
+              className={cn('text-xl leading-tight', !isEditing && task.is_completed && 'line-through text-muted-foreground')}
+            >
+              {isEditing ? '编辑任务' : task.title}
+            </DialogTitle>
+            {isEditing && (
               <Input
                 value={editTitle}
                 onChange={(e) => setEditTitle(e.target.value)}
                 disabled={saving}
                 placeholder="任务标题"
-                className="text-base font-semibold"
+                className="mt-3 h-11 bg-background text-base font-semibold"
               />
-            ) : (
-              <DialogTitle
-                showClose
-                onClose={onClose}
-                className={task.is_completed ? 'line-through text-muted-foreground' : ''}
-              >
-                {task.title}
-              </DialogTitle>
             )}
             <div className="mt-2 flex flex-wrap items-center gap-2">
               {isEditing ? (
@@ -659,7 +688,7 @@ export function TaskDetailDialog({
         </div>
       </DialogHeader>
 
-      <div className="px-6 pb-6 max-h-[60vh] overflow-y-auto space-y-6">
+      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain px-5 py-6 sm:px-7">
         {/* Description */}
         <div className="space-y-2">
           <h4 className={SECTION_TITLE}>描述</h4>
@@ -1079,7 +1108,7 @@ export function TaskDetailDialog({
         </div>
       </div>
 
-      <DialogFooter>
+      <DialogFooter className="flex-none px-5 sm:px-7">
         {isEditing ? (
           <>
             <Button variant="outline" onClick={handleCancelEdit} disabled={saving}>
@@ -1114,6 +1143,7 @@ export function TaskDetailDialog({
           </>
         )}
       </DialogFooter>
+      </div>
     </Dialog>
   )
 }

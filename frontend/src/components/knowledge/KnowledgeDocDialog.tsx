@@ -10,9 +10,11 @@ import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
 import { Textarea } from '../ui/Textarea'
 import { Badge } from '../ui/Badge'
+import { MarkdownContent } from '../ui/MarkdownContent'
 import api, { errDetail } from '../../utils/api'
 import toast from 'react-hot-toast'
 import { FileText, Layers, Loader2, Pencil, RefreshCw, Trash2 } from 'lucide-react'
+import { confirmAction } from '../ui/confirmAction'
 
 interface Doc {
   id: number
@@ -140,7 +142,13 @@ export function KnowledgeDocDialog({ projectId, docId, canEdit, onClose, onUpdat
 
   const handleDelete = async () => {
     if (!doc) return
-    if (!confirm(`确定删除文档「${doc.title}」？`)) return
+    if (!(await confirmAction({
+      title: '删除知识文档',
+      description: `「${doc.title}」及其索引片段将被永久删除。`,
+      confirmLabel: '删除文档',
+      tone: 'danger',
+      icon: 'delete',
+    }))) return
     setDeleting(true)
     try {
       await api.delete(`/projects/${projectId}/knowledge/${docId}`)
@@ -162,13 +170,19 @@ export function KnowledgeDocDialog({ projectId, docId, canEdit, onClose, onUpdat
   }
 
   return (
-    <Dialog open onClose={onClose} className="max-w-3xl">
-      <DialogHeader>
-        <DialogTitle showClose onClose={onClose} className="flex items-center gap-2">
-          <FileText className="h-5 w-5 text-primary" aria-hidden="true" />
-          {isEditing ? '编辑文档' : '文档详情'}
+    <Dialog open onClose={onClose} className="max-h-[calc(100dvh-2rem)] max-w-4xl overflow-hidden">
+      <div className="flex max-h-[calc(100dvh-2rem)] flex-col">
+      <DialogHeader className="relative flex-none overflow-hidden px-5 pb-5 pt-5 sm:px-7 sm:pt-6">
+        <span className="absolute inset-y-0 left-0 w-1 bg-primary" aria-hidden="true" />
+        <DialogTitle showClose onClose={onClose} className="text-xl leading-tight">
+          <span className="flex items-center gap-2.5">
+            <span className="flex h-9 w-9 items-center justify-center rounded-[8px] bg-primary/10 text-primary">
+              <FileText className="h-4 w-4" aria-hidden="true" />
+            </span>
+            {isEditing ? '编辑文档' : '文档详情'}
+          </span>
         </DialogTitle>
-        <DialogDescription>
+        <DialogDescription className="pl-[46px]">
           {loading
             ? '正在加载文档...'
             : doc
@@ -177,14 +191,14 @@ export function KnowledgeDocDialog({ projectId, docId, canEdit, onClose, onUpdat
         </DialogDescription>
       </DialogHeader>
 
-      <div className="px-6 pb-6 max-h-[65vh] overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-6 sm:px-7">
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-12">
-            <Loader2 className="h-6 w-6 animate-spin text-primary mb-2" />
-            <p className="text-sm text-muted-foreground">加载中...</p>
+          <div className="flex min-h-64 flex-col items-center justify-center border-y border-border">
+            <Loader2 className="mb-3 h-6 w-6 animate-spin text-primary" />
+            <p className="text-sm text-muted-foreground">正在读取文档</p>
           </div>
         ) : error ? (
-          <div className="rounded-lg border border-border bg-muted/50 p-4 text-sm text-foreground">
+          <div className="border-y border-danger/30 bg-danger/5 px-4 py-5 text-sm text-danger">
             {error}
           </div>
         ) : doc ? (
@@ -220,10 +234,15 @@ export function KnowledgeDocDialog({ projectId, docId, canEdit, onClose, onUpdat
               </>
             ) : (
               <>
-                <h3 className="text-lg font-semibold">{doc.title}</h3>
-                <div className="rounded-lg border border-border bg-muted/30 p-4">
-                  <pre className="whitespace-pre-wrap text-sm text-foreground font-mono leading-relaxed">{doc.content || '（无内容）'}</pre>
+                <div className="border-b border-border pb-4">
+                  <p className="text-[10px] font-semibold text-muted-foreground">DOCUMENT</p>
+                  <h3 className="mt-1 text-2xl font-semibold leading-tight">{doc.title}</h3>
                 </div>
+                {doc.content ? (
+                  <MarkdownContent content={doc.content} className="py-2" />
+                ) : (
+                  <div className="border-y border-dashed border-border py-8 text-center text-sm text-muted-foreground">暂无文档内容</div>
+                )}
                 <div>
                   <Button
                     variant="outline"
@@ -290,7 +309,7 @@ export function KnowledgeDocDialog({ projectId, docId, canEdit, onClose, onUpdat
       </div>
 
       {!loading && !error && doc && (
-        <DialogFooter className="flex-col-reverse sm:flex-row">
+        <DialogFooter className="flex-none px-5 sm:px-7">
           {isEditing ? (
             <>
               <Button variant="outline" onClick={handleCancel} disabled={saving}>取消</Button>
@@ -337,6 +356,7 @@ export function KnowledgeDocDialog({ projectId, docId, canEdit, onClose, onUpdat
           )}
         </DialogFooter>
       )}
+      </div>
     </Dialog>
   )
 }

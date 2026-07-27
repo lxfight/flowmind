@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { BookOpen, Loader2, Search, Send } from 'lucide-react'
+import { ArrowUpRight, BookOpen, Loader2, Search, Send, Sparkles } from 'lucide-react'
 import api from '../../utils/api'
 import {
   Dialog,
@@ -10,6 +10,7 @@ import {
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
 import { Badge } from '../ui/Badge'
+import { MarkdownContent } from '../ui/MarkdownContent'
 
 interface Props {
   projectId: number
@@ -67,23 +68,31 @@ export function KnowledgeQueryDialog({ projectId, onClose }: Props) {
   }
 
   return (
-    <Dialog open onClose={onClose} className="max-w-2xl">
-      <DialogHeader>
-        <DialogTitle showClose onClose={onClose} className="flex items-center gap-2">
-          <Search className="h-5 w-5 text-primary" />
-          知识库问答
+    <Dialog open onClose={onClose} className="max-h-[calc(100dvh-2rem)] max-w-3xl overflow-hidden">
+      <div className="flex max-h-[calc(100dvh-2rem)] flex-col">
+      <DialogHeader className="relative flex-none overflow-hidden px-5 pb-5 pt-5 sm:px-7 sm:pt-6">
+        <span className="absolute inset-y-0 left-0 w-1 bg-primary" aria-hidden="true" />
+        <DialogTitle showClose onClose={onClose} className="text-xl leading-tight">
+          <span className="flex items-center gap-2.5">
+            <span className="flex h-9 w-9 items-center justify-center rounded-[8px] bg-primary text-primary-foreground">
+              <Search className="h-4 w-4" aria-hidden="true" />
+            </span>
+            知识库问答
+          </span>
         </DialogTitle>
-        <DialogDescription>向项目知识库提问，获取基于文档的回答。</DialogDescription>
+        <DialogDescription className="pl-[46px]">项目文档语义检索</DialogDescription>
       </DialogHeader>
 
-      <div className="px-6 pb-6 max-h-[60vh] overflow-y-auto space-y-4">
-        <div className="flex gap-2">
+      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain px-5 py-6 sm:px-7">
+        <div className="flex gap-2 border-y border-border py-4">
+          <Search className="ml-1 mt-3 h-4 w-4 flex-none text-muted-foreground" aria-hidden="true" />
           <Input
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleQuery()}
-            placeholder="输入关于项目的问题..."
+            placeholder="输入关于项目的问题"
             autoFocus
+            className="h-11 border-x-0 border-t-0 bg-transparent text-base shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
           />
           <Button
             size="icon"
@@ -97,7 +106,7 @@ export function KnowledgeQueryDialog({ projectId, onClose }: Props) {
         </div>
 
         {loading && (
-          <div className="border-y border-border py-8 text-center">
+          <div className="border-y border-border py-12 text-center">
             <Loader2 className="mx-auto mb-3 h-7 w-7 animate-spin text-primary" />
             <p className="body-text">正在查询知识库...</p>
           </div>
@@ -105,12 +114,12 @@ export function KnowledgeQueryDialog({ projectId, onClose }: Props) {
 
         {answer && !loading && (
           <div className="space-y-4">
-            <section className="border-y border-primary/20 bg-primary/[0.035] px-4 py-4">
+            <section className="border-y border-primary/20 bg-primary/[0.035] px-5 py-5">
               <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-primary">
                 <BookOpen className="h-3.5 w-3.5" />
                 知识库回答
               </div>
-              <p className="whitespace-pre-wrap text-sm leading-6 text-foreground">{answer}</p>
+              <MarkdownContent content={answer} />
             </section>
 
             {sources.length > 0 ? (
@@ -139,22 +148,27 @@ export function KnowledgeQueryDialog({ projectId, onClose }: Props) {
         )}
 
         {!answer && !loading && (
-          <div className="mt-2">
-            <p className="text-xs text-muted-foreground mb-2">试试这些问题：</p>
-            <div className="flex flex-wrap gap-2">
+          <div>
+            <div className="mb-3 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+              <Sparkles className="h-3.5 w-3.5" />
+              推荐问题
+            </div>
+            <div className="divide-y divide-border border-y border-border">
               {SUGGESTIONS.map((q) => (
-                <Button
+                <button
                   key={q}
-                  variant="secondary"
-                  size="sm"
+                  type="button"
                   onClick={() => setQuestion(q)}
+                  className="group flex w-full items-center justify-between gap-3 px-2 py-3 text-left text-sm text-foreground transition-colors hover:bg-muted/30"
                 >
-                  {q}
-                </Button>
+                  <span>{q}</span>
+                  <ArrowUpRight className="h-4 w-4 flex-none text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
+                </button>
               ))}
             </div>
           </div>
         )}
+      </div>
       </div>
     </Dialog>
   )

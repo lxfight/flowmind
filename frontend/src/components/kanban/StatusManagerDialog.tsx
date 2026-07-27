@@ -13,7 +13,8 @@ import api, { errDetail } from '../../utils/api'
 import toast from 'react-hot-toast'
 import { cn } from '../../utils/cn'
 import type { TaskStatus } from '../../types'
-import { Loader2, Trash2 } from 'lucide-react'
+import { Check, Columns3, Loader2, Plus, Trash2 } from 'lucide-react'
+import { confirmAction } from '../ui/confirmAction'
 
 interface Props {
   projectId: number
@@ -85,7 +86,13 @@ export function StatusManagerDialog({ projectId, onClose, onUpdated }: Props) {
       toast.error('该状态列中仍有任务，仅空状态列可以删除')
       return
     }
-    if (!confirm(`确定删除状态列「${status.name}」？仅空状态列可删除。`)) return
+    if (!(await confirmAction({
+      title: '删除状态列',
+      description: `空状态列「${status.name}」将从当前看板移除。`,
+      confirmLabel: '删除状态列',
+      tone: 'danger',
+      icon: 'delete',
+    }))) return
     setDeletingId(status.id)
     try {
       await api.delete(`/projects/${projectId}/statuses/${status.id}`)
@@ -121,30 +128,51 @@ export function StatusManagerDialog({ projectId, onClose, onUpdated }: Props) {
   }
 
   return (
-    <Dialog open onClose={onClose} className="max-w-xl">
-      <DialogHeader>
-        <DialogTitle showClose onClose={onClose}>管理状态列</DialogTitle>
-        <DialogDescription>编辑、添加或删除看板状态列。</DialogDescription>
+    <Dialog open onClose={onClose} className="max-h-[calc(100dvh-2rem)] max-w-3xl overflow-hidden">
+      <div className="flex max-h-[calc(100dvh-2rem)] flex-col">
+      <DialogHeader className="relative flex-none overflow-hidden px-5 pb-5 pt-5 sm:px-7 sm:pt-6">
+        <span className="absolute inset-y-0 left-0 w-1 bg-primary" aria-hidden="true" />
+        <DialogTitle showClose onClose={onClose} className="text-xl leading-tight">
+          <span className="flex items-center gap-2.5">
+            <span className="flex h-9 w-9 items-center justify-center rounded-[8px] bg-primary text-primary-foreground">
+              <Columns3 className="h-4 w-4" aria-hidden="true" />
+            </span>
+            管理状态列
+          </span>
+        </DialogTitle>
+        <DialogDescription className="pl-[46px]">看板流程与完成规则</DialogDescription>
       </DialogHeader>
 
-      <div className="px-6 pb-6 max-h-[60vh] overflow-y-auto space-y-4">
+      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain px-5 py-6 sm:px-7">
+        {!loading && (
+          <div className="grid grid-cols-2 border-y border-border">
+            <div className="border-r border-border px-4 py-3">
+              <p className="text-[10px] font-semibold text-muted-foreground">状态总数</p>
+              <p className="mt-1 text-2xl font-semibold tnum">{statuses.length.toString().padStart(2, '0')}</p>
+            </div>
+            <div className="px-4 py-3">
+              <p className="text-[10px] font-semibold text-muted-foreground">完成状态</p>
+              <p className="mt-1 text-2xl font-semibold tnum">{statuses.filter((status) => status.is_done).length.toString().padStart(2, '0')}</p>
+            </div>
+          </div>
+        )}
         {loading ? (
-          <div className="space-y-2">
-            <div className="h-10 rounded bg-muted animate-pulse" />
-            <div className="h-10 rounded bg-muted animate-pulse" />
+          <div className="flex min-h-48 items-center justify-center border-y border-border text-sm text-muted-foreground">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin text-primary" />
+            正在读取状态列
           </div>
         ) : statuses.length === 0 ? (
-          <p className="text-sm text-muted-foreground">暂无状态列</p>
+          <div className="border-y border-dashed border-border py-10 text-center text-sm text-muted-foreground">暂无状态列</div>
         ) : (
-          <div className="space-y-2">
+          <div className="divide-y divide-border border-y border-border">
             {statuses.map((status) => (
               <div
                 key={status.id}
-                className="flex flex-col gap-3 border-b border-border/70 px-1 py-3 last:border-b-0 sm:flex-row sm:items-center"
+                className="grid gap-4 px-2 py-4 sm:grid-cols-[minmax(10rem,1fr)_auto] sm:items-center sm:px-3"
               >
-                <div className="flex items-center gap-2 flex-1 min-w-0">
+                <div className="flex min-w-0 items-center gap-3">
                   <span
-                    className="h-3 w-3 rounded-full flex-shrink-0"
+                    className="h-9 w-1.5 flex-none rounded-full"
                     style={{ backgroundColor: status.color }}
                     aria-hidden="true"
                   />
@@ -165,12 +193,13 @@ export function StatusManagerDialog({ projectId, onClose, onUpdated }: Props) {
                       }
                     }}
                     disabled={savingId === status.id}
-                    className="h-8 text-sm"
+                    className="h-9 border-x-0 border-t-0 bg-transparent px-1 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
                   />
+                  <span className="flex-none text-[10px] text-muted-foreground tnum">{status.task_count} 项</span>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
-                  <div className="flex flex-wrap items-center gap-1">
+                <div className="flex flex-wrap items-center justify-between gap-3 sm:justify-end">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     {PRESET_COLORS.map((c) => (
                       <button
                         key={c}
@@ -180,15 +209,17 @@ export function StatusManagerDialog({ projectId, onClose, onUpdated }: Props) {
                         aria-label={`设置颜色 ${c}`}
                         aria-pressed={status.color === c}
                         className={cn(
-                          'h-5 w-5 rounded-full transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                          status.color === c && 'ring-2 ring-offset-1 ring-foreground scale-110'
+                          'flex h-7 w-7 items-center justify-center rounded-[7px] border border-black/5 transition-[transform,box-shadow] hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                          status.color === c && 'scale-105 ring-2 ring-foreground ring-offset-1'
                         )}
                         style={{ backgroundColor: c }}
-                      />
+                      >
+                        {status.color === c && <Check className="h-3.5 w-3.5 text-white drop-shadow" strokeWidth={3} />}
+                      </button>
                     ))}
                   </div>
 
-                  <div className="flex items-center gap-1.5 ml-2">
+                  <div className="flex items-center gap-1.5">
                     <Switch
                       checked={status.is_done}
                       onCheckedChange={(checked) => handleUpdate(status, { is_done: checked })}
@@ -219,15 +250,19 @@ export function StatusManagerDialog({ projectId, onClose, onUpdated }: Props) {
           </div>
         )}
 
-        <div className="space-y-3 border-y border-border bg-muted/20 p-3">
-          <h4 className="text-sm font-medium">添加状态列</h4>
-          <div className="flex flex-col sm:flex-row gap-2">
+        <section className="overflow-hidden rounded-[8px] border border-border bg-muted/[0.12]">
+          <div className="flex items-center gap-3 border-b border-border px-4 py-3">
+            <span className="flex h-8 w-8 items-center justify-center rounded-[8px] bg-primary/10 text-primary"><Plus className="h-4 w-4" /></span>
+            <div><h4 className="text-sm font-semibold">添加状态列</h4><p className="mt-0.5 text-xs text-muted-foreground">扩展当前看板流程</p></div>
+          </div>
+          <div className="space-y-4 p-4">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <Input
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder="状态列名称"
               disabled={adding}
-              className="flex-1 h-9 text-sm"
+              className="h-10 flex-1 text-sm"
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && newName.trim()) {
                   e.preventDefault()
@@ -235,11 +270,12 @@ export function StatusManagerDialog({ projectId, onClose, onUpdated }: Props) {
                 }
               }}
             />
-            <Button onClick={handleAdd} disabled={adding || !newName.trim()} loading={adding} size="sm">
+            <Button onClick={handleAdd} disabled={adding || !newName.trim()} loading={adding}>
+              {!adding && <Plus className="h-4 w-4" />}
               添加
             </Button>
           </div>
-          <div className="flex flex-wrap items-center gap-1">
+          <div className="flex flex-wrap items-center gap-2">
             {PRESET_COLORS.map((c) => (
               <button
                 key={c}
@@ -249,21 +285,25 @@ export function StatusManagerDialog({ projectId, onClose, onUpdated }: Props) {
                 aria-label={`新列颜色 ${c}`}
                 aria-pressed={newColor === c}
                 className={cn(
-                  'h-5 w-5 rounded-full transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                  newColor === c && 'ring-2 ring-offset-1 ring-foreground scale-110'
+                  'flex h-8 w-8 items-center justify-center rounded-[8px] border border-black/5 transition-[transform,box-shadow] hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  newColor === c && 'scale-105 ring-2 ring-foreground ring-offset-1'
                 )}
                 style={{ backgroundColor: c }}
-              />
+              >
+                {newColor === c && <Check className="h-3.5 w-3.5 text-white drop-shadow" strokeWidth={3} />}
+              </button>
             ))}
           </div>
-        </div>
+          </div>
+        </section>
       </div>
 
-      <DialogFooter>
-        <Button variant="outline" onClick={onClose}>
+      <DialogFooter className="flex-none px-5 sm:px-7">
+        <Button variant="ghost" onClick={onClose}>
           关闭
         </Button>
       </DialogFooter>
+      </div>
     </Dialog>
   )
 }

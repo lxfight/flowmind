@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
-import { History, MessageSquarePlus, X } from 'lucide-react'
+import { Bot, Grip, GripVertical, History, MessageSquarePlus, Radio, X } from 'lucide-react'
 import { Button } from '../ui/Button'
 import { LLMChatSessionList } from './LLMChatSessionList'
 import { LLMChatMessageList } from './LLMChatMessageList'
@@ -214,8 +214,10 @@ export function LLMChatPanel({ projectId, open, onClose, onActions, members }: P
       aria-label="LLM 助手面板"
       aria-hidden={!open}
       className={cn(
-        'fixed z-40 flex flex-col overflow-hidden border border-border bg-background shadow-lg',
-        compactViewport ? 'rounded-none border-0' : 'rounded-lg',
+        'fixed z-40 flex flex-col overflow-hidden bg-card/95 text-card-foreground backdrop-blur-xl',
+        compactViewport
+          ? 'border-0'
+          : 'rounded-[8px] border border-primary/20 shadow-[0_30px_100px_-30px_rgba(0,0,0,0.68)]',
         interacting && 'select-none'
       )}
       style={{
@@ -236,45 +238,53 @@ export function LLMChatPanel({ projectId, open, onClose, onActions, members }: P
       <div
         onPointerDown={onHeaderPointerDown}
         className={cn(
-          'flex h-12 shrink-0 items-center gap-1.5 border-b border-border px-3',
+          'relative flex h-16 shrink-0 items-center gap-2 border-b border-border bg-muted/[0.18] px-3 sm:px-4',
           compactViewport ? 'cursor-default' : interacting === 'drag' ? 'cursor-grabbing' : 'cursor-grab'
         )}
         style={{ touchAction: 'none' }}
       >
-        <span className="truncate text-sm font-semibold text-foreground">FlowMind 助手</span>
-        {projectId === null && (
-          <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
-            跨项目
+        <span className="absolute inset-y-0 left-0 w-1 bg-primary" aria-hidden="true" />
+        {!compactViewport && <GripVertical className="h-4 w-4 flex-none text-muted-foreground/55" aria-hidden="true" />}
+        <span className="flex h-9 w-9 flex-none items-center justify-center rounded-[8px] bg-primary text-primary-foreground shadow-sm">
+          <Bot className="h-4 w-4" aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-sm font-semibold text-foreground">FlowMind 助手</span>
+            {projectId === null && (
+              <span className="shrink-0 border-l border-primary/30 pl-2 text-[10px] font-semibold text-primary">跨项目</span>
+            )}
           </span>
-        )}
-        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-          {currentTitle}
+          <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{currentTitle}</span>
         </span>
         <Button
           variant="ghost"
           size="icon"
-          className="h-8 w-8"
+          className="h-9 w-9"
           onClick={() => setShowSessions(!showSessions)}
           aria-label="会话列表"
           aria-expanded={showSessions}
+          title="会话列表"
         >
           <History className="h-4 w-4" />
         </Button>
         <Button
           variant="ghost"
           size="icon"
-          className="h-8 w-8"
+          className="h-9 w-9"
           onClick={handleCreateSession}
           aria-label="新建会话"
+          title="新建会话"
         >
           <MessageSquarePlus className="h-4 w-4" />
         </Button>
         <Button
           variant="ghost"
           size="icon"
-          className="h-8 w-8"
+          className="h-9 w-9"
           onClick={onClose}
           aria-label="关闭助手面板"
+          title="关闭"
         >
           <X className="h-4 w-4" />
         </Button>
@@ -289,7 +299,7 @@ export function LLMChatPanel({ projectId, open, onClose, onActions, members }: P
               onClick={() => setShowSessions(false)}
               aria-hidden="true"
             />
-            <div className="absolute left-2 right-2 top-2 z-20 max-h-[60%] overflow-hidden rounded-lg border border-border bg-popover shadow-lg">
+            <div className="absolute left-3 right-3 top-3 z-20 max-h-[60%] overflow-hidden rounded-[8px] border border-border bg-popover/95 shadow-[0_24px_70px_-26px_rgba(0,0,0,0.7)] backdrop-blur-xl">
               <LLMChatSessionList
                 sessions={sessions}
                 currentSessionId={currentSessionId}
@@ -307,7 +317,7 @@ export function LLMChatPanel({ projectId, open, onClose, onActions, members }: P
         )}
 
         {error && !streaming && (
-          <div className="mx-3 mt-3 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
+          <div className="mx-3 mt-3 border-y border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
             {error}
           </div>
         )}
@@ -322,8 +332,8 @@ export function LLMChatPanel({ projectId, open, onClose, onActions, members }: P
           onUndoBatch={handleUndoBatch}
         />
         {awaitingInput && (
-          <div className="mx-3 mb-1 flex items-center gap-1.5 rounded-lg bg-muted/60 px-2.5 py-1.5 text-[11px] text-muted-foreground">
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary/70" />
+          <div className="mx-3 mb-1 flex items-center gap-1.5 border-y border-border bg-muted/40 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+            <Radio className="h-3 w-3 text-primary" aria-hidden="true" />
             助手正在等待你的回答
           </div>
         )}
@@ -343,14 +353,11 @@ export function LLMChatPanel({ projectId, open, onClose, onActions, members }: P
           aria-orientation="horizontal"
           aria-label="调整窗口大小"
           onPointerDown={onResizePointerDown}
-          className={cn(
-            'absolute bottom-0 right-0 z-10 h-4 w-4 cursor-nwse-resize',
-            'before:absolute before:bottom-1 before:right-1 before:h-2 before:w-2 before:rounded-br-sm',
-            'before:border-b-2 before:border-r-2',
-            interacting === 'resize' ? 'before:border-primary/60' : 'before:border-muted-foreground/40 hover:before:border-primary/50'
-          )}
+          className={cn('absolute bottom-0 right-0 z-10 flex h-7 w-7 cursor-nwse-resize items-end justify-end p-1 text-muted-foreground transition-colors hover:text-primary', interacting === 'resize' && 'text-primary')}
           style={{ touchAction: 'none' }}
-        />
+        >
+          <Grip className="h-3.5 w-3.5 rotate-45" aria-hidden="true" />
+        </div>
       )}
     </div>
   )

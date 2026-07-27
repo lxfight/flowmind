@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Sparkles, CheckSquare, Square, Plus } from 'lucide-react'
+import { CheckSquare, CircleUserRound, ListPlus, Plus, SlidersHorizontal, Sparkles, Square, WandSparkles } from 'lucide-react'
 import api, { errDetail } from '../../utils/api'
 import toast from 'react-hot-toast'
 import {
@@ -15,6 +15,7 @@ import { Textarea } from '../ui/Textarea'
 import { Select } from '../ui/Select'
 import { AssigneePicker } from './AssigneePicker'
 import type { StatusOption, MemberOption, GeneratedTask } from '../../types'
+import { cn } from '../../utils/cn'
 
 interface Props {
   statuses: StatusOption[]
@@ -159,192 +160,167 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose
   const isBusy = creating || manualSubmitting
 
   return (
-    <Dialog open onClose={isBusy ? () => {} : onClose}>
-      <form onSubmit={handleSubmit}>
-        <DialogHeader>
-          <DialogTitle showClose onClose={isBusy ? undefined : onClose}>新建任务</DialogTitle>
-          <DialogDescription>手动创建，或用 LLM 根据描述批量生成任务。</DialogDescription>
+    <Dialog open onClose={isBusy ? () => {} : onClose} className="max-h-[calc(100dvh-2rem)] max-w-3xl overflow-hidden">
+      <form onSubmit={handleSubmit} className="flex max-h-[calc(100dvh-2rem)] flex-col">
+        <DialogHeader className="relative flex-none overflow-hidden px-5 pb-5 pt-5 sm:px-7 sm:pt-6">
+          <span className="absolute inset-y-0 left-0 w-1 bg-primary" aria-hidden="true" />
+          <DialogTitle showClose onClose={isBusy ? undefined : onClose} className="text-xl leading-tight">
+            <span className="flex items-center gap-2.5">
+              <span className="flex h-9 w-9 items-center justify-center rounded-[8px] bg-primary text-primary-foreground">
+                <ListPlus className="h-4 w-4" aria-hidden="true" />
+              </span>
+              新建任务
+            </span>
+          </DialogTitle>
+          <DialogDescription className="pl-[46px]">任务定义与智能拆解</DialogDescription>
         </DialogHeader>
 
-        <div className="px-6 pb-4 space-y-4 max-h-[60vh] overflow-y-auto">
-          {/* LLM Quick Create */}
-          {!llmOpen ? (
-            <Button
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-6 sm:px-7">
+          <div className="mb-6 grid grid-cols-2 rounded-[8px] bg-muted p-1" role="tablist" aria-label="创建方式">
+            <button
               type="button"
-              variant="outline"
-              className="w-full gap-2 border-dashed"
-              onClick={() => setLlmOpen(true)}
-              disabled={isBusy}
+              role="tab"
+              aria-selected={!llmOpen}
+              onClick={() => setLlmOpen(false)}
+              className={cn(
+                'flex h-10 items-center justify-center gap-2 rounded-md text-sm font-medium transition-[background-color,color,box-shadow]',
+                !llmOpen ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+              )}
             >
-              <Sparkles className="h-4 w-4 text-primary" />
-              用自然语言让 LLM 帮你创建任务
-            </Button>
-          ) : (
-            <div className="rounded-lg border border-border bg-muted/50 p-3 space-y-3">
-              <Textarea
-                rows={2}
-                value={llmInstruction}
-                onChange={(e) => setLlmInstruction(e.target.value)}
-                placeholder="描述你要创建的任务..."
-                disabled={llmLoading || isBusy}
-              />
-              <div className="flex items-center justify-between">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => { setLlmOpen(false); setGeneratedTasks([]); setSelectedTasks(new Set()) }}
-                  disabled={llmLoading}
-                >
-                  手动创建
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={handleLLMGenerate}
-                  disabled={llmLoading || !llmInstruction.trim() || isBusy}
-                  loading={llmLoading}
-                >
-                  LLM 生成
-                </Button>
-              </div>
+              <CheckSquare className="h-4 w-4" aria-hidden="true" />
+              手动创建
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={llmOpen}
+              onClick={() => setLlmOpen(true)}
+              className={cn(
+                'flex h-10 items-center justify-center gap-2 rounded-md text-sm font-medium transition-[background-color,color,box-shadow]',
+                llmOpen ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              <Sparkles className="h-4 w-4" aria-hidden="true" />
+              AI 拆解
+            </button>
+          </div>
 
-              {generatedTasks.length > 0 && (
-                <div className="rounded-md border border-border bg-card p-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground">{generatedTasks.length} 个任务</span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={toggleAll}
-                    >
-                      {selectedTasks.size === generatedTasks.length ? '取消全选' : '全选'}
-                    </Button>
-                  </div>
-                  <div className="space-y-1 max-h-40 overflow-y-auto">
-                    {generatedTasks.map((task, i) => (
-                      <label
-                        key={i}
-                        className="flex items-start gap-2 p-1.5 rounded hover:bg-accent cursor-pointer"
-                      >
-                        <button
-                          type="button"
-                          className="mt-0.5 flex-shrink-0 text-primary"
-                          onClick={() => toggleTask(i)}
-                        >
-                          {selectedTasks.has(i) ? (
-                            <CheckSquare className="h-4 w-4" />
-                          ) : (
-                            <Square className="h-4 w-4" />
-                          )}
-                        </button>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium truncate">{task.title}</p>
-                          {task.description && (
-                            <p className="text-xs text-muted-foreground truncate">{task.description}</p>
-                          )}
-                        </div>
-                      </label>
-                    ))}
-                  </div>
+          {llmOpen ? (
+            <section className="overflow-hidden rounded-[8px] border border-primary/20 bg-primary/[0.025]">
+              <div className="flex items-center gap-3 border-b border-primary/15 px-5 py-4">
+                <span className="flex h-9 w-9 items-center justify-center rounded-[8px] bg-primary/10 text-primary">
+                  <WandSparkles className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">智能任务拆解</h3>
+                  <p className="mt-0.5 text-xs text-muted-foreground">基于目标生成可执行任务</p>
+                </div>
+              </div>
+              <div className="space-y-4 p-5">
+                <Textarea
+                  rows={5}
+                  value={llmInstruction}
+                  onChange={(e) => setLlmInstruction(e.target.value)}
+                  placeholder="描述目标、范围与交付要求"
+                  disabled={llmLoading || isBusy}
+                  autoFocus
+                  className="min-h-32 bg-background text-sm leading-6"
+                />
+                <div className="flex justify-end">
                   <Button
                     type="button"
-                    className="w-full"
-                    onClick={handleBatchCreate}
-                    disabled={creating || selectedTasks.size === 0}
-                    loading={creating}
+                    onClick={handleLLMGenerate}
+                    disabled={llmLoading || !llmInstruction.trim() || isBusy}
+                    loading={llmLoading}
                   >
-                    <Plus className="h-4 w-4 mr-1" />
-                    创建选中任务 ({selectedTasks.size})
+                    {!llmLoading && <Sparkles className="h-4 w-4" aria-hidden="true" />}
+                    生成任务
                   </Button>
                 </div>
-              )}
+
+                {generatedTasks.length > 0 && (
+                  <div className="border-y border-border bg-card">
+                    <div className="flex items-center justify-between border-b border-border px-4 py-3">
+                      <span className="text-xs font-medium text-muted-foreground">生成结果 · {generatedTasks.length}</span>
+                      <Button type="button" variant="ghost" size="sm" onClick={toggleAll}>
+                        {selectedTasks.size === generatedTasks.length ? '取消全选' : '全选'}
+                      </Button>
+                    </div>
+                    <div className="max-h-64 divide-y divide-border overflow-y-auto">
+                      {generatedTasks.map((task, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          aria-pressed={selectedTasks.has(i)}
+                          onClick={() => toggleTask(i)}
+                          className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-accent"
+                        >
+                          {selectedTasks.has(i) ? (
+                            <CheckSquare className="mt-0.5 h-4 w-4 flex-none text-primary" />
+                          ) : (
+                            <Square className="mt-0.5 h-4 w-4 flex-none text-muted-foreground" />
+                          )}
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-medium text-foreground">{task.title}</span>
+                            {task.description && <span className="mt-1 block line-clamp-2 text-xs leading-5 text-muted-foreground">{task.description}</span>}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex justify-end border-t border-border p-3">
+                      <Button type="button" onClick={handleBatchCreate} disabled={creating || selectedTasks.size === 0} loading={creating}>
+                        {!creating && <Plus className="h-4 w-4" aria-hidden="true" />}
+                        创建所选任务 · {selectedTasks.size}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+          ) : (
+            <div className="space-y-6">
+              <section className="grid gap-4 border-b border-border pb-6 md:grid-cols-[9rem_minmax(0,1fr)] md:gap-8">
+                <div>
+                  <span className="mb-2 flex h-8 w-8 items-center justify-center rounded-[8px] bg-muted text-muted-foreground"><CheckSquare className="h-4 w-4" /></span>
+                  <label htmlFor="create-task-title" className="text-sm font-semibold">任务内容</label>
+                </div>
+                <div className="space-y-3">
+                  <Input id="create-task-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="输入任务标题" required autoFocus disabled={isBusy} className="h-11 text-base" />
+                  <Textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="补充任务背景与验收标准" disabled={isBusy} className="min-h-28 leading-6" />
+                </div>
+              </section>
+
+              <section className="grid gap-4 border-b border-border pb-6 md:grid-cols-[9rem_minmax(0,1fr)] md:gap-8">
+                <div>
+                  <span className="mb-2 flex h-8 w-8 items-center justify-center rounded-[8px] bg-muted text-muted-foreground"><SlidersHorizontal className="h-4 w-4" /></span>
+                  <h3 className="text-sm font-semibold">执行属性</h3>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <label className="space-y-2 text-xs font-medium text-muted-foreground">状态<Select value={statusId} onChange={(e) => setStatusId(parseInt(e.target.value))} disabled={isBusy}>{statuses.map((status) => <option key={status.id} value={status.id}>{status.name}</option>)}</Select></label>
+                  <label className="space-y-2 text-xs font-medium text-muted-foreground">优先级<Select value={priority} onChange={(e) => setPriority(parseInt(e.target.value))} disabled={isBusy}><option value={0}>无</option><option value={1}>低</option><option value={2}>中</option><option value={3}>高</option><option value={4}>紧急</option></Select></label>
+                  <label className="space-y-2 text-xs font-medium text-muted-foreground">截止日期<Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} disabled={isBusy} /></label>
+                </div>
+              </section>
+
+              <section className="grid gap-4 md:grid-cols-[9rem_minmax(0,1fr)] md:gap-8">
+                <div>
+                  <span className="mb-2 flex h-8 w-8 items-center justify-center rounded-[8px] bg-muted text-muted-foreground"><CircleUserRound className="h-4 w-4" /></span>
+                  <h3 className="text-sm font-semibold">协作成员</h3>
+                </div>
+                <AssigneePicker members={members} value={assigneeIds} onChange={setAssigneeIds} disabled={isBusy} />
+              </section>
             </div>
           )}
-
-          {/* Manual form */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">任务标题 *</label>
-            <Input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="输入任务标题"
-              required
-              autoFocus={!llmOpen}
-              disabled={isBusy}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium">描述</label>
-            <Textarea
-              rows={3}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="可选的任务描述"
-              disabled={isBusy}
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">状态</label>
-              <Select
-                value={statusId}
-                onChange={(e) => setStatusId(parseInt(e.target.value))}
-                disabled={isBusy}
-              >
-                {statuses.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium">优先级</label>
-              <Select
-                value={priority}
-                onChange={(e) => setPriority(parseInt(e.target.value))}
-                disabled={isBusy}
-              >
-                <option value={0}>无</option>
-                <option value={1}>低</option>
-                <option value={2}>中</option>
-                <option value={3}>高</option>
-                <option value={4}>紧急</option>
-              </Select>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium">指派人</label>
-            <AssigneePicker
-              members={members}
-              value={assigneeIds}
-              onChange={setAssigneeIds}
-              disabled={isBusy}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium">截止日期</label>
-            <Input
-              type="date"
-              value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
-              disabled={isBusy}
-            />
-          </div>
         </div>
 
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={onClose} disabled={isBusy}>
-            取消
-          </Button>
-          <Button type="submit" disabled={isBusy || !title.trim()} loading={manualSubmitting}>
-            创建任务
-          </Button>
+        <DialogFooter className="flex-none px-5 sm:px-7">
+          <Button type="button" variant="ghost" onClick={onClose} disabled={isBusy}>取消</Button>
+          {!llmOpen && (
+            <Button type="submit" disabled={isBusy || !title.trim()} loading={manualSubmitting}>
+              {!manualSubmitting && <Plus className="h-4 w-4" aria-hidden="true" />}
+              创建任务
+            </Button>
+          )}
         </DialogFooter>
       </form>
     </Dialog>
