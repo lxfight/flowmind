@@ -1,6 +1,9 @@
 FROM python:3.12-alpine
 
-RUN apk add --no-cache docker-cli docker-cli-compose git curl postgresql-client
+ARG ALPINE_MIRROR=https://dl-cdn.alpinelinux.org/alpine
+RUN --mount=type=cache,id=flowmind-apk-cache,target=/var/cache/apk,sharing=locked \
+    sed -i "s|https://dl-cdn.alpinelinux.org/alpine|${ALPINE_MIRROR}|g" /etc/apk/repositories && \
+    apk add docker-cli docker-cli-compose git curl postgresql-client
 
 ARG APP_VERSION=0.2.1
 ARG GIT_SHA=development

@@ -8,8 +8,18 @@
 cp .env.example .env
 # 编辑 .env：JWT_SECRET、LLM_API_KEY 等
 
-docker compose up -d
+./scripts/deploy.sh
 docker compose logs backend   # 查看初始管理员密码
+```
+
+部署脚本会分别探测 PyPI、npm、Debian 和 Alpine 的官方源与国内镜像，自动选择可用且明显更快的地址，并缓存选择结果、启用 BuildKit 依赖缓存。后续重建即使依赖清单变化，也会复用 apt、pip、uv、npm 与 apk 下载缓存。
+
+```bash
+./scripts/deploy.sh --detect-only                    # 只查看镜像源选择
+./scripts/deploy.sh --detect-only --refresh-mirrors  # 重新测速但不构建
+FLOWMIND_MIRROR_MODE=official ./scripts/deploy.sh    # 强制官方源
+FLOWMIND_MIRROR_MODE=china ./scripts/deploy.sh       # 强制国内源
+./scripts/deploy.sh backend frontend                 # 只重建指定服务
 ```
 
 服务组成：

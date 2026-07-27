@@ -3,7 +3,9 @@ FROM node:24-alpine AS builder
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci
+ARG NPM_REGISTRY=https://registry.npmjs.org
+RUN --mount=type=cache,id=flowmind-npm-cache,target=/root/.npm,sharing=locked \
+    npm ci --registry="${NPM_REGISTRY}"
 
 ARG APP_VERSION=0.2.1
 ARG GIT_SHA=development

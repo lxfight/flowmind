@@ -117,12 +117,14 @@ cd flowmind
 # 2.（可选）配置环境变量
 cp .env.example .env   # 编辑 LLM_API_KEY 等
 
-# 3. 启动全部服务
-docker compose up -d
+# 3. 自动选择可用镜像源、复用构建缓存并启动全部服务
+./scripts/deploy.sh
 
 # 4. 查看日志获取初始管理员密码
 docker compose logs backend
 ```
+
+部署脚本默认测速 PyPI、npm、Debian 与 Alpine 软件源，在国内镜像明显更快或官方源不可用时自动切换，并缓存选择结果以稳定复用 Docker 构建层。可用 `FLOWMIND_MIRROR_MODE=official ./scripts/deploy.sh` 强制官方源，或用 `china` 强制国内源；执行 `./scripts/deploy.sh --detect-only --refresh-mirrors` 可重新测速且不构建。
 
 访问 **http://localhost** 即可使用。首次启动自动创建管理员账号并完成数据库迁移。
 

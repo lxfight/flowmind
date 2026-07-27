@@ -26,6 +26,9 @@ services:
         APP_VERSION: "${FLOWMIND_VERSION:-0.2.1}"
         GIT_SHA: "${GIT_SHA:-development}"
         BUILD_TIME: "${BUILD_TIME:-}"
+        DEBIAN_MIRROR: "${DEBIAN_MIRROR:-http://deb.debian.org/debian}"
+        DEBIAN_SECURITY_MIRROR: "${DEBIAN_SECURITY_MIRROR:-http://deb.debian.org/debian-security}"
+        PYPI_INDEX_URL: "${PYPI_INDEX_URL:-https://pypi.org/simple}"
     container_name: flowmind-backend
     environment:
       DATABASE_URL: postgresql+asyncpg://flowmind:flowmind_secret@postgres:5432/flowmind
@@ -67,6 +70,7 @@ services:
         APP_VERSION: "${FLOWMIND_VERSION:-0.2.1}"
         GIT_SHA: "${GIT_SHA:-development}"
         BUILD_TIME: "${BUILD_TIME:-}"
+        NPM_REGISTRY: "${NPM_REGISTRY:-https://registry.npmjs.org}"
     container_name: flowmind-frontend
     ports:
       - "${FRONTEND_PORT:-80}:80"
@@ -83,6 +87,7 @@ services:
         APP_VERSION: "${FLOWMIND_VERSION:-0.2.1}"
         GIT_SHA: "${GIT_SHA:-development}"
         BUILD_TIME: "${BUILD_TIME:-}"
+        ALPINE_MIRROR: "${ALPINE_MIRROR:-https://dl-cdn.alpinelinux.org/alpine}"
     container_name: flowmind-updater
     environment:
       FLOWMIND_UPDATER_TOKEN: "${FLOWMIND_UPDATER_TOKEN:-flowmind-local-updater-change-me}"
