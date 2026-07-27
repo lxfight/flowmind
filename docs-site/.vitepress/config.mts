@@ -5,6 +5,7 @@ export default defineConfig({
   title: 'FlowMind',
   description: 'LLM 驱动的智能项目管理平台 —— 看板协作 · RAG 知识库 · AI 助手',
   base: '/flowmind/',
+  appearance: false,
 
   head: [
     ['link', { rel: 'icon', href: '/flowmind/favicon.svg' }],
@@ -15,13 +16,10 @@ export default defineConfig({
     siteTitle: 'FlowMind',
 
     nav: [
-      { text: '指南', link: '/guide/introduction', activeMatch: '/guide/' },
+      { text: '指南', link: '/guide/introduction', activeMatch: '^/guide/(?!releases)' },
+      { text: 'v0.2.2', link: '/guide/releases', activeMatch: '/guide/releases' },
       { text: '功能', link: '/features/kanban', activeMatch: '/features/' },
       { text: '架构', link: '/architecture/', activeMatch: '/architecture/' },
-      {
-        text: 'GitHub',
-        link: 'https://github.com/lxfight/flowmind',
-      },
     ],
 
     sidebar: {
@@ -33,6 +31,7 @@ export default defineConfig({
             { text: '快速开始', link: '/guide/getting-started' },
             { text: '配置说明', link: '/guide/configuration' },
             { text: '部署', link: '/guide/deployment' },
+            { text: '版本变化', link: '/guide/releases' },
           ],
         },
       ],
@@ -56,18 +55,9 @@ export default defineConfig({
       ],
     },
 
-    socialLinks: [
-      { icon: 'github', link: 'https://github.com/lxfight/flowmind' },
-    ],
-
     footer: {
       message: '基于 MIT 许可证发布',
       copyright: 'Copyright © 2026 lxfight',
-    },
-
-    editLink: {
-      pattern: 'https://github.com/lxfight/flowmind/edit/main/docs-site/:path',
-      text: '在 GitHub 上编辑此页',
     },
 
     outline: { label: '本页目录' },

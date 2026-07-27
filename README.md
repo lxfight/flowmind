@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🧠 FlowMind
+# FlowMind
 
 **LLM 驱动的智能项目管理平台**
 
@@ -17,19 +17,19 @@
 
 ---
 
-## ✨ 功能特性
+## 功能特性
 
 <table>
 <tr>
 <td width="50%">
 
-### 📋 智能看板
+### 智能看板
 - 拖拽式任务卡片，自定义状态列
 - 子任务拆分、优先级、截止日期
 - **列内筛选与排序**（关键词 / 负责人 / 优先级 / 时间）
 - 评论 @ 提及，实时通知
 
-### 🤖 AI 助手
+### AI 助手
 - 自然语言创建、调整看板任务
 - **SSE 流式对话**，工具调用过程实时可见
 - 对话中 `@` 项目成员并触发通知
@@ -38,13 +38,13 @@
 </td>
 <td width="50%">
 
-### 📚 RAG 知识库
+### RAG 知识库
 - 上传 PDF / DOCX / PPTX / Markdown 等，自动解析索引
 - **混合检索**：向量语义 + 关键词 RRF 融合
 - 相似度阈值过滤，无命中不编造
 - AI 可**通读完整文档**，据此拆解详细任务
 
-### 🌐 跨项目协作
+### 跨项目协作
 - 「我的项目」页**跨项目助手**：一次提问，检索全部参与的项目
 - 检索结果标注来源项目，写操作自动追问目标
 - 项目成员候选列表，一键添加
@@ -54,7 +54,7 @@
 <tr>
 <td width="50%">
 
-### ⚙️ 超管配置中心
+### 超管配置中心
 - 在线调整 LLM / Embedding 配置，**免重启即时生效**
 - LLM 与 Embedding 可配置**独立的 URL 和 Key**
 - 一键**连通性测试**，API 异常快速排障
@@ -63,7 +63,7 @@
 </td>
 <td width="50%">
 
-### 🔐 权限与安全
+### 权限与安全
 - 超级管理员 + 注册审批 + 项目角色分层
 - JWT 鉴权、bcrypt 加密、登录防暴力破解
 - 越权访问返回 404，不泄露资源存在性
@@ -75,7 +75,20 @@
 
 ---
 
-## 🏗️ 架构一览
+## v0.2.2 版本变化
+
+- **统一工作区体验**：重构主要页面、项目与任务对话框、知识库和助手面板，危险操作使用一致的确认流程。
+- **通知直达现场**：任务通知携带项目、看板与任务深链，旧通知自动回填目标信息。
+- **横向活动时间线**：默认定位最新事件，长时间线使用虚拟渲染保持流畅。
+- **可靠报告生成**：加入总超时、有限重试、指数退避、项目状态隔离与 Markdown 渲染修复。
+- **可恢复的系统更新**：更新前校验备份空间并建立恢复检查点，中断后可尝试恢复上一版本。
+- **更快的初始部署**：自动探测依赖镜像源，复用 BuildKit 缓存，并等待服务健康检查完成。
+
+完整内容、兼容性说明与升级步骤见[版本变化文档](docs-site/guide/releases.md)。
+
+---
+
+## 架构一览
 
 ```mermaid
 graph LR
@@ -105,7 +118,7 @@ graph LR
 
 ---
 
-## 🚀 快速开始
+## 快速开始
 
 ### Docker Compose（推荐）
 
@@ -128,7 +141,7 @@ docker compose logs backend
 
 访问 **http://localhost** 即可使用。首次启动自动创建管理员账号并完成数据库迁移。
 
-> 💡 没有 LLM Key 也能跑：知识库自动降级为关键词检索，其余功能不受影响。登录后可在 **系统配置** 页在线配置 Key 并测试连通性。
+> 没有 LLM Key 也能运行：知识库自动降级为关键词检索，其余功能不受影响。登录后可在 **系统配置** 页在线配置 Key 并测试连通性。
 
 ### 本地开发
 
@@ -166,7 +179,7 @@ SQLite 模式下向量检索降级为关键词检索，其余功能不受影响�
 
 ---
 
-## 🔧 环境变量
+## 环境变量
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
@@ -176,18 +189,22 @@ SQLite 模式下向量检索降级为关键词检索，其余功能不受影响�
 | `LLM_API_KEY` | LLM 对话 API 密钥 | — |
 | `LLM_BASE_URL` | LLM API 地址（OpenAI 兼容） | — |
 | `LLM_MODEL` | 对话模型 | `gpt-4o-mini` |
+| `LLM_REPORT_TIMEOUT` | 报告生成总时限（含重试） | `180` |
+| `LLM_REPORT_MAX_RETRIES` | 报告生成最大重试次数 | `2` |
+| `LLM_REPORT_RETRY_BASE_DELAY` | 报告重试基础延迟（秒） | `1` |
 | `EMBEDDING_API_KEY` | Embedding 独立密钥（留空回退 LLM Key） | — |
 | `EMBEDDING_BASE_URL` | Embedding 独立地址（留空回退 LLM URL） | — |
 | `LLM_EMBEDDING_MODEL` | 向量模型 | `text-embedding-3-small` |
 | `LLM_EMBEDDING_DIM` | 向量维度（需与模型输出一致） | `1536` |
 | `KNOWLEDGE_MAX_BYTES` | 知识库单文件上限 | `26214400` (25MB) |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Token 有效期 | `1440` |
+| `FLOWMIND_UPDATE_MIN_FREE_BYTES` | 更新备份后保留的最小空间 | `1073741824`（1 GiB） |
 
 > 以上 LLM / Embedding / 检索参数均可在超管的 **系统配置** 页在线修改，运行时覆盖、即时生效。
 
 ---
 
-## 🧰 技术栈
+## 技术栈
 
 | 层 | 技术 |
 |----|------|
@@ -197,7 +214,7 @@ SQLite 模式下向量检索降级为关键词检索，其余功能不受影响�
 | **检索** | 向量余弦相似度 + CJK bigram 关键词打分，RRF (k=60) 融合 |
 | **工程** | ruff · pytest (160+) · Vitest · GitHub Actions CI |
 
-## 📁 项目结构
+## 项目结构
 
 ```
 FlowMind/
@@ -213,13 +230,15 @@ FlowMind/
 │       ├── components/         # 看板 / 知识库 / LLM 聊天组件
 │       ├── pages/              # 页面
 │       └── stores/             # Zustand 状态
-└── docs/plans/                 # 设计方案文档
+├── docs-site/                  # VitePress 产品与运维文档
+├── scripts/                    # 部署、更新与版本检查脚本
+└── updater/                    # 独立的更新编排服务
 ```
 
 ---
 
 <div align="center">
 
-**[MIT License](LICENSE)** · Made with ❤️ by [lxfight](https://github.com/lxfight)
+**[MIT License](LICENSE)** · Built by [lxfight](https://github.com/lxfight)
 
 </div>

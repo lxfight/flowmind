@@ -12,12 +12,16 @@ FlowMind 的配置分两层：**环境变量**（部署时设定）与 **系统�
 | `LLM_API_KEY` | LLM 对话 API 密钥 | — |
 | `LLM_BASE_URL` | LLM API 地址（OpenAI 兼容） | — |
 | `LLM_MODEL` | 对话模型 | `gpt-4o-mini` |
+| `LLM_REPORT_TIMEOUT` | 报告生成总时限（含重试） | `180` |
+| `LLM_REPORT_MAX_RETRIES` | 报告生成最大重试次数 | `2` |
+| `LLM_REPORT_RETRY_BASE_DELAY` | 报告重试指数退避基础延迟（秒） | `1` |
 | `EMBEDDING_API_KEY` | Embedding 独立密钥（留空回退 LLM Key） | — |
 | `EMBEDDING_BASE_URL` | Embedding 独立地址（留空回退 LLM URL） | — |
 | `LLM_EMBEDDING_MODEL` | 向量模型 | `text-embedding-3-small` |
 | `LLM_EMBEDDING_DIM` | 向量维度（需与模型输出一致） | `1536` |
 | `KNOWLEDGE_MAX_BYTES` | 知识库单文件上限 | `26214400`（25MB） |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Token 有效期 | `1440` |
+| `FLOWMIND_UPDATE_MIN_FREE_BYTES` | 更新备份后保留的最小空间 | `1073741824`（1 GiB） |
 
 ::: danger 生产环境
 `JWT_SECRET` 务必显式设置为强随机值，避免实例重启后旧 Token 失效或密钥泄露。
@@ -32,6 +36,7 @@ FlowMind 的配置分两层：**环境变量**（部署时设定）与 **系统�
 - **密钥脱敏展示**：已保存的 Key 只显示掩码，不回显明文
 - **来源可追溯**：每项配置标注当前值来自环境变量还是运行时覆盖
 - **连通性测试**：LLM 与 Embedding 各有独立的测试按钮，API 异常可快速定位
+- **报告可靠性**：可调整生成总时限、有限重试次数与退避延迟，避免请求无限等待
 
 ## LLM 与 Embedding 独立配置与回退语义
 

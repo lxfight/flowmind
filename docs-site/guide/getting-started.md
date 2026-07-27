@@ -12,14 +12,16 @@ cd flowmind
 # 2.（可选）配置环境变量
 cp .env.example .env   # 编辑 LLM_API_KEY 等
 
-# 3. 启动全部服务
-docker compose up -d
+# 3. 自动选择镜像源、复用构建缓存并启动全部服务
+./scripts/deploy.sh
 
 # 4. 查看日志获取初始管理员密码
 docker compose logs backend
 ```
 
 访问 **http://localhost** 即可使用。首次启动自动创建管理员账号并完成数据库迁移。
+
+部署脚本会等待前后端健康检查完成后再返回。网络环境变化后可执行 `./scripts/deploy.sh --detect-only --refresh-mirrors` 重新探测依赖镜像源。
 
 ::: tip 没有 LLM Key 也能跑
 知识库自动降级为关键词检索，其余功能不受影响。登录后可在 **系统配置** 页在线配置 Key 并测试连通性，详见[配置说明](/guide/configuration)。
@@ -50,7 +52,7 @@ npm run dev   # http://localhost:5173
 
 没有 Docker 时可用 SQLite 快速体验：
 
-```env
+```ini
 # .env 中修改
 DATABASE_URL=sqlite+aiosqlite:///./flowmind.db
 ```
