@@ -9,10 +9,13 @@ from helpers import admin_login, create_project, create_task
 from app.services.report_service import (
     MAX_ASSIGNEE_LINES,
     MAX_PROJECT_DESCRIPTION_CHARS,
+    REPORT_SECTION_TITLES,
+    InvalidReportOutputError,
     ReportTask,
     build_report_prompt,
     compute_report_stats,
     format_stats_text,
+    validate_report_output,
 )
 
 NOW = datetime(2025, 6, 15, 12, 0, 0, tzinfo=UTC)
@@ -156,6 +159,20 @@ class TestPromptBuilding:
         # Chinese markdown output requirement
         assert "中文" in prompt and "Markdown" in prompt
 
+    def test_report_validation_normalizes_markdown_fence(self):
+        report = "```markdown\n" + "\n".join(
+            f"## {section}\n内容" for section in REPORT_SECTION_TITLES
+        ) + "\n```"
+
+        cleaned = validate_report_output(report)
+
+        assert cleaned.startswith("## 一、本期概览")
+        assert "```" not in cleaned
+
+    def test_report_validation_rejects_missing_sections(self):
+        with pytest.raises(InvalidReportOutputError, match="六、下一步建议"):
+            validate_report_output("## 一、本期概览\n内容")
+
 
 @pytest.mark.asyncio
 async def test_report_endpoint_with_mocked_llm(client):
@@ -214,3 +231,42 @@ async def test_report_endpoint_requires_membership(client):
     project_id, _ = create_project(client, headers, name="私有项目")
     resp = client.post(f"/api/llm/report?project_id={project_id}")
     assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("exception", "status_code", "detail"),
+    [
+        ("not_configured", 503, "LLM 未配置"),
+        ("timeout", 504, "报告生成超时"),
+        ("invalid", 502, "报告不完整"),
+        ("unavailable", 502, "暂时不可用"),
+    ],
+)
+async def test_report_endpoint_maps_generation_errors(
+    client, exception, status_code, detail
+):
+    from app.services.llm_service import (
+        LLMNotConfiguredError,
+        LLMReportInvalidResponseError,
+        LLMReportTimeoutError,
+        LLMReportUnavailableError,
+    )
+
+    errors = {
+        "not_configured": LLMNotConfiguredError(),
+        "timeout": LLMReportTimeoutError(),
+        "invalid": LLMReportInvalidResponseError(),
+        "unavailable": LLMReportUnavailableError(),
+    }
+    headers = admin_login(client)
+    project_id, _ = create_project(client, headers, name=f"报告错误-{exception}")
+
+    with patch(
+        "app.services.llm_service.llm_service.generate_report",
+        new=AsyncMock(side_effect=errors[exception]),
+    ):
+        response = client.post(f"/api/llm/report?project_id={project_id}", headers=headers)
+
+    assert response.status_code == status_code
+    assert detail in response.json()["detail"]

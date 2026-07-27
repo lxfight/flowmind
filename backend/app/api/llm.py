@@ -29,7 +29,13 @@ from app.schemas import (
     SessionScope,
 )
 from app.services.agent_service import run_agent, run_agent_stream
-from app.services.llm_service import llm_service
+from app.services.llm_service import (
+    LLMNotConfiguredError,
+    LLMReportInvalidResponseError,
+    LLMReportTimeoutError,
+    LLMReportUnavailableError,
+    llm_service,
+)
 from app.services.mention_service import board_link, notify_mentions
 from app.services.rag_service import rag_service
 from app.services.report_service import (
@@ -261,7 +267,16 @@ async def llm_report(
     # All remaining work is remote I/O. End the read transaction now so a slow
     # model response does not hold a database connection for several minutes.
     await db.rollback()
-    report = await llm_service.generate_report(prompt)
+    try:
+        report = await llm_service.generate_report(prompt)
+    except LLMNotConfiguredError as exc:
+        raise HTTPException(status_code=503, detail="LLM 未配置，请先在管理页面设置 API Key") from exc
+    except LLMReportTimeoutError as exc:
+        raise HTTPException(status_code=504, detail="报告生成超时，请稍后重试") from exc
+    except LLMReportInvalidResponseError as exc:
+        raise HTTPException(status_code=502, detail="模型返回的报告不完整，请重试") from exc
+    except LLMReportUnavailableError as exc:
+        raise HTTPException(status_code=502, detail="LLM 报告服务暂时不可用，请稍后重试") from exc
 
     return {"report": report, "generated_at": now.isoformat()}
 

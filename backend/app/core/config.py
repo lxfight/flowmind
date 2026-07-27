@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_base_url: str = ""
     llm_model: str = "gpt-4o-mini"
+    llm_report_timeout: float = 180.0
+    llm_report_max_retries: int = 2
+    llm_report_retry_base_delay: float = 1.0
     llm_embedding_model: str = "text-embedding-3-small"
     # Dedicated embedding endpoint credentials (optional). When empty,
     # embedding calls fall back to llm_api_key / llm_base_url so existing

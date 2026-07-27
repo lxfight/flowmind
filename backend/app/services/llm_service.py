@@ -1,7 +1,56 @@
+import asyncio
+import contextlib
+import logging
 
-from openai import AsyncOpenAI
+from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI
+from tenacity import AsyncRetrying, retry_if_exception, stop_after_attempt, wait_exponential
 
 from app.services.config_service import config_service
+from app.services.report_service import (
+    REPORT_SYSTEM_PROMPT,
+    InvalidReportOutputError,
+    validate_report_output,
+)
+
+logger = logging.getLogger(__name__)
+
+
+class LLMNotConfiguredError(RuntimeError):
+    pass
+
+
+class LLMReportTimeoutError(RuntimeError):
+    pass
+
+
+class LLMReportInvalidResponseError(RuntimeError):
+    pass
+
+
+class LLMReportUnavailableError(RuntimeError):
+    pass
+
+
+def _is_retryable_report_error(exc: BaseException) -> bool:
+    if isinstance(exc, InvalidReportOutputError):
+        return True
+    if isinstance(exc, (APITimeoutError, APIConnectionError)):
+        return True
+    if isinstance(exc, APIStatusError):
+        return exc.status_code == 429 or exc.status_code >= 500
+    return False
+
+
+async def call_with_report_retry(call, max_retries: int, base_delay: float) -> str:
+    async for attempt in AsyncRetrying(
+        stop=stop_after_attempt(max_retries + 1),
+        wait=wait_exponential(multiplier=base_delay, max=base_delay * 8),
+        retry=retry_if_exception(_is_retryable_report_error),
+        reraise=True,
+    ):
+        with attempt:
+            return await call()
+    raise RuntimeError("unreachable")
 
 
 class LLMService:
@@ -83,12 +132,48 @@ class LLMService:
         contains the project context, precomputed statistics, the required
         output skeleton, and anti-hallucination instructions.
         """
-        from app.services.report_service import REPORT_SYSTEM_PROMPT
+        api_key, base_url, model = await config_service.get_llm_credentials()
+        if not api_key:
+            raise LLMNotConfiguredError("LLM API Key 未配置")
 
-        return await self.chat(
-            messages=[{"role": "user", "content": prompt}],
-            system_prompt=REPORT_SYSTEM_PROMPT,
+        timeout = await config_service.get("llm_report_timeout")
+        max_retries = await config_service.get("llm_report_max_retries")
+        base_delay = await config_service.get("llm_report_retry_base_delay")
+        client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=base_url or None,
+            timeout=timeout,
+            max_retries=0,
         )
+
+        async def call() -> str:
+            response = await client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": REPORT_SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.2,
+                max_tokens=4096,
+            )
+            return validate_report_output(response.choices[0].message.content or "")
+
+        try:
+            async with asyncio.timeout(timeout):
+                return await call_with_report_retry(call, max_retries, base_delay)
+        except TimeoutError as exc:
+            raise LLMReportTimeoutError("报告生成超过总时限") from exc
+        except APITimeoutError as exc:
+            raise LLMReportTimeoutError("报告生成请求超时") from exc
+        except InvalidReportOutputError as exc:
+            logger.warning("LLM report remained invalid after retries: %s", exc)
+            raise LLMReportInvalidResponseError("模型多次返回不完整报告") from exc
+        except Exception as exc:
+            logger.warning("LLM report generation failed: %s", exc)
+            raise LLMReportUnavailableError("LLM 报告服务暂时不可用") from exc
+        finally:
+            with contextlib.suppress(Exception):
+                await client.close()
 
     def _parse_json_result(self, text: str) -> list[dict]:
         """Try to extract JSON from LLM response."""

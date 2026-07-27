@@ -81,6 +81,19 @@ CONFIG_REGISTRY: dict[str, ConfigMeta] = {
             description="向量嵌入接口地址；留空则回退使用 llm_base_url",
         ),
         ConfigMeta("llm_model", "Chat 模型", description="对话/Agent 使用的模型名"),
+        ConfigMeta(
+            "llm_report_timeout", "报告生成总超时(秒)", kind="float", minimum=30, maximum=300,
+            description="报告生成（含重试）的总时限，超时后返回明确错误而非无限等待",
+        ),
+        ConfigMeta(
+            "llm_report_max_retries", "报告生成重试次数", kind="int", minimum=0, maximum=5,
+            description="遇到 429、5xx、网络故障或不完整报告时的最大重试次数",
+        ),
+        ConfigMeta(
+            "llm_report_retry_base_delay", "报告重试基础延迟(秒)", kind="float",
+            minimum=0.1, maximum=10,
+            description="报告重试的指数退避基础延迟",
+        ),
         ConfigMeta("llm_embedding_model", "Embedding 模型", description="向量嵌入使用的模型名"),
         ConfigMeta("embedding_timeout", "Embedding 超时(秒)", kind="float", minimum=5, maximum=180,
                    description="单次 embedding 请求的超时时间，避免接口无响应导致索引永久挂起"),

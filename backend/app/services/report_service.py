@@ -199,6 +199,35 @@ REPORT_SKELETON = """一、本期概览（关键数字：任务总数、完成�
 五、成员负载（各成员未完成任务分布，指出过载或闲置）
 六、下一步建议（可执行的 3-5 条建议）"""
 
+REPORT_SECTION_TITLES = (
+    "一、本期概览",
+    "二、进度分析",
+    "三、重点事项与里程碑",
+    "四、风险与阻塞",
+    "五、成员负载",
+    "六、下一步建议",
+)
+
+
+class InvalidReportOutputError(ValueError):
+    """The model returned an empty or structurally incomplete report."""
+
+
+def validate_report_output(report: str) -> str:
+    """Normalize a report and require every promised section before caching it."""
+    cleaned = report.strip()
+    if cleaned.startswith("```") and cleaned.endswith("```"):
+        lines = cleaned.splitlines()
+        if len(lines) >= 3:
+            cleaned = "\n".join(lines[1:-1]).strip()
+    if not cleaned:
+        raise InvalidReportOutputError("模型返回了空报告")
+
+    missing = [section for section in REPORT_SECTION_TITLES if section not in cleaned]
+    if missing:
+        raise InvalidReportOutputError(f"报告缺少章节: {', '.join(missing)}")
+    return cleaned
+
 
 def build_report_prompt(
     project_name: str,
