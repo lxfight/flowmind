@@ -175,6 +175,7 @@ async def llm_report(
 ):
     """Generate a project progress report using LLM."""
     await ensure_project_member(project_id, current_user, db)
+    now = datetime.now(UTC)
     # Get project
     result = await db.execute(select(Project).where(Project.id == project_id))
     project = result.scalar_one_or_none()
@@ -210,7 +211,14 @@ async def llm_report(
 
     # Get activity logs from the recent window
     from app.models.activity import ActivityLog
-    window_start = datetime.now(UTC) - timedelta(days=ACTIVITY_WINDOW_DAYS)
+    window_start = now - timedelta(days=ACTIVITY_WINDOW_DAYS)
+    result = await db.execute(
+        select(func.count(ActivityLog.id)).where(
+            ActivityLog.project_id == project_id,
+            ActivityLog.created_at >= window_start,
+        )
+    )
+    total_activity = result.scalar() or 0
     result = await db.execute(
         select(ActivityLog)
         .where(
@@ -218,10 +226,10 @@ async def llm_report(
             ActivityLog.created_at >= window_start,
         )
         .order_by(ActivityLog.created_at.desc())
+        .limit(ACTIVITY_MAX_LINES)
     )
     logs = result.scalars().all()
 
-    now = datetime.now(UTC)
     report_tasks = [
         ReportTask(
             title=t.title,
@@ -242,8 +250,7 @@ async def llm_report(
     stats = compute_report_stats(report_tasks, now=now)
     # Show the most recent activity, but report the true window total so the
     # "N 条" in the prompt matches reality instead of the truncated count.
-    total_activity = len(logs)
-    activity_lines = [log.summary for log in logs[:ACTIVITY_MAX_LINES]]
+    activity_lines = [log.summary for log in logs]
     stats_text = format_stats_text(
         stats, report_tasks, activity_lines, now=now, activity_total=total_activity
     )
@@ -251,6 +258,9 @@ async def llm_report(
         project.name, project.description or "", stats_text
     )
 
+    # All remaining work is remote I/O. End the read transaction now so a slow
+    # model response does not hold a database connection for several minutes.
+    await db.rollback()
     report = await llm_service.generate_report(prompt)
 
     return {"report": report, "generated_at": now.isoformat()}

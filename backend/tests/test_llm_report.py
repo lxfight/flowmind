@@ -7,6 +7,8 @@ import pytest
 from helpers import admin_login, create_project, create_task
 
 from app.services.report_service import (
+    MAX_ASSIGNEE_LINES,
+    MAX_PROJECT_DESCRIPTION_CHARS,
     ReportTask,
     build_report_prompt,
     compute_report_stats,
@@ -110,6 +112,28 @@ class TestPromptBuilding:
         stats = compute_report_stats(tasks, now=NOW)
         text = format_stats_text(stats, tasks, [], now=NOW)
         assert "另有 10 个任务未列出" in text
+
+    def test_assignee_load_is_bounded_and_stable(self):
+        tasks = [
+            ReportTask(
+                title=f"任务{i}", status_name="待办", updated_at=NOW, assignees=[f"成员{i:02d}"]
+            )
+            for i in range(MAX_ASSIGNEE_LINES + 3)
+        ]
+        stats = compute_report_stats(tasks, now=NOW)
+        text = format_stats_text(stats, tasks, [], now=NOW)
+
+        assert "- 成员00: 1 个" in text
+        assert f"- 成员{MAX_ASSIGNEE_LINES - 1:02d}: 1 个" in text
+        assert f"- 成员{MAX_ASSIGNEE_LINES:02d}: 1 个" not in text
+        assert "另有 3 名成员未列出" in text
+
+    def test_project_description_is_bounded(self):
+        prompt = build_report_prompt("大项目", "x" * (MAX_PROJECT_DESCRIPTION_CHARS + 100), "统计")
+
+        assert "x" * MAX_PROJECT_DESCRIPTION_CHARS in prompt
+        assert "x" * (MAX_PROJECT_DESCRIPTION_CHARS + 1) not in prompt
+        assert "项目描述已截断" in prompt
 
     def test_prompt_structure_and_guards(self):
         tasks = make_tasks()

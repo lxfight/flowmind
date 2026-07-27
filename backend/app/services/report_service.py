@@ -16,6 +16,8 @@ ACTIVITY_WINDOW_DAYS = 7
 ACTIVITY_MAX_LINES = 20  # cap how many recent activity entries go into the prompt
 MAX_DETAIL_TASKS = 30  # cap detailed task lines to keep token usage sane
 MAX_LIST_ITEMS = 10  # cap overdue/stale/high-priority/assignee lists
+MAX_ASSIGNEE_LINES = 20
+MAX_PROJECT_DESCRIPTION_CHARS = 4000
 
 
 @dataclass
@@ -164,10 +166,13 @@ def format_stats_text(
 
     lines.append("\n成员未完成任务负载:")
     if stats["assignee_load"]:
-        for name, count in sorted(
-            stats["assignee_load"].items(), key=lambda kv: -kv[1]
-        ):
+        assignee_load = sorted(
+            stats["assignee_load"].items(), key=lambda kv: (-kv[1], kv[0])
+        )
+        for name, count in assignee_load[:MAX_ASSIGNEE_LINES]:
             lines.append(f"- {name}: {count} 个")
+        if len(assignee_load) > MAX_ASSIGNEE_LINES:
+            lines.append(f"- …另有 {len(assignee_load) - MAX_ASSIGNEE_LINES} 名成员未列出")
     else:
         lines.append("- 无")
 
@@ -202,6 +207,8 @@ def build_report_prompt(
 ) -> str:
     """Build the user prompt sent to the LLM for report generation."""
     description = project_description.strip() or "（无项目描述）"
+    if len(description) > MAX_PROJECT_DESCRIPTION_CHARS:
+        description = description[:MAX_PROJECT_DESCRIPTION_CHARS] + "…（项目描述已截断）"
     return f"""请为以下项目生成一份中文项目进度报告（Markdown 格式）。
 
 【项目信息】
