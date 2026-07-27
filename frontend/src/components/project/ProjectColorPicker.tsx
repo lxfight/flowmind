@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Plus } from 'lucide-react'
+import { Check, Pipette } from 'lucide-react'
 import { cn } from '../../utils/cn'
 import { normalizeHex, tintWithWhite } from './colorUtils'
 
@@ -93,64 +93,85 @@ export function ProjectColorPicker({ value, onChange, disabled, projectName }: P
   const normalized = normalizeHex(value)
   const isCustom = !ALL_COLORS.includes(normalized)
   const tint = useMemo(() => tintWithWhite(normalized), [normalized])
+  const selectedColor = COLOR_GROUPS.flatMap((group) => group.colors).find(
+    (color) => color.value.toLowerCase() === normalized
+  )
+  const displayName = projectName?.trim() || '未命名项目'
+  const projectInitial = displayName.slice(0, 1).toUpperCase()
 
   return (
-    <div className="space-y-3">
-      {/* 实时预览：色条 + 浅色衍生背景 + 色点 + 项目名 */}
-      <div className="overflow-hidden rounded-[8px] border border-border" aria-live="polite">
-        <div className="h-1.5 transition-colors" style={{ backgroundColor: normalized }} />
+    <div className="space-y-5">
+      <div
+        className="relative overflow-hidden rounded-[8px] border border-border bg-background"
+        aria-live="polite"
+      >
         <div
-          className="p-3 transition-colors"
-          style={{ backgroundColor: `color-mix(in srgb, ${normalized} 12%, transparent)` }}
+          className="absolute inset-y-0 left-0 w-1.5 transition-colors duration-300"
+          style={{ backgroundColor: normalized }}
+          aria-hidden="true"
+        />
+        <div
+          className="flex min-h-24 items-center gap-4 px-5 py-4 pl-6 transition-colors duration-300"
+          style={{ backgroundColor: `color-mix(in srgb, ${normalized} 10%, transparent)` }}
         >
-          <div className="flex items-center gap-2">
-            <span
-              className="h-3 w-3 flex-shrink-0 rounded-full"
-              style={{ backgroundColor: normalized }}
-            />
-            <span className="truncate text-sm font-medium text-foreground">
-              {projectName?.trim() || '项目名称'}
-            </span>
+          <span
+            className="flex h-12 w-12 flex-none items-center justify-center rounded-[8px] text-lg font-semibold text-white shadow-sm transition-colors duration-300"
+            style={{ backgroundColor: normalized }}
+            aria-hidden="true"
+          >
+            {projectInitial}
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-base font-semibold text-foreground">{displayName}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {selectedColor?.label || '自定义色'}
+            </p>
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">项目卡片将以此颜色作为标识色</p>
+          <code className="hidden rounded-md border border-border/80 bg-background/70 px-2 py-1 text-[11px] font-medium uppercase text-muted-foreground sm:block">
+            {normalized}
+          </code>
         </div>
       </div>
 
-      {/* 策划色板 */}
-      {COLOR_GROUPS.map((group) => (
-        <div key={group.name} className="flex items-center gap-2">
-          <span className="w-8 flex-shrink-0 text-xs text-muted-foreground">{group.name}</span>
-          <div className="flex flex-wrap gap-1.5">
-            {group.colors.map((c) => {
-              const selected = normalized === c.value.toLowerCase()
-              return (
-                <button
-                  key={c.value}
-                  type="button"
-                  title={`${group.name} · ${c.label}`}
-                  aria-label={`选择颜色 ${c.label} ${c.value}`}
-                  aria-pressed={selected}
-                  disabled={disabled}
-                  onClick={() => onChange(c.value)}
-                  className={cn(
-                    'h-7 w-7 rounded-lg transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-                    selected && 'ring-2 ring-offset-2 ring-foreground scale-110'
-                  )}
-                  style={{ backgroundColor: c.value }}
-                />
-              )
-            })}
-          </div>
-        </div>
-      ))}
+      <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+        {COLOR_GROUPS.map((group) => (
+          <fieldset key={group.name} className="min-w-0">
+            <legend className="mb-2 text-[11px] font-medium text-muted-foreground">{group.name}</legend>
+            <div className="grid grid-cols-4 gap-2">
+              {group.colors.map((color) => {
+                const selected = normalized === color.value.toLowerCase()
+                return (
+                  <button
+                    key={color.value}
+                    type="button"
+                    title={`${group.name} / ${color.label}`}
+                    aria-label={`选择颜色 ${color.label} ${color.value}`}
+                    aria-pressed={selected}
+                    disabled={disabled}
+                    onClick={() => onChange(color.value)}
+                    className={cn(
+                      'relative flex h-9 w-full min-w-9 items-center justify-center rounded-[8px] border border-black/5 shadow-sm transition-[transform,box-shadow] duration-200 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-40',
+                      selected && 'scale-[1.04] ring-2 ring-foreground ring-offset-2'
+                    )}
+                    style={{ backgroundColor: color.value }}
+                  >
+                    {selected && (
+                      <Check className="h-4 w-4 text-white drop-shadow" strokeWidth={3} aria-hidden="true" />
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </fieldset>
+        ))}
+      </div>
 
-      {/* 自定义色 + 衍生色展示 */}
-      <div className="flex items-center gap-2">
-        <span className="w-8 flex-shrink-0 text-xs text-muted-foreground">自定义</span>
+      <div className="flex flex-wrap items-center gap-3 border-t border-border pt-4">
         <label
           className={cn(
-            'relative flex h-7 w-7 cursor-pointer items-center justify-center overflow-hidden rounded-lg border border-dashed border-border transition-all focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2',
-            isCustom && 'ring-2 ring-offset-2 ring-foreground scale-110'
+            'group relative flex h-10 cursor-pointer items-center gap-2 overflow-hidden rounded-[8px] border border-border bg-background px-3 text-xs font-medium text-foreground transition-colors hover:bg-accent focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2',
+            disabled && 'pointer-events-none opacity-40',
+            isCustom && 'border-foreground/40'
           )}
           title="自定义颜色"
         >
@@ -162,24 +183,22 @@ export function ProjectColorPicker({ value, onChange, disabled, projectName }: P
             aria-label="自定义颜色"
             className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
           />
-          {isCustom ? (
-            <span className="h-full w-full" style={{ backgroundColor: normalized }} />
-          ) : (
-            <Plus className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
-          )}
+          <span
+            className="h-4 w-4 rounded border border-black/10 transition-colors"
+            style={{ backgroundColor: normalized }}
+            aria-hidden="true"
+          />
+          <Pipette className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+          自定义
         </label>
-        {isCustom && (
-          <span className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span className="flex items-center gap-1">
-              <span className="h-3.5 w-3.5 rounded border border-border" style={{ backgroundColor: normalized }} />
-              主色 {normalized}
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="h-3.5 w-3.5 rounded border border-border" style={{ backgroundColor: tint }} />
-              浅色背景 {tint}
-            </span>
+        <div className="ml-auto flex items-center gap-2 text-[11px] text-muted-foreground">
+          <span className="uppercase">{normalized}</span>
+          <span className="h-4 w-px bg-border" aria-hidden="true" />
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-4 w-4 rounded border border-border" style={{ backgroundColor: tint }} />
+            浅色
           </span>
-        )}
+        </div>
       </div>
     </div>
   )

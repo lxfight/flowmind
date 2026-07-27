@@ -157,6 +157,7 @@ export function DialogTitle({ children, className, showClose = false, onClose }:
       </h2>
       {showClose && onClose && (
         <button
+          type="button"
           onClick={onClose}
           aria-label="关闭"
           className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
