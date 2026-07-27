@@ -60,4 +60,30 @@ describe('ActivityFeed', () => {
 
     expect(await screen.findByText('暂无活动记录')).toBeInTheDocument()
   })
+
+  it('only mounts a small visible window for a long timeline', async () => {
+    const activities = Array.from({ length: 1000 }, (_, index) => ({
+      id: index + 1,
+      action: 'update',
+      target_type: 'task',
+      target_id: index + 1,
+      summary: `动态 ${index + 1}`,
+      user_name: '系统',
+      created_at: new Date(Date.UTC(2026, 0, 1, 0, index)).toISOString(),
+    }))
+    vi.mocked(api.get).mockImplementation(async (_url, config) => ({
+      data: {
+        items: config?.params?.page === 1 ? activities : [],
+        total: activities.length,
+      },
+    }))
+
+    render(<ActivityFeed projectId={7} />)
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('第 1000 条，共 1000 条动态')).toBeInTheDocument()
+    })
+    expect(screen.getAllByTestId('activity-event').length).toBeLessThanOrEqual(8)
+    expect(screen.getByText('动态 1000')).toBeInTheDocument()
+  })
 })

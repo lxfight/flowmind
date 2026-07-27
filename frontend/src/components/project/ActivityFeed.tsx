@@ -45,8 +45,13 @@ interface Props {
 }
 
 const PAGE_SIZE = 100
+const PAGE_CONCURRENCY = 4
 const TIMELINE_HEIGHT = 480
 const TIMELINE_ITEM_WIDTH = 284
+const TIMELINE_PADDING_START = 16
+const TIMELINE_PADDING_END = 64
+const TIMELINE_OVERSCAN = 3
+const INITIAL_RENDER_COUNT = 8
 const NODE_Y = [234, 198, 266, 218]
 
 const actionPresentation: Record<string, {
@@ -143,7 +148,12 @@ export function ActivityFeed({ projectId }: Props) {
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(false)
   const [activeIndex, setActiveIndex] = useState(0)
+  const [renderRange, setRenderRange] = useState({ start: 0, end: INITIAL_RENDER_COUNT })
   const scrollerRef = useRef<HTMLDivElement>(null)
+  const scrollFrameRef = useRef<number | null>(null)
+  const timelineWidth = TIMELINE_PADDING_START
+    + activities.length * TIMELINE_ITEM_WIDTH
+    + TIMELINE_PADDING_END
 
   useEffect(() => {
     const controller = new AbortController()
@@ -154,6 +164,7 @@ export function ActivityFeed({ projectId }: Props) {
       setActivities([])
       setTotal(0)
       setLoadedCount(0)
+      setRenderRange({ start: 0, end: INITIAL_RENDER_COUNT })
 
       try {
         const first = await api.get<ActivityPageResponse>(`/projects/${projectId}/activities`, {
@@ -165,13 +176,20 @@ export function ActivityFeed({ projectId }: Props) {
         setTotal(expectedTotal)
         setLoadedCount(all.length)
 
-        const pageCount = Math.ceil(expectedTotal / PAGE_SIZE)
-        for (let page = 2; page <= pageCount; page += 1) {
-          const response = await api.get<ActivityPageResponse>(`/projects/${projectId}/activities`, {
-            params: { page, page_size: PAGE_SIZE },
-            signal: controller.signal,
-          })
-          all.push(...response.data.items)
+        const remainingPages = Array.from(
+          { length: Math.max(0, Math.ceil(expectedTotal / PAGE_SIZE) - 1) },
+          (_, index) => index + 2,
+        )
+        for (let index = 0; index < remainingPages.length; index += PAGE_CONCURRENCY) {
+          const responses = await Promise.all(
+            remainingPages.slice(index, index + PAGE_CONCURRENCY).map((page) => (
+              api.get<ActivityPageResponse>(`/projects/${projectId}/activities`, {
+                params: { page, page_size: PAGE_SIZE },
+                signal: controller.signal,
+              })
+            )),
+          )
+          responses.forEach((response) => all.push(...response.data.items))
           setLoadedCount(Math.min(all.length, expectedTotal))
         }
 
@@ -201,29 +219,56 @@ export function ActivityFeed({ projectId }: Props) {
     const isAtEnd = scroller.scrollLeft + scroller.clientWidth >= scroller.scrollWidth - 4
     setCanScrollLeft(scroller.scrollLeft > 4)
     setCanScrollRight(!isAtEnd)
-    const firstEvent = scroller.querySelector<HTMLElement>('[data-testid="activity-event"]')
-    if (firstEvent && activities.length > 0) {
+    if (activities.length > 0) {
+      const firstVisible = Math.floor(
+        Math.max(0, scroller.scrollLeft - TIMELINE_PADDING_START) / TIMELINE_ITEM_WIDTH,
+      )
+      const visibleCount = Math.max(1, Math.ceil(scroller.clientWidth / TIMELINE_ITEM_WIDTH))
+      const start = Math.max(0, firstVisible - TIMELINE_OVERSCAN)
+      const end = Math.min(
+        activities.length,
+        firstVisible + visibleCount + TIMELINE_OVERSCAN,
+      )
+      setRenderRange((previous) => (
+        previous.start === start && previous.end === end ? previous : { start, end }
+      ))
+
       const nextIndex = isAtEnd
         ? activities.length - 1
-        : Math.round(scroller.scrollLeft / firstEvent.offsetWidth)
+        : Math.round(Math.max(0, scroller.scrollLeft - TIMELINE_PADDING_START) / TIMELINE_ITEM_WIDTH)
       setActiveIndex(Math.min(Math.max(nextIndex, 0), activities.length - 1))
     }
   }, [activities.length])
+
+  const scheduleScrollStateUpdate = useCallback(() => {
+    if (scrollFrameRef.current !== null) return
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      scrollFrameRef.current = null
+      updateScrollState()
+    })
+  }, [updateScrollState])
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
       const scroller = scrollerRef.current
       if (scroller && activities.length > 0) {
-        scroller.scrollLeft = Math.max(0, scroller.scrollWidth - scroller.clientWidth)
+        scroller.scrollLeft = Math.max(
+          0,
+          Math.max(timelineWidth, scroller.scrollWidth) - scroller.clientWidth,
+        )
       }
       updateScrollState()
     })
     window.addEventListener('resize', updateScrollState)
     return () => {
       cancelAnimationFrame(frame)
+      if (scrollFrameRef.current !== null) {
+        cancelAnimationFrame(scrollFrameRef.current)
+        scrollFrameRef.current = null
+      }
       window.removeEventListener('resize', updateScrollState)
     }
-  }, [activities, updateScrollState])
+  }, [activities, timelineWidth, updateScrollState])
 
   const scrollTimeline = (direction: -1 | 1) => {
     const scroller = scrollerRef.current
@@ -329,11 +374,15 @@ export function ActivityFeed({ projectId }: Props) {
         <div
           ref={scrollerRef}
           className="scrollbar-thin snap-x snap-proximity overflow-x-auto overflow-y-hidden overscroll-x-contain pb-2"
-          onScroll={updateScrollState}
+          onScroll={scheduleScrollStateUpdate}
           aria-label="项目动态时间轴"
         >
-          <div className="relative flex min-w-max px-4 sm:px-7">
-            {activities.map((activity, index) => {
+          <div
+            className="relative h-[480px]"
+            style={{ width: timelineWidth }}
+          >
+            {activities.slice(renderRange.start, renderRange.end).map((activity, offset) => {
+              const index = renderRange.start + offset
               const action = actionPresentation[activity.action] ?? {
                 icon: Clock3,
                 label: '动态',
@@ -362,12 +411,16 @@ export function ActivityFeed({ projectId }: Props) {
                 <article
                   key={activity.id}
                   data-testid="activity-event"
-                  className="relative h-[480px] w-[264px] flex-none snap-center sm:w-[284px]"
+                  className="absolute left-0 top-0 h-[480px] w-[284px] snap-center"
+                  style={{
+                    transform: `translateX(${TIMELINE_PADDING_START + index * TIMELINE_ITEM_WIDTH}px)`,
+                  }}
                 >
                   <svg
-                    viewBox={`0 0 ${TIMELINE_ITEM_WIDTH} ${TIMELINE_HEIGHT}`}
+                    viewBox={`0 0 ${segmentEndX} ${TIMELINE_HEIGHT}`}
                     preserveAspectRatio="none"
-                    className="pointer-events-none absolute left-1/2 top-0 h-full w-full overflow-visible"
+                    className="pointer-events-none absolute left-1/2 top-0 h-full overflow-visible"
+                    style={{ width: segmentEndX }}
                     aria-hidden="true"
                   >
                     <path
@@ -474,7 +527,11 @@ export function ActivityFeed({ projectId }: Props) {
               )
             })}
 
-            <div className="relative h-[480px] w-16 flex-none" aria-hidden="true">
+            <div
+              className="absolute top-0 h-[480px] w-16"
+              style={{ left: TIMELINE_PADDING_START + activities.length * TIMELINE_ITEM_WIDTH }}
+              aria-hidden="true"
+            >
               <ArrowRight
                 className="absolute left-1 h-4 w-4 text-primary/50"
                 style={{ top: NODE_Y[activities.length % NODE_Y.length] - 8 }}
