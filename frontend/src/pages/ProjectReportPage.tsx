@@ -1,11 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { FileText, RefreshCw, Calendar, History, Trash2 } from 'lucide-react'
+import {
+  AlertCircle,
+  CalendarDays,
+  FileText,
+  History,
+  RefreshCw,
+  Sparkles,
+  Trash2,
+} from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import api, { errDetail } from '../utils/api'
 import toast from 'react-hot-toast'
 import { Button } from '../components/ui/Button'
-import { Card, CardContent } from '../components/ui/Card'
 import { Badge } from '../components/ui/Badge'
 import { EmptyState } from '../components/ui/EmptyState'
 import { cn } from '../utils/cn'
@@ -18,6 +25,7 @@ interface ReportEntry {
 const CACHE_KEY = 'flowmind_report_cache'
 const HISTORY_KEY = 'flowmind_report_history'
 const REPORT_REQUEST_TIMEOUT_MS = 190_000
+const pendingReportRequests = new Map<string, Promise<ReportEntry>>()
 
 class InvalidReportResponseError extends Error {}
 
@@ -62,72 +70,108 @@ function saveHistory(projectId: string, entries: ReportEntry[]) {
   } catch {}
 }
 
+function reportErrorMessage(err: unknown) {
+  const isTimeout = Boolean(
+    err && typeof err === 'object' && (err as Record<string, unknown>).code === 'ECONNABORTED',
+  )
+  const fallback = err instanceof InvalidReportResponseError
+    ? '模型返回的报告格式无效，请重试'
+    : isTimeout
+      ? '报告生成超时，请稍后重试'
+      : '报告生成失败，请稍后重试'
+  return errDetail(err, fallback)
+}
+
+function startReportGeneration(projectId: string) {
+  const pending = pendingReportRequests.get(projectId)
+  if (pending) return pending
+
+  const request = api.post(`/llm/report?project_id=${projectId}`, undefined, {
+    // The backend owns a 180s total retry budget; leave a small transport margin.
+    timeout: REPORT_REQUEST_TIMEOUT_MS,
+  }).then((response) => {
+    const entry = parseReportEntry(response.data)
+    if (!entry) throw new InvalidReportResponseError('Invalid report response')
+    saveCache(projectId, entry)
+    const nextHistory = [
+      entry,
+      ...loadHistory(projectId).filter((item) => item.generated_at !== entry.generated_at),
+    ]
+    saveHistory(projectId, nextHistory)
+    return entry
+  }).finally(() => {
+    if (pendingReportRequests.get(projectId) === request) {
+      pendingReportRequests.delete(projectId)
+    }
+  })
+
+  pendingReportRequests.set(projectId, request)
+  return request
+}
+
 export default function ProjectReportPage() {
   const { projectId } = useParams()
   const [report, setReport] = useState<string | null>(null)
   const [generatedAt, setGeneratedAt] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [generationError, setGenerationError] = useState<string | null>(null)
   const [history, setHistory] = useState<ReportEntry[]>([])
   const [showHistory, setShowHistory] = useState(false)
-  const requestSequence = useRef(0)
-  const activeRequest = useRef<{ id: number; controller: AbortController } | null>(null)
+  const activeProjectRef = useRef(projectId)
 
   useEffect(() => {
+    activeProjectRef.current = projectId
     if (!projectId) return
-    activeRequest.current?.controller.abort()
-    activeRequest.current = null
+    let cancelled = false
     const cached = loadCache(projectId)
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrating from localStorage cache on mount
+    const pending = pendingReportRequests.get(projectId)
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrating project-scoped runtime and storage state
     setHistory(loadHistory(projectId))
     setReport(cached?.report ?? null)
     setGeneratedAt(cached?.generated_at ?? null)
-    setLoading(false)
+    setLoading(Boolean(pending))
+    setGenerationError(null)
     setShowHistory(false)
 
+    if (pending) {
+      pending.then((entry) => {
+        if (cancelled) return
+        setReport(entry.report)
+        setGeneratedAt(entry.generated_at)
+        setHistory(loadHistory(projectId))
+        setGenerationError(null)
+      }).catch((err: unknown) => {
+        if (!cancelled) setGenerationError(reportErrorMessage(err))
+      }).finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    }
+
     return () => {
-      activeRequest.current?.controller.abort()
-      activeRequest.current = null
+      cancelled = true
+      if (activeProjectRef.current === projectId) activeProjectRef.current = undefined
     }
   }, [projectId])
 
   const generateReport = async () => {
     if (!projectId) return
-    activeRequest.current?.controller.abort()
-    const requestId = ++requestSequence.current
-    const controller = new AbortController()
-    activeRequest.current = { id: requestId, controller }
+    const requestedProjectId = projectId
     setLoading(true)
+    setGenerationError(null)
     try {
-      const res = await api.post(`/llm/report?project_id=${projectId}`, undefined, {
-        signal: controller.signal,
-        // The backend owns a 180s total retry budget; leave a small transport margin.
-        timeout: REPORT_REQUEST_TIMEOUT_MS,
-      })
-      if (controller.signal.aborted || activeRequest.current?.id !== requestId) return
-      const entry = parseReportEntry(res.data)
-      if (!entry) throw new InvalidReportResponseError('Invalid report response')
+      const entry = await startReportGeneration(requestedProjectId)
+      if (activeProjectRef.current !== requestedProjectId) return
       setReport(entry.report)
       setGeneratedAt(entry.generated_at)
-      saveCache(projectId, entry)
-      const newHistory = [entry, ...loadHistory(projectId).filter(h => h.generated_at !== entry.generated_at)]
-      saveHistory(projectId, newHistory)
-      setHistory(newHistory)
+      setHistory(loadHistory(requestedProjectId))
     } catch (err: unknown) {
-      if (controller.signal.aborted || activeRequest.current?.id !== requestId) return
-      const isTimeout = Boolean(
-        err && typeof err === 'object' && (err as Record<string, unknown>).code === 'ECONNABORTED',
-      )
-      const fallback = err instanceof InvalidReportResponseError
-        ? '模型返回的报告格式无效，请重试'
-        : isTimeout
-          ? '报告生成超时，请稍后重试'
-          : '报告生成失败，请稍后重试'
-      toast.error(errDetail(err, fallback))
+      if (activeProjectRef.current !== requestedProjectId) return
+      const message = reportErrorMessage(err)
+      setGenerationError(message)
+      toast.error(message)
     } finally {
-      if (activeRequest.current?.id === requestId) {
-        activeRequest.current = null
-        setLoading(false)
-      }
+      if (activeProjectRef.current === requestedProjectId) setLoading(false)
     }
   }
 
@@ -146,16 +190,27 @@ export default function ProjectReportPage() {
   }
 
   return (
-    <div className="mx-auto h-full w-full max-w-[2000px] overflow-y-auto">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
-        <h3 className="section-title">项目报告</h3>
+    <div className="mx-auto w-full max-w-[1600px]">
+      <header className="mb-6 flex flex-wrap items-center justify-between gap-4 px-1">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="flex h-10 w-10 flex-none items-center justify-center rounded-md bg-primary/10 text-primary">
+            <FileText className="h-5 w-5" />
+          </span>
+          <div className="min-w-0">
+            <h1 className="text-xl font-semibold text-foreground">项目报告</h1>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {loading ? '数据汇总与内容生成中' : generatedAt ? `更新于 ${new Date(generatedAt).toLocaleString('zh-CN')}` : '暂无报告记录'}
+            </p>
+          </div>
+        </div>
         <div className="flex items-center gap-2">
           {history.length > 0 && (
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setShowHistory(!showHistory)}
+              onClick={() => setShowHistory((visible) => !visible)}
               className="gap-1.5"
+              aria-expanded={showHistory}
             >
               <History className="h-4 w-4" />
               历史
@@ -168,85 +223,95 @@ export default function ProjectReportPage() {
             loading={loading}
             className="gap-1.5"
           >
-            <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
-            {loading ? '生成中...' : report ? '重新生成' : '生成报告'}
+            {!loading && (report ? <RefreshCw className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />)}
+            {loading ? '生成中' : report ? '重新生成' : '生成报告'}
           </Button>
         </div>
-      </div>
+      </header>
 
       {showHistory && (
-        <Card className="mb-4">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-2">
-              <h4 className="text-sm font-medium">历史报告</h4>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 text-muted-foreground hover:text-danger"
-                onClick={clearHistory}
-                aria-label="清空历史"
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
+        <section className="mb-6 overflow-hidden border-y border-border" aria-label="历史报告">
+          <div className="flex items-center justify-between border-b border-border bg-muted/30 px-3 py-2">
+            <span className="text-xs font-semibold text-muted-foreground">最近 {history.length} 份报告</span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:bg-danger/10 hover:text-danger"
+              onClick={clearHistory}
+              aria-label="清空历史"
+              title="清空历史"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+          {history.map((entry) => (
+            <button
+              key={entry.generated_at}
+              className="grid w-full grid-cols-[auto_minmax(0,1fr)] items-center gap-4 border-b border-border/75 px-3 py-3 text-left transition-colors last:border-b-0 hover:bg-muted/25"
+              onClick={() => loadFromHistory(entry)}
+            >
+              <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-foreground tnum">
+                <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
+                {new Date(entry.generated_at).toLocaleString('zh-CN')}
+              </span>
+              <span className="truncate text-xs text-muted-foreground">{entry.report.replace(/[#*_`]/g, '').slice(0, 80)}</span>
+            </button>
+          ))}
+        </section>
+      )}
+
+      {generationError && (
+        <div className="mb-6 flex items-center justify-between gap-3 border-y border-danger/25 bg-danger/5 px-3 py-3 text-sm text-danger" role="alert">
+          <span className="flex min-w-0 items-center gap-2">
+            <AlertCircle className="h-4 w-4 flex-none" />
+            <span className="truncate">{generationError}</span>
+          </span>
+          <Button variant="ghost" size="sm" onClick={generateReport} className="flex-none text-danger">
+            重试
+          </Button>
+        </div>
+      )}
+
+      {loading && (
+        <div className="mb-6 overflow-hidden border-y border-primary/20 bg-primary/[0.035] px-3 py-4" aria-live="polite">
+          <div className="flex items-center gap-3">
+            <span className="relative flex h-9 w-9 flex-none items-center justify-center rounded-full bg-primary/10 text-primary">
+              <RefreshCw className="h-4 w-4 animate-spin" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-foreground">正在生成项目报告</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">整理任务、进度与近期动态</p>
             </div>
-            <div className="space-y-1">
-              {history.map((h, i) => (
-                <button
-                  key={i}
-                  className="w-full text-left rounded-lg px-3 py-2 text-sm hover:bg-accent flex items-center justify-between gap-3"
-                  onClick={() => loadFromHistory(h)}
-                >
-                  <span className="flex items-center gap-1.5 text-foreground">
-                    <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                    {new Date(h.generated_at).toLocaleString('zh-CN')}
-                  </span>
-                  <span className="text-xs text-muted-foreground truncate max-w-[180px]">
-                    {h.report.substring(0, 40)}...
-                  </span>
-                </button>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+          </div>
+          <div className="mt-3 h-1 overflow-hidden rounded-full bg-primary/10">
+            <div className="h-full w-1/2 animate-pulse rounded-full bg-primary/60" />
+          </div>
+        </div>
       )}
 
       {!report && !loading && (
         <EmptyState
           icon={FileText}
-          title="生成项目报告"
-          description="点击“生成报告”按钮，LLM 将基于项目任务和近期动态自动生成进度报告"
-          action={
-            <Button size="sm" onClick={generateReport} className="gap-1.5">
-              <RefreshCw className="h-4 w-4" />
-              生成报告
-            </Button>
-          }
+          title="尚未生成报告"
+          description="当前项目还没有报告记录"
         />
       )}
 
-      {loading && !report && (
-        <Card className="p-12 text-center">
-          <RefreshCw className="mx-auto h-8 w-8 text-primary animate-spin mb-4" />
-          <p className="body-text">正在调用 LLM 生成报告...</p>
-        </Card>
-      )}
-
       {report && (
-        <Card className="max-w-3xl">
-          <CardContent className="p-6">
-            {generatedAt && (
-              <div className="mb-4 flex items-center gap-2">
-                <Badge variant="secondary" className="gap-1">
-                  <Calendar className="h-3 w-3" />
-                  生成时间: {new Date(generatedAt).toLocaleString('zh-CN')}
-                </Badge>
-              </div>
-            )}
-            <div className="prose prose-sm dark:prose-invert max-w-none text-foreground leading-relaxed">
-              <ReactMarkdown>{report}</ReactMarkdown>
+        <article className="mx-auto max-w-4xl border-y border-border px-1 py-7 sm:px-5">
+          {generatedAt && (
+            <div className="mb-6 flex items-center justify-between gap-3 border-b border-border pb-4">
+              <Badge variant="secondary" className="gap-1.5 py-1">
+                <CalendarDays className="h-3.5 w-3.5" />
+                {new Date(generatedAt).toLocaleString('zh-CN')}
+              </Badge>
+              {loading && <span className="text-xs text-muted-foreground">正在准备新版本</span>}
             </div>
-          </CardContent>
-        </Card>
+          )}
+          <div className={cn('prose prose-sm dark:prose-invert max-w-none text-foreground leading-relaxed', loading && 'opacity-70')}>
+            <ReactMarkdown>{report}</ReactMarkdown>
+          </div>
+        </article>
       )}
     </div>
   )

@@ -16,22 +16,25 @@ vi.mock('react-hot-toast', () => ({
   default: { error: vi.fn() },
 }))
 
-function ReportRoute({ canSwitch = false }: { canSwitch?: boolean }) {
+function ReportRoute({ canSwitch = false, canLeave = false }: { canSwitch?: boolean; canLeave?: boolean }) {
   const navigate = useNavigate()
   return (
     <>
       {canSwitch && <button onClick={() => navigate('/projects/2/report')}>切换项目</button>}
+      {canLeave && <button onClick={() => navigate('/projects/1/board')}>离开报告</button>}
+      {canLeave && <button onClick={() => navigate('/projects/1/report')}>返回报告</button>}
       <Routes>
         <Route path="/projects/:projectId/report" element={<ProjectReportPage />} />
+        <Route path="/projects/:projectId/board" element={<p>项目看板</p>} />
       </Routes>
     </>
   )
 }
 
-function renderReport(projectId = '1', canSwitch = false) {
+function renderReport(projectId = '1', canSwitch = false, canLeave = false) {
   return render(
     <MemoryRouter initialEntries={[`/projects/${projectId}/report`]}>
-      <ReportRoute canSwitch={canSwitch} />
+      <ReportRoute canSwitch={canSwitch} canLeave={canLeave} />
     </MemoryRouter>,
   )
 }
@@ -89,7 +92,7 @@ describe('ProjectReportPage reliability', () => {
     expect(sessionStorage.getItem('flowmind_report_cache_1')).toBeNull()
   })
 
-  it('does not let a stale response overwrite the newly selected project', async () => {
+  it('keeps generating for the original project without overwriting the newly selected project', async () => {
     const user = userEvent.setup()
     let resolveRequest: (value: { data: { report: string; generated_at: string } }) => void = () => {}
     const pending = new Promise<{ data: { report: string; generated_at: string } }>((resolve) => {
@@ -103,11 +106,10 @@ describe('ProjectReportPage reliability', () => {
     renderReport('1', true)
 
     await user.click(generateButton())
-    const requestConfig = vi.mocked(api.post).mock.calls[0][2]
     await user.click(screen.getByRole('button', { name: '切换项目' }))
 
     expect(await screen.findByText('项目二缓存报告')).toBeInTheDocument()
-    expect(requestConfig?.signal?.aborted).toBe(true)
+    expect(vi.mocked(api.post).mock.calls[0][2]?.signal).toBeUndefined()
 
     await act(async () => {
       resolveRequest({
@@ -118,6 +120,34 @@ describe('ProjectReportPage reliability', () => {
 
     expect(screen.queryByText('项目一迟到报告')).not.toBeInTheDocument()
     expect(screen.getByText('项目二缓存报告')).toBeInTheDocument()
-    expect(sessionStorage.getItem('flowmind_report_cache_1')).toBeNull()
+    expect(sessionStorage.getItem('flowmind_report_cache_1')).toContain('项目一迟到报告')
+  })
+
+  it('restores an in-progress generation after leaving and returning to the report page', async () => {
+    const user = userEvent.setup()
+    let resolveRequest: (value: { data: { report: string; generated_at: string } }) => void = () => {}
+    const pending = new Promise<{ data: { report: string; generated_at: string } }>((resolve) => {
+      resolveRequest = resolve
+    })
+    vi.mocked(api.post).mockReturnValue(pending)
+    renderReport('1', false, true)
+
+    await user.click(generateButton())
+    expect(screen.getByText('正在生成项目报告')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '离开报告' }))
+    expect(screen.getByText('项目看板')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '返回报告' }))
+    expect(await screen.findByText('正在生成项目报告')).toBeInTheDocument()
+
+    await act(async () => {
+      resolveRequest({
+        data: { report: '跨页面完成的项目报告', generated_at: '2026-07-27T10:00:00Z' },
+      })
+      await pending
+    })
+
+    expect(await screen.findByText('跨页面完成的项目报告')).toBeInTheDocument()
+    expect(sessionStorage.getItem('flowmind_report_cache_1')).toContain('跨页面完成的项目报告')
   })
 })
