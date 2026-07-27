@@ -22,6 +22,3 @@ fi
 request_id="cli-$(date +%s)-$$"
 docker compose exec -T updater \
   python3 /app/cli.py "$version" --request-id "$request_id"
-
-docker compose exec -T updater python3 -c \
-  'import json; print(json.dumps(json.load(open("/state/update.json")), ensure_ascii=False, indent=2))'

@@ -1,6 +1,7 @@
+import json
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import server
 
@@ -89,6 +90,145 @@ class GitArgsTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(RuntimeError, "GitHub: offline.*proxy.example: bad gateway"):
                 server.fetch_tags(state)
+
+
+class OperationAdmissionTests(unittest.TestCase):
+    def test_starts_one_queued_operation(self) -> None:
+        idle = {"status": "idle", "request_id": None}
+        thread = MagicMock()
+        lock_handle = MagicMock()
+        with (
+            patch.object(server, "load_state", side_effect=[idle, idle]),
+            patch.object(server, "initial_state", return_value={"logs": []}),
+            patch.object(server, "current_version", return_value="1.0.0"),
+            patch.object(server, "acquire_operation_lock", return_value=lock_handle),
+            patch.object(server, "save_state") as save_state,
+            patch.object(server.threading, "Thread", return_value=thread) as make_thread,
+        ):
+            queued = server.start_operation("update", "1.1.0", "request-123")
+
+        self.assertEqual(queued["status"], "queued")
+        self.assertEqual(queued["target_version"], "1.1.0")
+        save_state.assert_called_once_with(queued)
+        make_thread.assert_called_once_with(
+            target=server.run_operation,
+            args=("update", "1.1.0", "request-123", lock_handle),
+            daemon=True,
+        )
+        thread.start.assert_called_once_with()
+
+    def test_rejects_a_second_active_operation(self) -> None:
+        active = {"status": "deploying", "request_id": "request-123"}
+        with patch.object(server, "load_state", return_value=active):
+            with self.assertRaisesRegex(RuntimeError, "another update"):
+                server.start_operation("update", "1.2.0", "request-456")
+
+    def test_releases_file_lock_when_state_changes_before_queueing(self) -> None:
+        idle = {"status": "idle", "request_id": None}
+        active = {"status": "deploying", "request_id": "request-123"}
+        lock_handle = MagicMock()
+        with (
+            patch.object(server, "load_state", side_effect=[idle, active]),
+            patch.object(server, "acquire_operation_lock", return_value=lock_handle),
+            patch.object(server, "release_operation_lock") as release_lock,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "another update"):
+                server.start_operation("update", "1.2.0", "request-456")
+
+        release_lock.assert_called_once_with(lock_handle)
+
+    def test_rejects_request_id_reuse_for_another_operation(self) -> None:
+        current = {
+            "status": "succeeded",
+            "operation": "update",
+            "request_id": "request-123",
+            "target_version": "1.1.0",
+        }
+        with patch.object(server, "load_state", return_value=current):
+            with self.assertRaisesRegex(RuntimeError, "request id"):
+                server.start_operation("rollback", "1.1.0", "request-123")
+
+    def test_returns_matching_idempotent_operation(self) -> None:
+        current = {
+            "status": "succeeded",
+            "operation": "update",
+            "request_id": "request-123",
+            "target_version": "1.1.0",
+        }
+        with patch.object(server, "load_state", return_value=current):
+            replay = server.start_operation("update", "1.1.0", "request-123")
+
+        self.assertIs(replay, current)
+
+
+class RecoveryTests(unittest.TestCase):
+    def test_interrupted_deployment_restores_previous_version(self) -> None:
+        state = {
+            "deployment_started": True,
+            "previous_sha": "abc123",
+            "previous_version": "1.0.0",
+            "logs": [],
+        }
+        with (
+            patch.object(server, "add_log"),
+            patch.object(server, "rollback_deployment") as rollback,
+            patch.object(server, "update_state") as update_state,
+        ):
+            server.recover_interrupted_operation(state)
+
+        rollback.assert_called_once_with(state, "abc123", "1.0.0")
+        self.assertEqual(update_state.call_args.kwargs["status"], "rolled_back")
+        self.assertFalse(update_state.call_args.kwargs["deployment_started"])
+
+    def test_interrupted_deployment_reports_recovery_failure(self) -> None:
+        state = {
+            "deployment_started": True,
+            "previous_sha": "abc123",
+            "previous_version": "1.0.0",
+            "logs": [],
+        }
+        with (
+            patch.object(server, "add_log"),
+            patch.object(server, "rollback_deployment", side_effect=RuntimeError("docker offline")),
+            patch.object(server, "update_state") as update_state,
+        ):
+            server.recover_interrupted_operation(state)
+
+        self.assertEqual(update_state.call_args.kwargs["status"], "failed")
+        self.assertIn("docker offline", update_state.call_args.kwargs["error"])
+
+
+class HealthCheckTests(unittest.TestCase):
+    @staticmethod
+    def response(version: str):
+        response = MagicMock()
+        response.status = 200
+        response.read.return_value = json.dumps({"version": version}).encode()
+        response.__enter__.return_value = response
+        return response
+
+    def test_waits_until_backend_reports_expected_version(self) -> None:
+        state = {"logs": []}
+        with (
+            patch.object(
+                server.urllib.request,
+                "urlopen",
+                side_effect=[self.response("1.0.0"), self.response("1.1.0")],
+            ) as urlopen,
+            patch.object(server.time, "monotonic", side_effect=[0, 0, 0]),
+            patch.object(server.time, "sleep"),
+            patch.object(server, "add_log") as add_log,
+        ):
+            server.wait_for_url(
+                state,
+                "http://backend/api/health",
+                "backend",
+                timeout=10,
+                expected_version="1.1.0",
+            )
+
+        self.assertEqual(urlopen.call_count, 2)
+        add_log.assert_called_once_with(state, "backend 健康检查通过")
 
 
 if __name__ == "__main__":

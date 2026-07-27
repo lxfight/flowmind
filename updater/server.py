@@ -42,6 +42,7 @@ DEFAULT_GITHUB_ACCELERATORS = (
     "https://gh.dpik.top",
 )
 state_lock = threading.Lock()
+operation_lock = threading.Lock()
 
 
 def utc_now() -> str:
@@ -87,12 +88,14 @@ def initial_state() -> dict[str, Any]:
         "operation": None,
         "request_id": None,
         "previous_version": current_version(),
+        "previous_sha": None,
         "target_version": None,
         "step": "idle",
         "progress": 0,
         "message": "updater 已就绪",
         "error": None,
         "backup_path": None,
+        "deployment_started": False,
         "rollback_available": bool(read_json(DEPLOYMENT_PATH, {}).get("previous_version")),
         "started_at": None,
         "finished_at": None,
@@ -161,6 +164,22 @@ def compose_args(*args: str) -> list[str]:
 
 def git_args(*args: str) -> list[str]:
     return ["git", "-c", f"safe.directory={PROJECT_DIR}", *args]
+
+
+def acquire_operation_lock():
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    lock_handle = LOCK_PATH.open("a+")
+    try:
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as exc:
+        lock_handle.close()
+        raise RuntimeError("another update is already running") from exc
+    return lock_handle
+
+
+def release_operation_lock(lock_handle: Any) -> None:
+    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+    lock_handle.close()
 
 
 def github_accelerators(value: str | None = None) -> tuple[str, ...]:
@@ -268,11 +287,34 @@ def preflight(state: dict[str, Any], target: str) -> tuple[str, str]:
     target_ref = f"refs/tags/v{target}"
     fetch_tags(state)
     command(state, git_args("rev-parse", "--verify", target_ref), timeout=30)
+    command(state, git_args("cat-file", "-e", f"{target_ref}^{{commit}}"), timeout=30)
     return previous_sha, current_version()
+
+
+def database_size(state: dict[str, Any]) -> int:
+    output = command(
+        state,
+        compose_args(
+            "exec", "-T", "postgres", "psql", "-U", "flowmind", "-d", "flowmind",
+            "-At", "-c", "SELECT pg_database_size(current_database())",
+        ),
+        timeout=30,
+    ).strip()
+    try:
+        return int(output.splitlines()[-1])
+    except (IndexError, ValueError) as exc:
+        raise RuntimeError("unable to determine database size before backup") from exc
 
 
 def backup_database(state: dict[str, Any], request_id: str) -> Path:
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    required_bytes = MIN_FREE_BYTES + database_size(state)
+    free_bytes = shutil.disk_usage(BACKUP_DIR).free
+    if free_bytes < required_bytes:
+        raise RuntimeError(
+            "insufficient backup volume space: "
+            f"need at least {required_bytes} bytes, have {free_bytes} bytes"
+        )
     backup_path = BACKUP_DIR / f"flowmind-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{request_id[:8]}.sql"
     add_log(state, f"数据库备份: {backup_path}")
     with backup_path.open("wb") as output:
@@ -289,16 +331,35 @@ def backup_database(state: dict[str, Any], request_id: str) -> Path:
     if process.returncode != 0:
         backup_path.unlink(missing_ok=True)
         raise RuntimeError(f"database backup failed: {process.stderr.decode(errors='replace')[-2000:]}")
+    if backup_path.stat().st_size == 0:
+        backup_path.unlink(missing_ok=True)
+        raise RuntimeError("database backup is empty")
     return backup_path
 
 
-def wait_for_url(state: dict[str, Any], url: str, name: str, timeout: int = 120) -> None:
+def wait_for_url(
+    state: dict[str, Any],
+    url: str,
+    name: str,
+    timeout: int = 120,
+    expected_version: str | None = None,
+) -> None:
     deadline = time.monotonic() + timeout
     last_error = ""
     while time.monotonic() < deadline:
         try:
             with urllib.request.urlopen(url, timeout=5) as response:
                 if 200 <= response.status < 300:
+                    if expected_version is not None:
+                        payload = json.loads(response.read(65536))
+                        actual_version = str(payload.get("version") or "")
+                        if actual_version != expected_version:
+                            last_error = (
+                                f"expected version {expected_version}, got "
+                                f"{actual_version or 'unknown'}"
+                            )
+                            time.sleep(2)
+                            continue
                     add_log(state, f"{name} 健康检查通过")
                     return
         except Exception as exc:
@@ -310,6 +371,7 @@ def wait_for_url(state: dict[str, Any], url: str, name: str, timeout: int = 120)
 def checkout_and_deploy(state: dict[str, Any], target: str) -> None:
     command(state, git_args("checkout", "--detach", f"refs/tags/v{target}"), timeout=120)
     set_dotenv_version(target)
+    command(state, compose_args("config", "--quiet"), timeout=60)
     update_state(
         state,
         status="downloading",
@@ -337,7 +399,7 @@ def checkout_and_deploy(state: dict[str, Any], target: str) -> None:
         progress=88,
         message="正在验证更新后的服务",
     )
-    wait_for_url(state, BACKEND_HEALTH_URL, "backend")
+    wait_for_url(state, BACKEND_HEALTH_URL, "backend", expected_version=target)
     wait_for_url(state, FRONTEND_HEALTH_URL, "frontend")
 
 
@@ -358,7 +420,14 @@ def rollback_deployment(
         compose_args("up", "-d", "--no-build", "--no-deps", "backend", "frontend"),
         timeout=600,
     )
-    wait_for_url(state, BACKEND_HEALTH_URL, "rollback backend", timeout=90)
+    wait_for_url(
+        state,
+        BACKEND_HEALTH_URL,
+        "rollback backend",
+        timeout=90,
+        expected_version=previous_version,
+    )
+    wait_for_url(state, FRONTEND_HEALTH_URL, "rollback frontend", timeout=90)
 
 
 def schedule_updater_recreate(state: dict[str, Any]) -> None:
@@ -382,15 +451,18 @@ def schedule_updater_recreate(state: dict[str, Any]) -> None:
     )
 
 
-def run_operation(operation: str, target: str, request_id: str) -> None:
+def run_operation(
+    operation: str,
+    target: str,
+    request_id: str,
+    lock_handle: Any | None = None,
+) -> None:
     target = normalize_version(target)
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    lock_handle = LOCK_PATH.open("a+")
-    try:
-        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        lock_handle.close()
-        return
+    if lock_handle is None:
+        try:
+            lock_handle = acquire_operation_lock()
+        except RuntimeError:
+            return
 
     previous_sha = ""
     previous_version = current_version()
@@ -411,7 +483,11 @@ def run_operation(operation: str, target: str, request_id: str) -> None:
     deployment_started = False
     try:
         previous_sha, previous_version = preflight(state, target)
-        state["previous_version"] = previous_version
+        update_state(
+            state,
+            previous_sha=previous_sha,
+            previous_version=previous_version,
+        )
         update_state(
             state,
             status="backing_up",
@@ -420,8 +496,11 @@ def run_operation(operation: str, target: str, request_id: str) -> None:
             message="正在备份 PostgreSQL 数据库",
         )
         backup_path = backup_database(state, request_id)
-        state["backup_path"] = str(backup_path)
-        save_state(state)
+        update_state(
+            state,
+            backup_path=str(backup_path),
+            deployment_started=True,
+        )
         deployment_started = True
         checkout_and_deploy(state, target)
         atomic_json(
@@ -442,6 +521,7 @@ def run_operation(operation: str, target: str, request_id: str) -> None:
             message="更新完成" if operation == "update" else "回滚完成",
             error=None,
             rollback_available=True,
+            deployment_started=False,
             finished_at=utc_now(),
         )
         try:
@@ -466,39 +546,99 @@ def run_operation(operation: str, target: str, request_id: str) -> None:
             progress=100,
             message="更新失败，已恢复上一版本" if rolled_back else "更新失败",
             error=error,
+            deployment_started=False if rolled_back else deployment_started,
             finished_at=utc_now(),
         )
     finally:
-        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
-        lock_handle.close()
+        release_operation_lock(lock_handle)
 
 
 def start_operation(operation: str, target: str, request_id: str) -> dict[str, Any]:
     target = normalize_version(target)
-    current = load_state()
-    if current.get("request_id") == request_id:
-        return current
-    if current.get("status") in ACTIVE:
-        raise RuntimeError("another update is already running")
-    queued = {
-        **initial_state(),
-        "status": "queued",
-        "operation": operation,
-        "request_id": request_id,
-        "previous_version": current_version(),
-        "target_version": target,
-        "step": "queued",
-        "message": "更新任务已进入队列",
-        "started_at": utc_now(),
-    }
-    save_state(queued)
-    thread = threading.Thread(
-        target=run_operation,
-        args=(operation, target, request_id),
-        daemon=True,
-    )
-    thread.start()
+    with operation_lock:
+        current = load_state()
+        if current.get("request_id") == request_id:
+            if current.get("operation") != operation or current.get("target_version") != target:
+                raise RuntimeError("request id is already used by another operation")
+            return current
+        if current.get("status") in ACTIVE:
+            raise RuntimeError("another update is already running")
+        lock_handle = acquire_operation_lock()
+        handed_off = False
+        try:
+            current = load_state()
+            if current.get("request_id") == request_id:
+                if current.get("operation") != operation or current.get("target_version") != target:
+                    raise RuntimeError("request id is already used by another operation")
+                return current
+            if current.get("status") in ACTIVE:
+                raise RuntimeError("another update is already running")
+            queued = {
+                **initial_state(),
+                "status": "queued",
+                "operation": operation,
+                "request_id": request_id,
+                "previous_version": current_version(),
+                "target_version": target,
+                "step": "queued",
+                "message": "更新任务已进入队列",
+                "started_at": utc_now(),
+            }
+            save_state(queued)
+            thread = threading.Thread(
+                target=run_operation,
+                args=(operation, target, request_id, lock_handle),
+                daemon=True,
+            )
+            thread.start()
+            handed_off = True
+        finally:
+            if not handed_off:
+                release_operation_lock(lock_handle)
     return queued
+
+
+def recover_interrupted_operation(state: dict[str, Any]) -> None:
+    interruption = "update process was interrupted by updater restart"
+    add_log(state, interruption)
+    previous_sha = str(state.get("previous_sha") or "")
+    previous_version = str(state.get("previous_version") or "")
+    if state.get("deployment_started") and previous_sha and previous_version:
+        try:
+            rollback_deployment(state, previous_sha, previous_version)
+        except Exception as exc:
+            error = f"{interruption}; automatic recovery failed: {exc}"[:4000]
+            add_log(state, str(exc))
+            update_state(
+                state,
+                status="failed",
+                step="interrupted",
+                progress=100,
+                message="updater 重启，自动恢复上一版本失败",
+                error=error,
+                finished_at=utc_now(),
+            )
+            return
+        update_state(
+            state,
+            status="rolled_back",
+            step="interrupted",
+            progress=100,
+            message="updater 重启，已自动恢复上一版本",
+            error=interruption,
+            deployment_started=False,
+            finished_at=utc_now(),
+        )
+        return
+    update_state(
+        state,
+        status="failed",
+        step="interrupted",
+        progress=100,
+        message="updater 重启导致任务中断，部署尚未开始",
+        error=interruption,
+        finished_at=utc_now(),
+    )
 
 
 def valid_signature(method: str, path: str, body: bytes, headers: Any) -> bool:
@@ -575,15 +715,7 @@ def main() -> None:
     if STATE_PATH.exists():
         state = load_state()
         if state.get("status") in ACTIVE:
-            update_state(
-                state,
-                status="failed",
-                step="interrupted",
-                progress=100,
-                message="updater 重启导致任务中断",
-                error="update process was interrupted by updater restart",
-                finished_at=utc_now(),
-            )
+            recover_interrupted_operation(state)
     else:
         save_state(initial_state())
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
