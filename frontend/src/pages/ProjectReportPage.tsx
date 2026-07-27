@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { FileText, RefreshCw, Calendar, History, Trash2 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
-import api from '../utils/api'
+import api, { errDetail } from '../utils/api'
 import toast from 'react-hot-toast'
 import { Button } from '../components/ui/Button'
 import { Card, CardContent } from '../components/ui/Card'
@@ -17,11 +17,22 @@ interface ReportEntry {
 
 const CACHE_KEY = 'flowmind_report_cache'
 const HISTORY_KEY = 'flowmind_report_history'
+const REPORT_REQUEST_TIMEOUT_MS = 190_000
+
+class InvalidReportResponseError extends Error {}
+
+function parseReportEntry(value: unknown): ReportEntry | null {
+  if (!value || typeof value !== 'object') return null
+  const entry = value as Record<string, unknown>
+  if (typeof entry.report !== 'string' || !entry.report.trim()) return null
+  if (typeof entry.generated_at !== 'string' || Number.isNaN(Date.parse(entry.generated_at))) return null
+  return { report: entry.report, generated_at: entry.generated_at }
+}
 
 function loadCache(projectId: string): ReportEntry | null {
   try {
     const raw = sessionStorage.getItem(`${CACHE_KEY}_${projectId}`)
-    if (raw) return JSON.parse(raw)
+    if (raw) return parseReportEntry(JSON.parse(raw))
   } catch {}
   return null
 }
@@ -35,7 +46,12 @@ function saveCache(projectId: string, entry: ReportEntry) {
 function loadHistory(projectId: string): ReportEntry[] {
   try {
     const raw = localStorage.getItem(`${HISTORY_KEY}_${projectId}`)
-    if (raw) return JSON.parse(raw)
+    if (raw) {
+      const value: unknown = JSON.parse(raw)
+      if (Array.isArray(value)) {
+        return value.map(parseReportEntry).filter((entry): entry is ReportEntry => entry !== null)
+      }
+    }
   } catch {}
   return []
 }
@@ -53,39 +69,66 @@ export default function ProjectReportPage() {
   const [loading, setLoading] = useState(false)
   const [history, setHistory] = useState<ReportEntry[]>([])
   const [showHistory, setShowHistory] = useState(false)
+  const requestSequence = useRef(0)
+  const activeRequest = useRef<{ id: number; controller: AbortController } | null>(null)
 
   useEffect(() => {
     if (!projectId) return
+    activeRequest.current?.controller.abort()
+    activeRequest.current = null
+    const cached = loadCache(projectId)
     // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrating from localStorage cache on mount
     setHistory(loadHistory(projectId))
-    const cached = loadCache(projectId)
-    if (cached) {
-      setReport(cached.report)
-      setGeneratedAt(cached.generated_at)
+    setReport(cached?.report ?? null)
+    setGeneratedAt(cached?.generated_at ?? null)
+    setLoading(false)
+    setShowHistory(false)
+
+    return () => {
+      activeRequest.current?.controller.abort()
+      activeRequest.current = null
     }
   }, [projectId])
 
   const generateReport = async () => {
     if (!projectId) return
+    activeRequest.current?.controller.abort()
+    const requestId = ++requestSequence.current
+    const controller = new AbortController()
+    activeRequest.current = { id: requestId, controller }
     setLoading(true)
     try {
       const res = await api.post(`/llm/report?project_id=${projectId}`, undefined, {
-        // Report generation reads all stats then writes a long report — allow a
-        // long wait (nginx permits 300s upstream) but never spin forever.
-        timeout: 310000,
+        signal: controller.signal,
+        // The backend owns a 180s total retry budget; leave a small transport margin.
+        timeout: REPORT_REQUEST_TIMEOUT_MS,
       })
-      const entry: ReportEntry = { report: res.data.report, generated_at: res.data.generated_at }
+      if (controller.signal.aborted || activeRequest.current?.id !== requestId) return
+      const entry = parseReportEntry(res.data)
+      if (!entry) throw new InvalidReportResponseError('Invalid report response')
       setReport(entry.report)
       setGeneratedAt(entry.generated_at)
       saveCache(projectId, entry)
       const newHistory = [entry, ...loadHistory(projectId).filter(h => h.generated_at !== entry.generated_at)]
       saveHistory(projectId, newHistory)
       setHistory(newHistory)
-    } catch (err: any) {
-      const isTimeout = err?.code === 'ECONNABORTED' || err?.response?.status === 504
-      toast.error(isTimeout ? '报告生成超时，请稍后重试' : '报告生成失败，请检查 LLM 配置')
+    } catch (err: unknown) {
+      if (controller.signal.aborted || activeRequest.current?.id !== requestId) return
+      const isTimeout = Boolean(
+        err && typeof err === 'object' && (err as Record<string, unknown>).code === 'ECONNABORTED',
+      )
+      const fallback = err instanceof InvalidReportResponseError
+        ? '模型返回的报告格式无效，请重试'
+        : isTimeout
+          ? '报告生成超时，请稍后重试'
+          : '报告生成失败，请稍后重试'
+      toast.error(errDetail(err, fallback))
+    } finally {
+      if (activeRequest.current?.id === requestId) {
+        activeRequest.current = null
+        setLoading(false)
+      }
     }
-    setLoading(false)
   }
 
   const loadFromHistory = (entry: ReportEntry) => {
