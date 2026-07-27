@@ -63,6 +63,21 @@ describe('ProjectReportPage reliability', () => {
     expect(screen.queryByRole('button', { name: '历史' })).not.toBeInTheDocument()
   })
 
+  it('renders cached report markdown with GFM structure', () => {
+    sessionStorage.setItem('flowmind_report_cache_1', JSON.stringify({
+      report: '# 迭代报告\n\n- 已完成登录优化\n- 正在处理通知跳转\n\n| 指标 | 数值 |\n| --- | --- |\n| 完成率 | 80% |',
+      generated_at: '2026-07-27T10:00:00Z',
+    }))
+
+    renderReport()
+
+    expect(screen.getByRole('heading', { name: '迭代报告', level: 1 })).toBeInTheDocument()
+    expect(screen.getAllByRole('listitem')).toHaveLength(2)
+    expect(screen.getByRole('table')).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: '指标' })).toBeInTheDocument()
+    expect(screen.getByRole('cell', { name: '80%' })).toBeInTheDocument()
+  })
+
   it('surfaces the backend report error detail', async () => {
     const user = userEvent.setup()
     const error = Object.assign(new Error('request failed'), {

@@ -9,12 +9,12 @@ import {
   Sparkles,
   Trash2,
 } from 'lucide-react'
-import ReactMarkdown from 'react-markdown'
 import api, { errDetail } from '../utils/api'
 import toast from 'react-hot-toast'
 import { Button } from '../components/ui/Button'
 import { Badge } from '../components/ui/Badge'
 import { EmptyState } from '../components/ui/EmptyState'
+import { MarkdownContent } from '../components/ui/MarkdownContent'
 import { cn } from '../utils/cn'
 
 interface ReportEntry {
@@ -308,9 +308,13 @@ export default function ProjectReportPage() {
               {loading && <span className="text-xs text-muted-foreground">正在准备新版本</span>}
             </div>
           )}
-          <div className={cn('prose prose-sm dark:prose-invert max-w-none text-foreground leading-relaxed', loading && 'opacity-70')}>
-            <ReactMarkdown>{report}</ReactMarkdown>
-          </div>
+          <MarkdownContent
+            content={report}
+            className={cn(
+              'text-[15px] leading-7 [&_h1]:text-2xl [&_h1]:leading-tight [&_h2]:mt-8 [&_h2]:border-b [&_h2]:border-border [&_h2]:pb-2 [&_h2]:text-xl [&_h3]:mt-6 [&_p]:my-3 [&_pre]:my-4 [&_table]:text-sm',
+              loading && 'opacity-70',
+            )}
+          />
         </article>
       )}
     </div>
