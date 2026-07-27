@@ -198,17 +198,26 @@ export function ActivityFeed({ projectId }: Props) {
   const updateScrollState = useCallback(() => {
     const scroller = scrollerRef.current
     if (!scroller) return
+    const isAtEnd = scroller.scrollLeft + scroller.clientWidth >= scroller.scrollWidth - 4
     setCanScrollLeft(scroller.scrollLeft > 4)
-    setCanScrollRight(scroller.scrollLeft + scroller.clientWidth < scroller.scrollWidth - 4)
+    setCanScrollRight(!isAtEnd)
     const firstEvent = scroller.querySelector<HTMLElement>('[data-testid="activity-event"]')
     if (firstEvent && activities.length > 0) {
-      const nextIndex = Math.round(scroller.scrollLeft / firstEvent.offsetWidth)
+      const nextIndex = isAtEnd
+        ? activities.length - 1
+        : Math.round(scroller.scrollLeft / firstEvent.offsetWidth)
       setActiveIndex(Math.min(Math.max(nextIndex, 0), activities.length - 1))
     }
   }, [activities.length])
 
   useEffect(() => {
-    const frame = requestAnimationFrame(updateScrollState)
+    const frame = requestAnimationFrame(() => {
+      const scroller = scrollerRef.current
+      if (scroller && activities.length > 0) {
+        scroller.scrollLeft = Math.max(0, scroller.scrollWidth - scroller.clientWidth)
+      }
+      updateScrollState()
+    })
     window.addEventListener('resize', updateScrollState)
     return () => {
       cancelAnimationFrame(frame)
@@ -319,7 +328,7 @@ export function ActivityFeed({ projectId }: Props) {
       <div className="relative overflow-hidden">
         <div
           ref={scrollerRef}
-          className="scrollbar-thin snap-x snap-proximity overflow-x-auto overflow-y-hidden overscroll-x-contain scroll-smooth pb-2"
+          className="scrollbar-thin snap-x snap-proximity overflow-x-auto overflow-y-hidden overscroll-x-contain pb-2"
           onScroll={updateScrollState}
           aria-label="项目动态时间轴"
         >
