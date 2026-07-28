@@ -370,6 +370,12 @@ class ProjectReportOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ProjectReportGenerationStatusOut(BaseModel):
+    is_generating: bool
+    generated_by: int | None = None
+    started_at: datetime | None = None
+
+
 # Stats
 class ProjectStats(BaseModel):
     project_id: int
@@ -474,6 +480,7 @@ __all__ = [
     "LLMChatRequest",
     "LLMChatResponse",
     "ProjectReportOut",
+    "ProjectReportGenerationStatusOut",
     "LLMTaskGenerate",
     "ProjectStats",
     "DashboardStats",

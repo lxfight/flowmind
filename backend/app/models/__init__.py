@@ -3,7 +3,7 @@ from app.models.knowledge import DocChunk, DocChunkEmbedding, KnowledgeDoc
 from app.models.llm_chat import LLMChatMessage, LLMChatSession
 from app.models.notification import Notification
 from app.models.project import Project, ProjectMember
-from app.models.project_report import ProjectReport
+from app.models.project_report import ProjectReport, ProjectReportGeneration
 from app.models.system_config import SystemConfig
 from app.models.system_update import SystemUpdateRun
 from app.models.task import Task, TaskComment, TaskStatus
@@ -14,6 +14,7 @@ __all__ = [
     "Project",
     "ProjectMember",
     "ProjectReport",
+    "ProjectReportGeneration",
     "Task",
     "TaskStatus",
     "TaskComment",

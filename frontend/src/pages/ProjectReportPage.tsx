@@ -23,6 +23,10 @@ interface ReportEntry {
   generated_at: string
 }
 
+interface ReportGenerationStatus {
+  is_generating: boolean
+}
+
 const REPORT_REQUEST_TIMEOUT_MS = 190_000
 const pendingReportRequests = new Map<string, Promise<ReportEntry>>()
 
@@ -47,6 +51,21 @@ function parseReportHistory(value: unknown): ReportEntry[] {
   return value
     .map(parseReportEntry)
     .filter((entry): entry is ReportEntry => entry !== null)
+}
+
+function parseGenerationStatus(value: unknown): ReportGenerationStatus {
+  if (!value || typeof value !== 'object') return { is_generating: false }
+  return { is_generating: (value as Record<string, unknown>).is_generating === true }
+}
+
+function isGenerationConflict(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const response = (err as Record<string, unknown>).response
+  return Boolean(
+    response
+    && typeof response === 'object'
+    && (response as Record<string, unknown>).status === 409,
+  )
 }
 
 function reportErrorMessage(err: unknown) {
@@ -94,6 +113,7 @@ export default function ProjectReportPage() {
   const [history, setHistory] = useState<ReportEntry[]>([])
   const [showHistory, setShowHistory] = useState(false)
   const activeProjectRef = useRef(projectId)
+  const sharedGenerationRef = useRef(false)
 
   useEffect(() => {
     activeProjectRef.current = projectId
@@ -107,18 +127,25 @@ export default function ProjectReportPage() {
     setGeneratedAt(null)
     setReportsLoading(true)
     setReportsError(null)
+    sharedGenerationRef.current = false
     setLoading(Boolean(pending))
     setGenerationError(null)
     setShowHistory(false)
 
     const hydrate = async () => {
       try {
-        const response = await api.get(`/llm/report?project_id=${projectId}`)
+        const [response, statusResponse] = await Promise.all([
+          api.get(`/llm/report?project_id=${projectId}`),
+          api.get(`/llm/report/status?project_id=${projectId}`),
+        ])
         if (cancelled) return
         const entries = parseReportHistory(response.data)
+        const status = parseGenerationStatus(statusResponse.data)
         setHistory(entries)
         setReport(entries[0]?.report ?? null)
         setGeneratedAt(entries[0]?.generated_at ?? null)
+        sharedGenerationRef.current = status.is_generating
+        setLoading(Boolean(pending) || status.is_generating)
       } catch (err: unknown) {
         if (!cancelled) setReportsError(errDetail(err, '共享报告加载失败，请稍后重试'))
       } finally {
@@ -147,9 +174,44 @@ export default function ProjectReportPage() {
     }
   }, [projectId, reloadToken])
 
+  useEffect(() => {
+    if (!projectId) return
+    let cancelled = false
+
+    const pollSharedGeneration = async () => {
+      try {
+        const statusResponse = await api.get(`/llm/report/status?project_id=${projectId}`)
+        if (cancelled) return
+        const isGenerating = parseGenerationStatus(statusResponse.data).is_generating
+        const wasGenerating = sharedGenerationRef.current
+        sharedGenerationRef.current = isGenerating
+
+        if (!pendingReportRequests.has(projectId)) setLoading(isGenerating)
+        if (!wasGenerating || isGenerating) return
+
+        const reportsResponse = await api.get(`/llm/report?project_id=${projectId}`)
+        if (cancelled) return
+        const entries = parseReportHistory(reportsResponse.data)
+        setHistory(entries)
+        setReport(entries[0]?.report ?? null)
+        setGeneratedAt(entries[0]?.generated_at ?? null)
+        setGenerationError(null)
+      } catch {
+        // Initial loading surfaces errors; background polling retries quietly.
+      }
+    }
+
+    const interval = window.setInterval(() => void pollSharedGeneration(), 2_000)
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [projectId])
+
   const generateReport = async () => {
     if (!projectId) return
     const requestedProjectId = projectId
+    let waitingForSharedGeneration = false
     setLoading(true)
     setGenerationError(null)
     try {
@@ -160,11 +222,20 @@ export default function ProjectReportPage() {
       setHistory((current) => [entry, ...current.filter((item) => item.id !== entry.id)].slice(0, 5))
     } catch (err: unknown) {
       if (activeProjectRef.current !== requestedProjectId) return
+      if (isGenerationConflict(err)) {
+        waitingForSharedGeneration = true
+        sharedGenerationRef.current = true
+        setLoading(true)
+        return
+      }
       const message = reportErrorMessage(err)
       setGenerationError(message)
       toast.error(message)
     } finally {
-      if (activeProjectRef.current === requestedProjectId) setLoading(false)
+      if (
+        activeProjectRef.current === requestedProjectId
+        && !waitingForSharedGeneration
+      ) setLoading(false)
     }
   }
 

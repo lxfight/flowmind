@@ -36,6 +36,12 @@ class Project(Base):
         cascade="all, delete-orphan",
         order_by="ProjectReport.generated_at.desc()",
     )
+    report_generation = relationship(
+        "ProjectReportGeneration",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
     owner = relationship("User")
     chat_sessions = relationship("LLMChatSession", back_populates="project")
 

@@ -46,7 +46,11 @@ function generateButton() {
 describe('ProjectReportPage reliability', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(api.get).mockResolvedValue({ data: [] })
+    vi.mocked(api.get).mockImplementation((url) => Promise.resolve({
+      data: String(url).includes('/status')
+        ? { is_generating: false, generated_by: null, started_at: null }
+        : [],
+    }))
   })
 
   it('ignores malformed shared report entries', async () => {
@@ -187,5 +191,33 @@ describe('ProjectReportPage reliability', () => {
 
     await user.click(screen.getByRole('button', { name: '历史' }))
     expect(screen.getByText('项目共享的最近 1 份报告')).toBeInTheDocument()
+  })
+
+  it('shows another member generation and loads the report when it finishes', async () => {
+    let isGenerating = true
+    vi.mocked(api.get).mockImplementation((url) => {
+      if (String(url).includes('/status')) {
+        return Promise.resolve({ data: {
+          is_generating: isGenerating,
+          generated_by: isGenerating ? 2 : null,
+          started_at: isGenerating ? '2026-07-27T11:00:00Z' : null,
+        } })
+      }
+      return Promise.resolve({ data: isGenerating ? [] : [{
+        id: 51,
+        project_id: 1,
+        report: '其他成员生成的共享报告',
+        generated_at: '2026-07-27T11:02:00Z',
+      }] })
+    })
+    renderReport()
+
+    expect(await screen.findByText('正在生成项目报告')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '生成中' })).toBeDisabled()
+
+    isGenerating = false
+    expect(
+      await screen.findByText('其他成员生成的共享报告', {}, { timeout: 3_000 }),
+    ).toBeInTheDocument()
   })
 })

@@ -30,3 +30,20 @@ class ProjectReport(Base):
 
     project = relationship("Project", back_populates="reports")
     generator = relationship("User")
+
+
+class ProjectReportGeneration(Base):
+    __tablename__ = "project_report_generations"
+
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True
+    )
+    generated_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+    project = relationship("Project", back_populates="report_generation")
+    generator = relationship("User")

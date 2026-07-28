@@ -1,5 +1,8 @@
 """Tests for project report generation: stats computation and /api/llm/report."""
 
+import asyncio
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
@@ -257,6 +260,59 @@ async def test_generated_report_is_shared_with_project_members(client):
     assert shared.status_code == 200, shared.text
     assert [item["report"] for item in shared.json()] == ["项目共享报告内容"]
     assert generate.await_count == 1
+    status = client.get(
+        f"/api/llm/report/status?project_id={project_id}", headers=member_headers
+    )
+    assert status.status_code == 200, status.text
+    assert status.json() == {
+        "is_generating": False,
+        "generated_by": None,
+        "started_at": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_report_generation_status_is_shared_and_rejects_duplicates(client):
+    headers = admin_login(client)
+    project_id, _ = create_project(client, headers, name="生成状态共享项目")
+    generation_started = threading.Event()
+    release_generation = threading.Event()
+
+    async def slow_generate_report(_prompt: str) -> str:
+        generation_started.set()
+        await asyncio.to_thread(release_generation.wait)
+        return "唯一生成的报告"
+
+    with patch(
+        "app.services.llm_service.llm_service.generate_report",
+        new=AsyncMock(side_effect=slow_generate_report),
+    ) as generate, ThreadPoolExecutor(max_workers=1) as executor:
+        first_request = executor.submit(
+            client.post,
+            f"/api/llm/report?project_id={project_id}",
+            headers=headers,
+        )
+        assert generation_started.wait(timeout=5)
+
+        status = client.get(
+            f"/api/llm/report/status?project_id={project_id}", headers=headers
+        )
+        assert status.status_code == 200, status.text
+        assert status.json()["is_generating"] is True
+        assert status.json()["generated_by"] is not None
+
+        duplicate = client.post(
+            f"/api/llm/report?project_id={project_id}", headers=headers
+        )
+        assert duplicate.status_code == 409, duplicate.text
+        assert "正在生成" in duplicate.json()["detail"]
+
+        release_generation.set()
+        completed = first_request.result(timeout=5)
+
+    assert completed.status_code == 200, completed.text
+    assert completed.json()["report"] == "唯一生成的报告"
+    assert generate.await_count == 1
 
 
 @pytest.mark.asyncio
@@ -327,3 +383,8 @@ async def test_report_endpoint_maps_generation_errors(
 
     assert response.status_code == status_code
     assert detail in response.json()["detail"]
+    status = client.get(
+        f"/api/llm/report/status?project_id={project_id}", headers=headers
+    )
+    assert status.status_code == 200, status.text
+    assert status.json()["is_generating"] is False

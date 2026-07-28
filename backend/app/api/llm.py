@@ -5,7 +5,8 @@ from datetime import UTC, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from sqlalchemy import Integer, func, select
+from sqlalchemy import Integer, delete, func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -14,7 +15,7 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.llm_chat import LLMChatMessage, LLMChatSession
 from app.models.project import Project
-from app.models.project_report import ProjectReport
+from app.models.project_report import ProjectReport, ProjectReportGeneration
 from app.models.task import Task, TaskStatus
 from app.models.user import User
 from app.schemas import (
@@ -27,6 +28,7 @@ from app.schemas import (
     LLMChatSessionOut,
     LLMChatSessionUpdate,
     LLMTaskGenerate,
+    ProjectReportGenerationStatusOut,
     ProjectReportOut,
     SessionScope,
 )
@@ -55,6 +57,60 @@ router = APIRouter(prefix="/api/llm", tags=["llm"])
 logger = logging.getLogger(__name__)
 
 REPORT_HISTORY_LIMIT = 5
+REPORT_GENERATION_STALE_AFTER = timedelta(minutes=10)
+
+
+async def _claim_report_generation(
+    project_id: int,
+    generator_id: int,
+    db: AsyncSession,
+) -> datetime:
+    """Atomically claim a project's single report-generation slot."""
+    started_at = datetime.now(UTC)
+    db.add(
+        ProjectReportGeneration(
+            project_id=project_id,
+            generated_by=generator_id,
+            started_at=started_at,
+        )
+    )
+    try:
+        await db.commit()
+        return started_at
+    except IntegrityError:
+        await db.rollback()
+
+    # A crashed worker can leave a claim behind. Replace only claims older
+    # than the maximum report request budget plus a generous safety margin.
+    result = await db.execute(
+        update(ProjectReportGeneration)
+        .where(
+            ProjectReportGeneration.project_id == project_id,
+            ProjectReportGeneration.started_at
+            < started_at - REPORT_GENERATION_STALE_AFTER,
+        )
+        .values(generated_by=generator_id, started_at=started_at)
+    )
+    if result.rowcount:
+        await db.commit()
+        return started_at
+    await db.rollback()
+    raise HTTPException(status_code=409, detail="该项目的报告正在生成，请稍候")
+
+
+async def _clear_report_generation(
+    project_id: int,
+    started_at: datetime,
+    db: AsyncSession,
+) -> None:
+    await db.rollback()
+    await db.execute(
+        delete(ProjectReportGeneration).where(
+            ProjectReportGeneration.project_id == project_id,
+            ProjectReportGeneration.started_at == started_at,
+        )
+    )
+    await db.commit()
 
 
 @router.post("/chat", response_model=LLMChatResponse)
@@ -194,6 +250,38 @@ async def list_project_reports(
     return result.scalars().all()
 
 
+@router.get("/report/status", response_model=ProjectReportGenerationStatusOut)
+async def get_project_report_status(
+    project_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the project-wide report generation state."""
+    await ensure_project_member(project_id, current_user, db)
+    result = await db.execute(
+        select(ProjectReportGeneration).where(
+            ProjectReportGeneration.project_id == project_id
+        )
+    )
+    generation = result.scalar_one_or_none()
+    if not generation:
+        return ProjectReportGenerationStatusOut(is_generating=False)
+
+    started_at = generation.started_at
+    if started_at.tzinfo is None:
+        started_at = started_at.replace(tzinfo=UTC)
+    if started_at < datetime.now(UTC) - REPORT_GENERATION_STALE_AFTER:
+        await db.delete(generation)
+        await db.commit()
+        return ProjectReportGenerationStatusOut(is_generating=False)
+
+    return ProjectReportGenerationStatusOut(
+        is_generating=True,
+        generated_by=generation.generated_by,
+        started_at=started_at,
+    )
+
+
 @router.post("/report", response_model=ProjectReportOut)
 async def llm_report(
     project_id: int,
@@ -203,113 +291,128 @@ async def llm_report(
     """Generate a project progress report using LLM."""
     await ensure_project_member(project_id, current_user, db)
     generator_id = current_user.id
+    generation_started_at = await _claim_report_generation(
+        project_id, generator_id, db
+    )
+    generation_claimed = True
     now = datetime.now(UTC)
-    # Get project
-    result = await db.execute(select(Project).where(Project.id == project_id))
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(status_code=404, detail="项目不存在")
-
-    # Get all top-level tasks with status names, assignees and subtask counts
-    result = await db.execute(
-        select(Task, TaskStatus.name, TaskStatus.is_done)
-        .join(TaskStatus, Task.status_id == TaskStatus.id)
-        .where(Task.project_id == project_id, Task.parent_task_id.is_(None))
-        .options(selectinload(Task.assignees))
-        .order_by(TaskStatus.order, Task.order)
-    )
-    rows = result.all()
-
-    # Subtask counts per parent task
-    subtask_counts: dict[int, tuple[int, int]] = {}
-    if rows:
-        result = await db.execute(
-            select(
-                Task.parent_task_id,
-                func.count(Task.id),
-                func.coalesce(func.sum(Task.is_completed.cast(Integer)), 0),
-            )
-            .where(
-                Task.project_id == project_id,
-                Task.parent_task_id.is_not(None),
-            )
-            .group_by(Task.parent_task_id)
-        )
-        subtask_counts = {pid: (total, done) for pid, total, done in result.all()}
-
-    # Get activity logs from the recent window
-    from app.models.activity import ActivityLog
-    window_start = now - timedelta(days=ACTIVITY_WINDOW_DAYS)
-    result = await db.execute(
-        select(func.count(ActivityLog.id)).where(
-            ActivityLog.project_id == project_id,
-            ActivityLog.created_at >= window_start,
-        )
-    )
-    total_activity = result.scalar() or 0
-    result = await db.execute(
-        select(ActivityLog)
-        .where(
-            ActivityLog.project_id == project_id,
-            ActivityLog.created_at >= window_start,
-        )
-        .order_by(ActivityLog.created_at.desc())
-        .limit(ACTIVITY_MAX_LINES)
-    )
-    logs = result.scalars().all()
-
-    report_tasks = [
-        ReportTask(
-            title=t.title,
-            status_name=sname,
-            status_is_done=is_done,
-            priority=t.priority,
-            is_completed=t.is_completed,
-            due_date=t.due_date,
-            updated_at=t.updated_at,
-            assignees=[u.display_name or u.username for u in t.assignees],
-            subtask_total=subtask_counts.get(t.id, (0, 0))[0],
-            subtask_done=subtask_counts.get(t.id, (0, 0))[1],
-        )
-        for t, sname, is_done in rows
-    ]
-
-    # Precompute all statistics in Python — never ask the LLM to count.
-    stats = compute_report_stats(report_tasks, now=now)
-    # Show the most recent activity, but report the true window total so the
-    # "N 条" in the prompt matches reality instead of the truncated count.
-    activity_lines = [log.summary for log in logs]
-    stats_text = format_stats_text(
-        stats, report_tasks, activity_lines, now=now, activity_total=total_activity
-    )
-    prompt = build_report_prompt(
-        project.name, project.description or "", stats_text
-    )
-
-    # All remaining work is remote I/O. End the read transaction now so a slow
-    # model response does not hold a database connection for several minutes.
-    await db.rollback()
     try:
-        report = await llm_service.generate_report(prompt)
-    except LLMNotConfiguredError as exc:
-        raise HTTPException(status_code=503, detail="LLM 未配置，请先在管理页面设置 API Key") from exc
-    except LLMReportTimeoutError as exc:
-        raise HTTPException(status_code=504, detail="报告生成超时，请稍后重试") from exc
-    except LLMReportInvalidResponseError as exc:
-        raise HTTPException(status_code=502, detail="模型返回的报告不完整，请重试") from exc
-    except LLMReportUnavailableError as exc:
-        raise HTTPException(status_code=502, detail="LLM 报告服务暂时不可用，请稍后重试") from exc
+        # Get project
+        result = await db.execute(select(Project).where(Project.id == project_id))
+        project = result.scalar_one_or_none()
+        if not project:
+            raise HTTPException(status_code=404, detail="项目不存在")
 
-    saved_report = ProjectReport(
-        project_id=project_id,
-        report=report,
-        generated_by=generator_id,
-        generated_at=datetime.now(UTC),
-    )
-    db.add(saved_report)
-    await db.flush()
-    await db.refresh(saved_report)
-    return saved_report
+        # Get all top-level tasks with status names, assignees and subtask counts
+        result = await db.execute(
+            select(Task, TaskStatus.name, TaskStatus.is_done)
+            .join(TaskStatus, Task.status_id == TaskStatus.id)
+            .where(Task.project_id == project_id, Task.parent_task_id.is_(None))
+            .options(selectinload(Task.assignees))
+            .order_by(TaskStatus.order, Task.order)
+        )
+        rows = result.all()
+
+        # Subtask counts per parent task
+        subtask_counts: dict[int, tuple[int, int]] = {}
+        if rows:
+            result = await db.execute(
+                select(
+                    Task.parent_task_id,
+                    func.count(Task.id),
+                    func.coalesce(func.sum(Task.is_completed.cast(Integer)), 0),
+                )
+                .where(
+                    Task.project_id == project_id,
+                    Task.parent_task_id.is_not(None),
+                )
+                .group_by(Task.parent_task_id)
+            )
+            subtask_counts = {pid: (total, done) for pid, total, done in result.all()}
+
+        # Get activity logs from the recent window
+        from app.models.activity import ActivityLog
+        window_start = now - timedelta(days=ACTIVITY_WINDOW_DAYS)
+        result = await db.execute(
+            select(func.count(ActivityLog.id)).where(
+                ActivityLog.project_id == project_id,
+                ActivityLog.created_at >= window_start,
+            )
+        )
+        total_activity = result.scalar() or 0
+        result = await db.execute(
+            select(ActivityLog)
+            .where(
+                ActivityLog.project_id == project_id,
+                ActivityLog.created_at >= window_start,
+            )
+            .order_by(ActivityLog.created_at.desc())
+            .limit(ACTIVITY_MAX_LINES)
+        )
+        logs = result.scalars().all()
+
+        report_tasks = [
+            ReportTask(
+                title=t.title,
+                status_name=sname,
+                status_is_done=is_done,
+                priority=t.priority,
+                is_completed=t.is_completed,
+                due_date=t.due_date,
+                updated_at=t.updated_at,
+                assignees=[u.display_name or u.username for u in t.assignees],
+                subtask_total=subtask_counts.get(t.id, (0, 0))[0],
+                subtask_done=subtask_counts.get(t.id, (0, 0))[1],
+            )
+            for t, sname, is_done in rows
+        ]
+
+        # Precompute all statistics in Python — never ask the LLM to count.
+        stats = compute_report_stats(report_tasks, now=now)
+        # Show the most recent activity, but report the true window total so the
+        # "N 条" in the prompt matches reality instead of the truncated count.
+        activity_lines = [log.summary for log in logs]
+        stats_text = format_stats_text(
+            stats, report_tasks, activity_lines, now=now, activity_total=total_activity
+        )
+        prompt = build_report_prompt(
+            project.name, project.description or "", stats_text
+        )
+
+        # All remaining work is remote I/O. End the read transaction now so a slow
+        # model response does not hold a database connection for several minutes.
+        await db.rollback()
+        try:
+            report = await llm_service.generate_report(prompt)
+        except LLMNotConfiguredError as exc:
+            raise HTTPException(status_code=503, detail="LLM 未配置，请先在管理页面设置 API Key") from exc
+        except LLMReportTimeoutError as exc:
+            raise HTTPException(status_code=504, detail="报告生成超时，请稍后重试") from exc
+        except LLMReportInvalidResponseError as exc:
+            raise HTTPException(status_code=502, detail="模型返回的报告不完整，请重试") from exc
+        except LLMReportUnavailableError as exc:
+            raise HTTPException(status_code=502, detail="LLM 报告服务暂时不可用，请稍后重试") from exc
+
+        saved_report = ProjectReport(
+            project_id=project_id,
+            report=report,
+            generated_by=generator_id,
+            generated_at=datetime.now(UTC),
+        )
+        db.add(saved_report)
+        await db.execute(
+            delete(ProjectReportGeneration).where(
+                ProjectReportGeneration.project_id == project_id,
+                ProjectReportGeneration.started_at == generation_started_at,
+            )
+        )
+        await db.commit()
+        await db.refresh(saved_report)
+        generation_claimed = False
+        return saved_report
+    finally:
+        if generation_claimed:
+            await _clear_report_generation(project_id, generation_started_at, db)
 
 
 # ---------------------------------------------------------------------------
