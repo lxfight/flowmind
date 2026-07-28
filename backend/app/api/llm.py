@@ -33,7 +33,7 @@ from app.schemas import (
     SessionScope,
 )
 from app.services import milestone_service
-from app.services.agent_service import run_agent, run_agent_stream
+from app.services.agent_service import build_user_identity_context, run_agent, run_agent_stream
 from app.services.llm_service import (
     LLMNotConfiguredError,
     LLMReportInvalidResponseError,
@@ -152,7 +152,9 @@ async def llm_chat(
     system_prompt = (
         "你是 FlowMind 智能助手，帮助用户管理任务和项目。"
         "你可以回答项目相关问题、建议任务安排、分析项目进度等。"
-        "请用中文回答，保持专业和友好。" + context
+        "请用中文回答，保持专业和友好。\n\n"
+        + build_user_identity_context(current_user)
+        + context
     )
 
     try:
