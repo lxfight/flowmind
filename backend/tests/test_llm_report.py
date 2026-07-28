@@ -260,7 +260,7 @@ async def test_report_endpoint_with_mocked_llm(client):
         json={
             "title": "正式发布",
             "target_date": (datetime.now(UTC).date() + timedelta(days=30)).isoformat(),
-            "task_ids": [task_id],
+            "task_ids": [],
         },
     )
     assert second_milestone.status_code == 201, second_milestone.text
