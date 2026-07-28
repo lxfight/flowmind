@@ -1,245 +1,211 @@
 <div align="center">
-
-# FlowMind
-
-**LLM 驱动的智能项目管理平台**
-
-看板协作 · RAG 知识库 · AI 助手 —— 让 AI 真正读懂你的项目
-
-[![CI](https://github.com/lxfight/flowmind/actions/workflows/ci.yml/badge.svg)](https://github.com/lxfight/flowmind/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.12+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![React](https://img.shields.io/badge/react-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![pgvector](https://img.shields.io/badge/pgvector-PostgreSQL-4169E1?logo=postgresql&logoColor=white)](https://github.com/pgvector/pgvector)
-
+  <img src="docs-site/public/logo.svg" width="72" alt="FlowMind" />
+  <h1>FlowMind</h1>
+  <p><strong>把任务、知识、时间与 AI 收进同一个交付现场。</strong></p>
+  <p>面向真实团队协作的智能项目管理平台。AI 不只是回答问题，它理解项目身份、读取知识、管理任务与里程碑，并留下可追溯的执行过程。</p>
+  <p>
+    <a href="https://github.com/lxfight/flowmind/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/lxfight/flowmind/ci.yml?branch=main&style=flat-square&label=CI" alt="CI" /></a>
+    <a href="https://github.com/lxfight/flowmind/releases"><img src="https://img.shields.io/badge/release-v0.3.0-7C5CFC?style=flat-square" alt="Release v0.3.0" /></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-171717?style=flat-square" alt="MIT License" /></a>
+  </p>
+  <p>
+    <a href="https://lxfight.github.io/flowmind/">产品文档</a> ·
+    <a href="#快速开始">快速开始</a> ·
+    <a href="#v030">版本变化</a> ·
+    <a href="docs-site/architecture/index.md">架构说明</a>
+  </p>
 </div>
 
----
+![FlowMind 里程碑交付时间线](docs-site/public/images/09-milestones.jpg)
 
-## 功能特性
+## 从计划到交付，不丢失上下文
+
+FlowMind 把项目事实放在同一个连续工作区中：任务在看板上推进，里程碑按真实日期间隔展开，知识库保留决策依据，报告沉淀阶段结果。LLM 助手在这套权限与项目边界内工作，而不是成为悬浮在数据之外的聊天窗口。
 
 <table>
 <tr>
-<td width="50%">
+<td width="50%" valign="top">
 
-### 智能看板
-- 拖拽式任务卡片，自定义状态列
-- 子任务拆分、优先级、截止日期
-- **列内筛选与排序**（关键词 / 负责人 / 优先级 / 时间）
-- 评论 @ 提及，实时通知
+### 时间有形
 
-### AI 助手
-- 自然语言创建、调整看板任务
-- **SSE 流式对话**，工具调用过程实时可见
-- 对话中 `@` 项目成员并触发通知
-- 会话按 **用户 × 项目** 严格隔离
+多里程碑沿柔和曲线按自然日比例排布。当前时间从左侧进入视野，未来节点按距离展开；历史数据游标分页、按需加载，长周期项目仍保持流畅。
 
 </td>
-<td width="50%">
+<td width="50%" valign="top">
 
-### RAG 知识库
-- 上传 PDF / DOCX / PPTX / Markdown 等，自动解析索引
-- **混合检索**：向量语义 + 关键词 RRF 融合
-- 相似度阈值过滤，无命中不编造
-- AI 可**通读完整文档**，据此拆解详细任务
+### 交付共享
 
-### 跨项目协作
-- 「我的项目」页**跨项目助手**：一次提问，检索全部参与的项目
-- 检索结果标注来源项目，写操作自动追问目标
-- 项目成员候选列表，一键添加
+报告历史与生成状态属于项目，不属于单个浏览器会话。成员看到同一份进度、同一条生成状态；报告可直接吸收里程碑、任务和项目上下文。
 
 </td>
 </tr>
 <tr>
-<td width="50%">
+<td width="50%" valign="top">
 
-### 超管配置中心
-- 在线调整 LLM / Embedding 配置，**免重启即时生效**
-- LLM 与 Embedding 可配置**独立的 URL 和 Key**
-- 一键**连通性测试**，API 异常快速排障
-- 密钥脱敏展示，来源可追溯（环境变量 / 运行时覆盖）
+### 助手可观测
+
+模型明确感知当前用户与权限。思考内容、工具调用和结果分区记录；多次调用逐条编号、独立展开，参数与结构化结果不再挤成一段字符串。
 
 </td>
-<td width="50%">
+<td width="50%" valign="top">
 
-### 权限与安全
-- 超级管理员 + 注册审批 + 项目角色分层
-- JWT 鉴权、bcrypt 加密、登录防暴力破解
-- 越权访问返回 404，不泄露资源存在性
-- 亮色 / 暗色主题切换
+### 知识可执行
+
+PDF、DOCX、PPTX、Markdown 等文档自动解析索引。向量语义与关键词通过 RRF 融合；助手既能检索证据，也能通读完整文档并据此拆解任务。
 
 </td>
 </tr>
 </table>
 
----
+<table>
+<tr>
+<td width="50%">
+  <img src="docs-site/public/images/03-kanban.png" alt="FlowMind 项目看板" />
+  <p><strong>安静而高密度的项目看板</strong><br />筛选、排序、负责人、优先级、截止日期和里程碑在同一工作面中完成。</p>
+</td>
+<td width="50%">
+  <img src="docs-site/public/images/04-chat-panel.png" alt="FlowMind LLM 助手" />
+  <p><strong>嵌入项目现场的 LLM 助手</strong><br />会话按用户与项目隔离，写操作可撤销，工具过程可检查。</p>
+</td>
+</tr>
+</table>
 
-## v0.2.2 版本变化
+## 核心能力
 
-- **统一工作区体验**：重构主要页面、项目与任务对话框、知识库和助手面板，危险操作使用一致的确认流程。
-- **通知直达现场**：任务通知携带项目、看板与任务深链，旧通知自动回填目标信息。
-- **横向活动时间线**：默认定位最新事件，长时间线使用虚拟渲染保持流畅。
-- **可靠报告生成**：加入总超时、有限重试、指数退避、项目状态隔离与 Markdown 渲染修复。
-- **可恢复的系统更新**：更新前校验备份空间并建立恢复检查点，中断后可尝试恢复上一版本。
-- **更快的初始部署**：自动探测依赖镜像源，复用 BuildKit 缓存，并等待服务健康检查完成。
+| 工作域 | 能力 |
+|---|---|
+| 看板协作 | 拖拽任务、自定义状态列、子任务、多人指派、评论提及、筛选与排序 |
+| 里程碑 | 多节点管理、任务互斥归属、自然日比例曲线、当前时间标记、游标分页与懒加载 |
+| LLM 助手 | 项目与跨项目会话、用户身份注入、SSE 流式响应、工具调用、撤销与幂等写入 |
+| 报告 | 项目级共享历史、成员间生成状态同步、超时重试、里程碑上下文与 Markdown 输出 |
+| 知识库 | 多格式解析、向量与关键词混合检索、相似度门槛、全文读取 |
+| 权限安全 | 注册审批、项目角色、JWT、bcrypt、登录限流、初始化管理员凭据保护 |
+| 系统运维 | LLM 与 Embedding 独立配置、密钥脱敏、在线升级、备份检查与中断恢复 |
 
-完整内容、兼容性说明与升级步骤见[版本变化文档](docs-site/guide/releases.md)。
+## v0.3.0
 
----
+这一版本把 FlowMind 从任务看板推进为完整的交付工作区。
+
+- **里程碑交付时间线**：支持多个里程碑、任务互斥归属、按日期间隔计算的柔和曲线、当前时间定位和历史节点懒加载。
+- **项目级共享报告**：报告历史和生成状态在项目成员间共享，生成内容可纳入里程碑进度与关联任务。
+- **可追溯的 LLM 执行**：助手感知当前用户；思考内容持久化；思考、工具调用与结果独立展示，多次调用逐条展开。
+- **安全的首次初始化**：可通过 `FLOWMIND_ADMIN_USERNAME` 自定义初始管理员登录名；预设密码不再写入日志，空密码自动替换为随机值。
+
+完整兼容性说明与升级步骤见[版本变化文档](docs-site/guide/releases.md)。
 
 ## 架构一览
 
 ```mermaid
 graph LR
-    subgraph 前端
-        UI[React 19 + Vite<br/>Tailwind + Zustand]
-    end
-    subgraph 后端
-        API[FastAPI]
-        AGENT[LangGraph Agent<br/>工具调用 · SSE 流式]
-        RAG[RAG 混合检索<br/>向量 + 关键词 RRF]
-    end
-    subgraph 数据
-        PG[(PostgreSQL<br/>+ pgvector)]
-    end
-    subgraph 外部服务
-        LLM[LLM API<br/>OpenAI 兼容]
-        EMB[Embedding API<br/>可独立配置]
-    end
-    UI <-->|REST / SSE| API
-    API --> AGENT
-    API --> RAG
-    AGENT --> LLM
-    RAG --> EMB
-    AGENT --> PG
+    UI[React 19 工作区] <-->|REST / SSE / WebSocket| API[FastAPI]
+    API --> AGENT[LangGraph Agent]
+    API --> REPORT[报告与里程碑服务]
+    API --> RAG[RAG 混合检索]
+    AGENT --> LLM[OpenAI 兼容 LLM]
+    RAG --> EMB[Embedding 服务]
+    AGENT --> PG[(PostgreSQL + pgvector)]
+    REPORT --> PG
     RAG --> PG
 ```
 
----
-
 ## 快速开始
 
-### Docker Compose（推荐）
+### Docker Compose
 
 ```bash
-# 1. 克隆仓库
 git clone https://github.com/lxfight/flowmind.git
 cd flowmind
-
-# 2.（可选）配置环境变量
-cp .env.example .env   # 编辑 LLM_API_KEY 等
-
-# 3. 自动选择可用镜像源、复用构建缓存并启动全部服务
+cp .env.example .env
 ./scripts/deploy.sh
+```
 
-# 4. 查看日志获取初始管理员密码
+首次启动前可在 `.env` 中设置管理员凭据与 LLM 配置：
+
+```env
+FLOWMIND_ADMIN_USERNAME=your-admin
+FLOWMIND_ADMIN_PASSWORD=your-secure-password
+LLM_API_KEY=
+```
+
+打开 [http://localhost](http://localhost)。如果未预设管理员密码，可通过以下命令读取首次启动时生成的随机密码：
+
+```bash
 docker compose logs backend
 ```
 
-部署脚本默认测速 PyPI、npm、Debian 与 Alpine 软件源，在国内镜像明显更快或官方源不可用时自动切换，并缓存选择结果以稳定复用 Docker 构建层。可用 `FLOWMIND_MIRROR_MODE=official ./scripts/deploy.sh` 强制官方源，或用 `china` 强制国内源；执行 `./scripts/deploy.sh --detect-only --refresh-mirrors` 可重新测速且不构建。
-
-访问 **http://localhost** 即可使用。首次启动自动创建管理员账号并完成数据库迁移。
-
-> 没有 LLM Key 也能运行：知识库自动降级为关键词检索，其余功能不受影响。登录后可在 **系统配置** 页在线配置 Key 并测试连通性。
+`FLOWMIND_ADMIN_USERNAME` 只在空数据库首次初始化时生效，账号创建后用户名保持不可修改。没有 LLM Key 时，知识库自动降级为关键词检索，其余项目管理能力仍可使用。
 
 ### 本地开发
 
 <details>
-<summary><b>后端</b>（Python 3.12+，推荐 uv）</summary>
+<summary><strong>后端</strong> · Python 3.12+ / uv</summary>
 
 ```bash
-docker compose up -d postgres   # PostgreSQL + pgvector
+docker compose up -d postgres
 cd backend
-uv sync && source .venv/bin/activate
-uvicorn app.main:app --reload --port 8000
+uv sync
+uv run uvicorn app.main:app --reload --port 8000
 ```
 </details>
 
 <details>
-<summary><b>前端</b>（Node 20+）</summary>
+<summary><strong>前端</strong> · Node 20+</summary>
 
 ```bash
 cd frontend
 npm install
-npm run dev   # http://localhost:5173
+npm run dev
 ```
 </details>
 
 <details>
-<summary><b>无 Docker 的 SQLite 模式</b></summary>
+<summary><strong>SQLite 开发模式</strong></summary>
 
 ```env
-# .env 中修改
 DATABASE_URL=sqlite+aiosqlite:///./flowmind.db
 ```
 
 SQLite 模式下向量检索降级为关键词检索，其余功能不受影响。
 </details>
 
----
-
-## 环境变量
+## 关键环境变量
 
 | 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `DATABASE_URL` | 数据库连接串 | `postgresql+asyncpg://flowmind:flowmind_secret@localhost:5432/flowmind` |
-| `JWT_SECRET` | JWT 签名密钥（生产必设） | 自动生成 |
+|---|---|---|
+| `DATABASE_URL` | 数据库连接串 | PostgreSQL Compose 服务 |
+| `JWT_SECRET` | JWT 签名密钥，生产环境必须显式设置 | 自动生成 |
 | `FLOWMIND_ADMIN_USERNAME` | 首次初始化的管理员用户名 | `admin` |
-| `FLOWMIND_ADMIN_PASSWORD` | 初始管理员密码（8-128 位，预设值不写入日志） | 随机生成（见首次启动日志） |
-| `LLM_API_KEY` | LLM 对话 API 密钥 | — |
-| `LLM_BASE_URL` | LLM API 地址（OpenAI 兼容） | — |
-| `LLM_MODEL` | 对话模型 | `gpt-4o-mini` |
-| `LLM_REPORT_TIMEOUT` | 报告生成总时限（含重试） | `180` |
-| `LLM_REPORT_MAX_RETRIES` | 报告生成最大重试次数 | `2` |
-| `LLM_REPORT_RETRY_BASE_DELAY` | 报告重试基础延迟（秒） | `1` |
-| `EMBEDDING_API_KEY` | Embedding 独立密钥（留空回退 LLM Key） | — |
-| `EMBEDDING_BASE_URL` | Embedding 独立地址（留空回退 LLM URL） | — |
-| `LLM_EMBEDDING_MODEL` | 向量模型 | `text-embedding-3-small` |
-| `LLM_EMBEDDING_DIM` | 向量维度（需与模型输出一致） | `1536` |
-| `KNOWLEDGE_MAX_BYTES` | 知识库单文件上限 | `26214400` (25MB) |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | Token 有效期 | `1440` |
-| `FLOWMIND_UPDATE_MIN_FREE_BYTES` | 更新备份后保留的最小空间 | `1073741824`（1 GiB） |
+| `FLOWMIND_ADMIN_PASSWORD` | 初始管理员密码，要求 8–128 位，预设值不写入日志 | 随机生成 |
+| `LLM_API_KEY` / `LLM_BASE_URL` | LLM 凭据与 OpenAI 兼容地址 | 未设置 |
+| `EMBEDDING_API_KEY` / `EMBEDDING_BASE_URL` | 独立 Embedding 服务，留空时回退到 LLM 配置 | 未设置 |
+| `LLM_EMBEDDING_MODEL` / `LLM_EMBEDDING_DIM` | 向量模型及维度 | `text-embedding-3-small` / `1536` |
+| `LLM_REPORT_TIMEOUT` | 报告生成总时限，包含重试 | `180` 秒 |
+| `FLOWMIND_UPDATE_MIN_FREE_BYTES` | 更新备份后的最小剩余空间 | `1 GiB` |
 
-> 以上 LLM / Embedding / 检索参数均可在超管的 **系统配置** 页在线修改，运行时覆盖、即时生效。
+全部配置项见[配置说明](docs-site/guide/configuration.md)。LLM、Embedding 与检索参数也可由超级管理员在系统配置页在线调整。
 
----
-
-## 技术栈
+## 技术基线
 
 | 层 | 技术 |
-|----|------|
-| **前端** | React 19 · TypeScript · Vite 6 · TailwindCSS · Zustand · @dnd-kit · framer-motion |
-| **后端** | FastAPI · SQLAlchemy (async) · Alembic · LangGraph · OpenAI SDK |
-| **数据** | PostgreSQL 17 + pgvector（SQLite 可降级开发） |
-| **检索** | 向量余弦相似度 + CJK bigram 关键词打分，RRF (k=60) 融合 |
-| **工程** | ruff · pytest (160+) · Vitest · GitHub Actions CI |
+|---|---|
+| 前端 | React 19 · TypeScript · Vite 6 · Tailwind CSS · Zustand · dnd-kit · Framer Motion · Lucide |
+| 后端 | FastAPI · SQLAlchemy Async · Alembic · LangGraph · OpenAI SDK |
+| 数据 | PostgreSQL 17 · pgvector；SQLite 可用于降级开发 |
+| 检索 | 向量余弦相似度 · CJK bigram · RRF 融合 |
+| 质量 | ESLint · TypeScript · Vitest · Ruff · pytest · GitHub Actions |
 
 ## 项目结构
 
-```
+```text
 FlowMind/
-├── docker-compose.yml          # 全服务编排
-├── backend/
-│   └── app/
-│       ├── api/                # REST / SSE 路由
-│       ├── core/               # 配置 / 数据库 / 安全
-│       ├── models/             # SQLAlchemy 模型
-│       └── services/           # Agent / RAG / 运行时配置
-├── frontend/
-│   └── src/
-│       ├── components/         # 看板 / 知识库 / LLM 聊天组件
-│       ├── pages/              # 页面
-│       └── stores/             # Zustand 状态
-├── docs-site/                  # VitePress 产品与运维文档
-├── scripts/                    # 部署、更新与版本检查脚本
-└── updater/                    # 独立的更新编排服务
+├── backend/       FastAPI、Agent、RAG、报告与领域服务
+├── frontend/      React 工作区与 Lucide 图标体系
+├── docs-site/     VitePress 产品与运维文档
+├── scripts/       部署、更新与版本检查
+├── updater/       独立更新编排与恢复服务
+└── docker-compose.yml
 ```
-
----
 
 <div align="center">
-
-**[MIT License](LICENSE)** · Built by [lxfight](https://github.com/lxfight)
-
+  <a href="LICENSE">MIT License</a> · Built by <a href="https://github.com/lxfight">lxfight</a>
 </div>

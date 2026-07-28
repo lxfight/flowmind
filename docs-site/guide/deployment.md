@@ -88,7 +88,7 @@ updater 会在切换代码前记录恢复检查点。若容器或宿主机在部
 没有管理界面时，可在仓库根目录执行：
 
 ```bash
-scripts/update.sh 0.2.2
+scripts/update.sh 0.3.0
 ```
 
 首次从旧版升级到带 updater 的版本，执行：
