@@ -30,6 +30,12 @@ class Project(Base):
                             order_by="TaskStatus.order")
     tasks = relationship("Task", back_populates="project", cascade="all, delete-orphan")
     knowledge_docs = relationship("KnowledgeDoc", back_populates="project", cascade="all, delete-orphan")
+    reports = relationship(
+        "ProjectReport",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        order_by="ProjectReport.generated_at.desc()",
+    )
     owner = relationship("User")
     chat_sessions = relationship("LLMChatSession", back_populates="project")
 

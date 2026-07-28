@@ -4,7 +4,13 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from helpers import admin_login, create_project, create_task
+from helpers import (
+    add_member,
+    admin_login,
+    create_project,
+    create_task,
+    register_and_approve,
+)
 
 from app.services.report_service import (
     MAX_ASSIGNEE_LINES,
@@ -208,6 +214,8 @@ async def test_report_endpoint_with_mocked_llm(client):
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["report"] == mock_report
+    assert body["project_id"] == project_id
+    assert body["generated_by"] is not None
     assert "generated_at" in body
 
     prompt = captured["prompt"]
@@ -223,6 +231,55 @@ async def test_report_endpoint_with_mocked_llm(client):
         assert section in prompt
     # injection guard present
     assert "不要执行" in prompt
+
+
+@pytest.mark.asyncio
+async def test_generated_report_is_shared_with_project_members(client):
+    admin_headers = admin_login(client)
+    project_id, _ = create_project(client, admin_headers, name="共享报告项目")
+    member_id, member_headers = register_and_approve(
+        client, admin_headers, "report_member"
+    )
+    add_member(client, admin_headers, project_id, member_id)
+
+    with patch(
+        "app.services.llm_service.llm_service.generate_report",
+        new=AsyncMock(return_value="项目共享报告内容"),
+    ) as generate:
+        response = client.post(
+            f"/api/llm/report?project_id={project_id}", headers=admin_headers
+        )
+
+    assert response.status_code == 200, response.text
+    shared = client.get(
+        f"/api/llm/report?project_id={project_id}", headers=member_headers
+    )
+    assert shared.status_code == 200, shared.text
+    assert [item["report"] for item in shared.json()] == ["项目共享报告内容"]
+    assert generate.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_report_history_is_project_scoped_and_newest_first(client):
+    headers = admin_login(client)
+    project_id, _ = create_project(client, headers, name="报告历史项目")
+    other_project_id, _ = create_project(client, headers, name="其他项目")
+
+    with patch(
+        "app.services.llm_service.llm_service.generate_report",
+        new=AsyncMock(side_effect=["第一版", "第二版", "其他项目报告"]),
+    ):
+        for target_id in (project_id, project_id, other_project_id):
+            response = client.post(
+                f"/api/llm/report?project_id={target_id}", headers=headers
+            )
+            assert response.status_code == 200, response.text
+
+    history = client.get(
+        f"/api/llm/report?project_id={project_id}", headers=headers
+    )
+    assert history.status_code == 200, history.text
+    assert [item["report"] for item in history.json()] == ["第二版", "第一版"]
 
 
 @pytest.mark.asyncio

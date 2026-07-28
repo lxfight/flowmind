@@ -14,6 +14,7 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.llm_chat import LLMChatMessage, LLMChatSession
 from app.models.project import Project
+from app.models.project_report import ProjectReport
 from app.models.task import Task, TaskStatus
 from app.models.user import User
 from app.schemas import (
@@ -26,6 +27,7 @@ from app.schemas import (
     LLMChatSessionOut,
     LLMChatSessionUpdate,
     LLMTaskGenerate,
+    ProjectReportOut,
     SessionScope,
 )
 from app.services.agent_service import run_agent, run_agent_stream
@@ -51,6 +53,8 @@ from app.services.undo_service import undo_batch
 router = APIRouter(prefix="/api/llm", tags=["llm"])
 
 logger = logging.getLogger(__name__)
+
+REPORT_HISTORY_LIMIT = 5
 
 
 @router.post("/chat", response_model=LLMChatResponse)
@@ -173,7 +177,24 @@ async def llm_suggest_status(
     return {"suggested_status": statuses[0].id, "suggested_name": statuses[0].name}
 
 
-@router.post("/report")
+@router.get("/report", response_model=list[ProjectReportOut])
+async def list_project_reports(
+    project_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the latest reports shared by every member of a project."""
+    await ensure_project_member(project_id, current_user, db)
+    result = await db.execute(
+        select(ProjectReport)
+        .where(ProjectReport.project_id == project_id)
+        .order_by(ProjectReport.generated_at.desc(), ProjectReport.id.desc())
+        .limit(REPORT_HISTORY_LIMIT)
+    )
+    return result.scalars().all()
+
+
+@router.post("/report", response_model=ProjectReportOut)
 async def llm_report(
     project_id: int,
     current_user: User = Depends(get_current_user),
@@ -181,6 +202,7 @@ async def llm_report(
 ):
     """Generate a project progress report using LLM."""
     await ensure_project_member(project_id, current_user, db)
+    generator_id = current_user.id
     now = datetime.now(UTC)
     # Get project
     result = await db.execute(select(Project).where(Project.id == project_id))
@@ -278,7 +300,16 @@ async def llm_report(
     except LLMReportUnavailableError as exc:
         raise HTTPException(status_code=502, detail="LLM 报告服务暂时不可用，请稍后重试") from exc
 
-    return {"report": report, "generated_at": now.isoformat()}
+    saved_report = ProjectReport(
+        project_id=project_id,
+        report=report,
+        generated_by=generator_id,
+        generated_at=datetime.now(UTC),
+    )
+    db.add(saved_report)
+    await db.flush()
+    await db.refresh(saved_report)
+    return saved_report
 
 
 # ---------------------------------------------------------------------------

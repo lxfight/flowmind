@@ -360,6 +360,16 @@ class LLMChatResponse(BaseModel):
     actions: list[dict] = Field(default_factory=list)
 
 
+class ProjectReportOut(BaseModel):
+    id: int
+    project_id: int
+    report: str
+    generated_by: int | None = None
+    generated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 # Stats
 class ProjectStats(BaseModel):
     project_id: int
@@ -463,6 +473,7 @@ __all__ = [
     "LLMChatMessage",
     "LLMChatRequest",
     "LLMChatResponse",
+    "ProjectReportOut",
     "LLMTaskGenerate",
     "ProjectStats",
     "DashboardStats",

@@ -7,7 +7,6 @@ import {
   History,
   RefreshCw,
   Sparkles,
-  Trash2,
 } from 'lucide-react'
 import api, { errDetail } from '../utils/api'
 import toast from 'react-hot-toast'
@@ -18,12 +17,12 @@ import { MarkdownContent } from '../components/ui/MarkdownContent'
 import { cn } from '../utils/cn'
 
 interface ReportEntry {
+  id: number
+  project_id: number
   report: string
   generated_at: string
 }
 
-const CACHE_KEY = 'flowmind_report_cache'
-const HISTORY_KEY = 'flowmind_report_history'
 const REPORT_REQUEST_TIMEOUT_MS = 190_000
 const pendingReportRequests = new Map<string, Promise<ReportEntry>>()
 
@@ -32,42 +31,22 @@ class InvalidReportResponseError extends Error {}
 function parseReportEntry(value: unknown): ReportEntry | null {
   if (!value || typeof value !== 'object') return null
   const entry = value as Record<string, unknown>
+  if (typeof entry.id !== 'number' || typeof entry.project_id !== 'number') return null
   if (typeof entry.report !== 'string' || !entry.report.trim()) return null
   if (typeof entry.generated_at !== 'string' || Number.isNaN(Date.parse(entry.generated_at))) return null
-  return { report: entry.report, generated_at: entry.generated_at }
+  return {
+    id: entry.id,
+    project_id: entry.project_id,
+    report: entry.report,
+    generated_at: entry.generated_at,
+  }
 }
 
-function loadCache(projectId: string): ReportEntry | null {
-  try {
-    const raw = sessionStorage.getItem(`${CACHE_KEY}_${projectId}`)
-    if (raw) return parseReportEntry(JSON.parse(raw))
-  } catch {}
-  return null
-}
-
-function saveCache(projectId: string, entry: ReportEntry) {
-  try {
-    sessionStorage.setItem(`${CACHE_KEY}_${projectId}`, JSON.stringify(entry))
-  } catch {}
-}
-
-function loadHistory(projectId: string): ReportEntry[] {
-  try {
-    const raw = localStorage.getItem(`${HISTORY_KEY}_${projectId}`)
-    if (raw) {
-      const value: unknown = JSON.parse(raw)
-      if (Array.isArray(value)) {
-        return value.map(parseReportEntry).filter((entry): entry is ReportEntry => entry !== null)
-      }
-    }
-  } catch {}
-  return []
-}
-
-function saveHistory(projectId: string, entries: ReportEntry[]) {
-  try {
-    localStorage.setItem(`${HISTORY_KEY}_${projectId}`, JSON.stringify(entries.slice(0, 5)))
-  } catch {}
+function parseReportHistory(value: unknown): ReportEntry[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map(parseReportEntry)
+    .filter((entry): entry is ReportEntry => entry !== null)
 }
 
 function reportErrorMessage(err: unknown) {
@@ -92,12 +71,6 @@ function startReportGeneration(projectId: string) {
   }).then((response) => {
     const entry = parseReportEntry(response.data)
     if (!entry) throw new InvalidReportResponseError('Invalid report response')
-    saveCache(projectId, entry)
-    const nextHistory = [
-      entry,
-      ...loadHistory(projectId).filter((item) => item.generated_at !== entry.generated_at),
-    ]
-    saveHistory(projectId, nextHistory)
     return entry
   }).finally(() => {
     if (pendingReportRequests.get(projectId) === request) {
@@ -113,6 +86,9 @@ export default function ProjectReportPage() {
   const { projectId } = useParams()
   const [report, setReport] = useState<string | null>(null)
   const [generatedAt, setGeneratedAt] = useState<string | null>(null)
+  const [reportsLoading, setReportsLoading] = useState(true)
+  const [reportsError, setReportsError] = useState<string | null>(null)
+  const [reloadToken, setReloadToken] = useState(0)
   const [loading, setLoading] = useState(false)
   const [generationError, setGenerationError] = useState<string | null>(null)
   const [history, setHistory] = useState<ReportEntry[]>([])
@@ -123,36 +99,53 @@ export default function ProjectReportPage() {
     activeProjectRef.current = projectId
     if (!projectId) return
     let cancelled = false
-    const cached = loadCache(projectId)
     const pending = pendingReportRequests.get(projectId)
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrating project-scoped runtime and storage state
-    setHistory(loadHistory(projectId))
-    setReport(cached?.report ?? null)
-    setGeneratedAt(cached?.generated_at ?? null)
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrating project-scoped server state
+    setHistory([])
+    setReport(null)
+    setGeneratedAt(null)
+    setReportsLoading(true)
+    setReportsError(null)
     setLoading(Boolean(pending))
     setGenerationError(null)
     setShowHistory(false)
 
-    if (pending) {
-      pending.then((entry) => {
+    const hydrate = async () => {
+      try {
+        const response = await api.get(`/llm/report?project_id=${projectId}`)
+        if (cancelled) return
+        const entries = parseReportHistory(response.data)
+        setHistory(entries)
+        setReport(entries[0]?.report ?? null)
+        setGeneratedAt(entries[0]?.generated_at ?? null)
+      } catch (err: unknown) {
+        if (!cancelled) setReportsError(errDetail(err, '共享报告加载失败，请稍后重试'))
+      } finally {
+        if (!cancelled) setReportsLoading(false)
+      }
+
+      if (!pending) return
+      try {
+        const entry = await pending
         if (cancelled) return
         setReport(entry.report)
         setGeneratedAt(entry.generated_at)
-        setHistory(loadHistory(projectId))
+        setHistory((current) => [entry, ...current.filter((item) => item.id !== entry.id)].slice(0, 5))
         setGenerationError(null)
-      }).catch((err: unknown) => {
+      } catch (err: unknown) {
         if (!cancelled) setGenerationError(reportErrorMessage(err))
-      }).finally(() => {
+      } finally {
         if (!cancelled) setLoading(false)
-      })
+      }
     }
+    void hydrate()
 
     return () => {
       cancelled = true
       if (activeProjectRef.current === projectId) activeProjectRef.current = undefined
     }
-  }, [projectId])
+  }, [projectId, reloadToken])
 
   const generateReport = async () => {
     if (!projectId) return
@@ -164,7 +157,7 @@ export default function ProjectReportPage() {
       if (activeProjectRef.current !== requestedProjectId) return
       setReport(entry.report)
       setGeneratedAt(entry.generated_at)
-      setHistory(loadHistory(requestedProjectId))
+      setHistory((current) => [entry, ...current.filter((item) => item.id !== entry.id)].slice(0, 5))
     } catch (err: unknown) {
       if (activeProjectRef.current !== requestedProjectId) return
       const message = reportErrorMessage(err)
@@ -179,14 +172,7 @@ export default function ProjectReportPage() {
     if (!projectId) return
     setReport(entry.report)
     setGeneratedAt(entry.generated_at)
-    saveCache(projectId, entry)
     setShowHistory(false)
-  }
-
-  const clearHistory = () => {
-    if (!projectId) return
-    setHistory([])
-    saveHistory(projectId, [])
   }
 
   return (
@@ -219,7 +205,7 @@ export default function ProjectReportPage() {
           <Button
             size="sm"
             onClick={generateReport}
-            disabled={loading}
+            disabled={loading || reportsLoading}
             loading={loading}
             className="gap-1.5"
           >
@@ -232,21 +218,11 @@ export default function ProjectReportPage() {
       {showHistory && (
         <section className="mb-6 overflow-hidden border-y border-border" aria-label="历史报告">
           <div className="flex items-center justify-between border-b border-border bg-muted/30 px-3 py-2">
-            <span className="text-xs font-semibold text-muted-foreground">最近 {history.length} 份报告</span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-muted-foreground hover:bg-danger/10 hover:text-danger"
-              onClick={clearHistory}
-              aria-label="清空历史"
-              title="清空历史"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
+            <span className="text-xs font-semibold text-muted-foreground">项目共享的最近 {history.length} 份报告</span>
           </div>
           {history.map((entry) => (
             <button
-              key={entry.generated_at}
+              key={entry.id}
               className="grid w-full grid-cols-[auto_minmax(0,1fr)] items-center gap-4 border-b border-border/75 px-3 py-3 text-left transition-colors last:border-b-0 hover:bg-muted/25"
               onClick={() => loadFromHistory(entry)}
             >
@@ -272,6 +248,18 @@ export default function ProjectReportPage() {
         </div>
       )}
 
+      {reportsError && (
+        <div className="mb-6 flex items-center justify-between gap-3 border-y border-danger/25 bg-danger/5 px-3 py-3 text-sm text-danger" role="alert">
+          <span className="flex min-w-0 items-center gap-2">
+            <AlertCircle className="h-4 w-4 flex-none" />
+            <span className="truncate">{reportsError}</span>
+          </span>
+          <Button variant="ghost" size="sm" onClick={() => setReloadToken((value) => value + 1)} className="flex-none text-danger">
+            重新加载
+          </Button>
+        </div>
+      )}
+
       {loading && (
         <div className="mb-6 overflow-hidden border-y border-primary/20 bg-primary/[0.035] px-3 py-4" aria-live="polite">
           <div className="flex items-center gap-3">
@@ -289,7 +277,13 @@ export default function ProjectReportPage() {
         </div>
       )}
 
-      {!report && !loading && (
+      {reportsLoading && !loading && (
+        <div className="py-16 text-center text-sm text-muted-foreground" aria-live="polite">
+          正在加载项目共享报告…
+        </div>
+      )}
+
+      {!report && !loading && !reportsLoading && (
         <EmptyState
           icon={FileText}
           title="尚未生成报告"

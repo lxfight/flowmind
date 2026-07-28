@@ -9,7 +9,7 @@ import toast from 'react-hot-toast'
 
 vi.mock('../utils/api', async () => {
   const actual = await vi.importActual<typeof import('../utils/api')>('../utils/api')
-  return { ...actual, default: { post: vi.fn() } }
+  return { ...actual, default: { get: vi.fn(), post: vi.fn() } }
 })
 
 vi.mock('react-hot-toast', () => ({
@@ -45,33 +45,33 @@ function generateButton() {
 
 describe('ProjectReportPage reliability', () => {
   beforeEach(() => {
-    localStorage.clear()
-    sessionStorage.clear()
     vi.clearAllMocks()
+    vi.mocked(api.get).mockResolvedValue({ data: [] })
   })
 
-  it('ignores malformed cache and history entries', () => {
-    sessionStorage.setItem('flowmind_report_cache_1', JSON.stringify({ report: 123, generated_at: 'bad' }))
-    localStorage.setItem('flowmind_report_history_1', JSON.stringify([
+  it('ignores malformed shared report entries', async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: [
       { report: '', generated_at: '2026-07-27T00:00:00Z' },
       { report: 'missing date' },
-    ]))
+    ] })
 
     renderReport()
 
-    expect(generateButton()).toBeInTheDocument()
+    await waitFor(() => expect(generateButton()).toBeEnabled())
     expect(screen.queryByRole('button', { name: '历史' })).not.toBeInTheDocument()
   })
 
-  it('renders cached report markdown with GFM structure', () => {
-    sessionStorage.setItem('flowmind_report_cache_1', JSON.stringify({
+  it('renders the latest shared report markdown with GFM structure', async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: [{
+      id: 11,
+      project_id: 1,
       report: '# 迭代报告\n\n- 已完成登录优化\n- 正在处理通知跳转\n\n| 指标 | 数值 |\n| --- | --- |\n| 完成率 | 80% |',
       generated_at: '2026-07-27T10:00:00Z',
-    }))
+    }] })
 
     renderReport()
 
-    expect(screen.getByRole('heading', { name: '迭代报告', level: 1 })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '迭代报告', level: 1 })).toBeInTheDocument()
     expect(screen.getAllByRole('listitem')).toHaveLength(2)
     expect(screen.getByRole('table')).toBeInTheDocument()
     expect(screen.getByRole('columnheader', { name: '指标' })).toBeInTheDocument()
@@ -87,6 +87,7 @@ describe('ProjectReportPage reliability', () => {
     vi.mocked(api.post).mockRejectedValue(error)
     renderReport()
 
+    await waitFor(() => expect(generateButton()).toBeEnabled())
     await user.click(generateButton())
 
     await waitFor(() => {
@@ -96,57 +97,62 @@ describe('ProjectReportPage reliability', () => {
 
   it('rejects a malformed API response before caching it', async () => {
     const user = userEvent.setup()
-    vi.mocked(api.post).mockResolvedValue({ data: { report: null, generated_at: 'invalid' } })
+    vi.mocked(api.post).mockResolvedValue({ data: { id: 1, project_id: 1, report: null, generated_at: 'invalid' } })
     renderReport()
 
+    await waitFor(() => expect(generateButton()).toBeEnabled())
     await user.click(generateButton())
 
     await waitFor(() => {
       expect(toast.error).toHaveBeenCalledWith('模型返回的报告格式无效，请重试')
     })
-    expect(sessionStorage.getItem('flowmind_report_cache_1')).toBeNull()
   })
 
   it('keeps generating for the original project without overwriting the newly selected project', async () => {
     const user = userEvent.setup()
-    let resolveRequest: (value: { data: { report: string; generated_at: string } }) => void = () => {}
-    const pending = new Promise<{ data: { report: string; generated_at: string } }>((resolve) => {
+    let resolveRequest: (value: { data: { id: number; project_id: number; report: string; generated_at: string } }) => void = () => {}
+    const pending = new Promise<{ data: { id: number; project_id: number; report: string; generated_at: string } }>((resolve) => {
       resolveRequest = resolve
     })
     vi.mocked(api.post).mockReturnValue(pending)
-    sessionStorage.setItem('flowmind_report_cache_2', JSON.stringify({
-      report: '项目二缓存报告',
-      generated_at: '2026-07-27T08:00:00Z',
+    vi.mocked(api.get).mockImplementation((url) => Promise.resolve({
+      data: String(url).includes('project_id=2') ? [{
+        id: 22,
+        project_id: 2,
+        report: '项目二共享报告',
+        generated_at: '2026-07-27T08:00:00Z',
+      }] : [],
     }))
     renderReport('1', true)
 
+    await waitFor(() => expect(generateButton()).toBeEnabled())
     await user.click(generateButton())
     await user.click(screen.getByRole('button', { name: '切换项目' }))
 
-    expect(await screen.findByText('项目二缓存报告')).toBeInTheDocument()
+    expect(await screen.findByText('项目二共享报告')).toBeInTheDocument()
     expect(vi.mocked(api.post).mock.calls[0][2]?.signal).toBeUndefined()
 
     await act(async () => {
       resolveRequest({
-        data: { report: '项目一迟到报告', generated_at: '2026-07-27T09:00:00Z' },
+        data: { id: 21, project_id: 1, report: '项目一迟到报告', generated_at: '2026-07-27T09:00:00Z' },
       })
       await pending
     })
 
     expect(screen.queryByText('项目一迟到报告')).not.toBeInTheDocument()
-    expect(screen.getByText('项目二缓存报告')).toBeInTheDocument()
-    expect(sessionStorage.getItem('flowmind_report_cache_1')).toContain('项目一迟到报告')
+    expect(screen.getByText('项目二共享报告')).toBeInTheDocument()
   })
 
   it('restores an in-progress generation after leaving and returning to the report page', async () => {
     const user = userEvent.setup()
-    let resolveRequest: (value: { data: { report: string; generated_at: string } }) => void = () => {}
-    const pending = new Promise<{ data: { report: string; generated_at: string } }>((resolve) => {
+    let resolveRequest: (value: { data: { id: number; project_id: number; report: string; generated_at: string } }) => void = () => {}
+    const pending = new Promise<{ data: { id: number; project_id: number; report: string; generated_at: string } }>((resolve) => {
       resolveRequest = resolve
     })
     vi.mocked(api.post).mockReturnValue(pending)
     renderReport('1', false, true)
 
+    await waitFor(() => expect(generateButton()).toBeEnabled())
     await user.click(generateButton())
     expect(screen.getByText('正在生成项目报告')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '离开报告' }))
@@ -157,12 +163,29 @@ describe('ProjectReportPage reliability', () => {
 
     await act(async () => {
       resolveRequest({
-        data: { report: '跨页面完成的项目报告', generated_at: '2026-07-27T10:00:00Z' },
+        data: { id: 31, project_id: 1, report: '跨页面完成的项目报告', generated_at: '2026-07-27T10:00:00Z' },
       })
       await pending
     })
 
     expect(await screen.findByText('跨页面完成的项目报告')).toBeInTheDocument()
-    expect(sessionStorage.getItem('flowmind_report_cache_1')).toContain('跨页面完成的项目报告')
+  })
+
+  it('adds a generated report to the shared history shown by the page', async () => {
+    const user = userEvent.setup()
+    vi.mocked(api.post).mockResolvedValue({ data: {
+      id: 41,
+      project_id: 1,
+      report: '新生成的共享报告',
+      generated_at: '2026-07-27T11:00:00Z',
+    } })
+    renderReport()
+
+    await waitFor(() => expect(generateButton()).toBeEnabled())
+    await user.click(generateButton())
+    expect(await screen.findByText('新生成的共享报告')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '历史' }))
+    expect(screen.getByText('项目共享的最近 1 份报告')).toBeInTheDocument()
   })
 })
