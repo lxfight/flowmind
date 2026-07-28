@@ -76,7 +76,7 @@ async def test_create_and_list_multiple_milestones_with_progress(client):
             config=config,
         )
         await create_milestone.ainvoke(
-            {"title": "正式发布", "target_date": _future_date(30), "task_ids": [task["id"]]},
+            {"title": "正式发布", "target_date": _future_date(30)},
             config=config,
         )
         await session.commit()
@@ -146,6 +146,45 @@ async def test_update_milestone_replaces_tasks_and_completes(client):
             )
         )
         assert list(linked) == [second_task["id"]]
+    finally:
+        await session.close()
+
+
+@pytest.mark.asyncio
+async def test_milestone_mutations_replay_idempotently(client):
+    headers = admin_login(client)
+    project_id, _ = create_project(client, headers, name="助手里程碑幂等")
+
+    session = async_session_factory()
+    try:
+        config = _config(session, await _user(session), project_id)
+        created = json.loads(
+            await create_milestone.ainvoke(
+                {"title": "幂等节点", "target_date": _future_date()}, config=config
+            )
+        )
+        milestone_id = created["action"]["milestone_id"]
+
+        first_update = await update_milestone.ainvoke(
+            {"milestone_id": milestone_id, "description": "仅更新一次"}, config=config
+        )
+        second_update = await update_milestone.ainvoke(
+            {"milestone_id": milestone_id, "description": "仅更新一次"}, config=config
+        )
+        assert second_update == first_update
+
+        first_delete = await delete_milestone.ainvoke(
+            {"milestone_id": milestone_id, "confirmed": True}, config=config
+        )
+        second_delete = await delete_milestone.ainvoke(
+            {"milestone_id": milestone_id, "confirmed": True}, config=config
+        )
+        assert second_delete == first_delete
+        assert [action["type"] for action in config["configurable"]["actions"]] == [
+            "create_milestone",
+            "update_milestone",
+            "delete_milestone",
+        ]
     finally:
         await session.close()
 

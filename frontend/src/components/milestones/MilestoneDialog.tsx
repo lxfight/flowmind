@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { CalendarDays, Check, Flag, Search, UserRound } from 'lucide-react'
+import { CalendarDays, Check, Flag, Lock, Search, UserRound } from 'lucide-react'
 import {
   Dialog,
   DialogDescription,
@@ -23,6 +23,7 @@ import type {
 interface MilestoneDialogProps {
   open: boolean
   milestone?: Milestone | null
+  milestones: Milestone[]
   members: MemberOption[]
   tasks: TaskSummary[]
   saving: boolean
@@ -55,6 +56,7 @@ type MilestoneDialogFormProps = Omit<MilestoneDialogProps, 'open'>
 
 function MilestoneDialogForm({
   milestone,
+  milestones,
   members,
   tasks,
   saving,
@@ -110,7 +112,7 @@ function MilestoneDialogForm({
             {milestone ? '编辑里程碑' : '建立里程碑'}
           </DialogTitle>
           <DialogDescription>
-            定义交付时间、负责人和需要共同抵达的任务集合。
+            定义交付时间、负责人和任务集合。每个任务只属于一个里程碑。
           </DialogDescription>
         </DialogHeader>
 
@@ -221,14 +223,18 @@ function MilestoneDialogForm({
                 ) : (
                   visibleTasks.map((task) => {
                     const selected = taskIds.includes(task.id)
+                    const assignedMilestone = milestones.find(
+                      (item) => item.id !== milestone?.id && task.milestone_ids.includes(item.id),
+                    )
                     return (
                       <button
                         key={task.id}
                         type="button"
                         aria-pressed={selected}
+                        disabled={Boolean(assignedMilestone)}
                         onClick={() => toggleTask(task.id)}
                         className={cn(
-                          'flex min-h-12 w-full items-start gap-3 px-2 py-3 text-left transition-colors hover:bg-accent/60',
+                          'flex min-h-12 w-full items-start gap-3 px-2 py-3 text-left transition-colors hover:bg-accent/60 disabled:cursor-not-allowed disabled:bg-muted/25 disabled:opacity-55',
                           selected && 'bg-primary/[0.06]',
                         )}
                       >
@@ -246,7 +252,11 @@ function MilestoneDialogForm({
                           <span className={cn('block text-sm leading-5 text-foreground', task.is_completed && 'line-through text-muted-foreground')}>
                             {task.title}
                           </span>
-                          {task.assignees.length > 0 && (
+                          {assignedMilestone ? (
+                            <span className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+                              <Lock className="h-3 w-3" />已属于「{assignedMilestone.title}」
+                            </span>
+                          ) : task.assignees.length > 0 && (
                             <span className="mt-1 block truncate text-[11px] text-muted-foreground">
                               {task.assignees.map((assignee) => assignee.display_name).join('、')}
                             </span>

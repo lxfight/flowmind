@@ -28,11 +28,11 @@ export function MilestonePicker({
   }
 
   const toggle = (id: number) => {
-    onChange(value.includes(id) ? value.filter((item) => item !== id) : [...value, id])
+    onChange(value.includes(id) ? [] : [id])
   }
 
   return (
-    <div className="flex flex-wrap gap-2" role="group" aria-label="选择里程碑">
+    <div className="flex flex-wrap gap-2" role="group" aria-label="选择里程碑（单选）">
       {options.map((milestone) => {
         const selected = value.includes(milestone.id)
         return (

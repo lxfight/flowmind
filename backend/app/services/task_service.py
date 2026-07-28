@@ -144,6 +144,8 @@ async def _resolve_milestones(
     unique_ids = list(dict.fromkeys(milestone_ids))
     if not unique_ids:
         return []
+    if len(unique_ids) > 1:
+        raise HTTPException(status_code=400, detail="每个任务只能关联一个里程碑")
     result = await db.execute(
         select(Milestone).where(
             Milestone.project_id == project_id,

@@ -594,6 +594,11 @@ async def delete_milestone(
 ) -> str:
     """删除里程碑但保留其关联任务；破坏性操作，必须先确认再传 confirmed=true。"""
     db, user, ctx_pid, project_ids, _names = _get_ctx(config)
+    idem_key = ("delete_milestone", milestone_id)
+    if confirmed:
+        cached = _idem_lookup(config, idem_key)
+        if cached is not None:
+            return cached
     pid = ctx_pid if ctx_pid is not None else await _find_milestone_project(db, milestone_id, project_ids)
     if pid is None:
         return _format_result(False, message=f"未找到里程碑 id={milestone_id}（不属于你参与的项目）。")
@@ -607,7 +612,6 @@ async def delete_milestone(
                     "但不会删除任务。请先获得用户明确同意，然后使用 confirmed=true 重新调用本工具。"
                 ),
             )
-        idem_key = ("delete_milestone", milestone_id)
         async with _locked_mutation(config):
             cached = _idem_lookup(config, idem_key)
             if cached is not None:

@@ -79,16 +79,21 @@ async def _tasks_for_project(
     project_id: int,
     task_ids: list[int],
     db: AsyncSession,
+    *,
+    milestone_id: int | None = None,
 ) -> list[Task]:
     unique_ids = list(dict.fromkeys(task_ids))
     if not unique_ids:
         return []
     result = await db.execute(
-        select(Task).where(
+        select(Task)
+        .where(
             Task.project_id == project_id,
             Task.parent_task_id.is_(None),
             Task.id.in_(unique_ids),
         )
+        .options(selectinload(Task.milestones))
+        .with_for_update()
     )
     tasks = result.scalars().all()
     if len(tasks) != len(unique_ids):
@@ -96,6 +101,23 @@ async def _tasks_for_project(
             status_code=400,
             detail="里程碑只能关联当前项目的顶层任务",
         )
+    for task in tasks:
+        other = next(
+            (
+                linked
+                for linked in task.milestones
+                if milestone_id is None or linked.id != milestone_id
+            ),
+            None,
+        )
+        if other is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"任务「{task.title}」已属于里程碑「{other.title}」，"
+                    "每个任务只能关联一个里程碑"
+                ),
+            )
     task_by_id = {task.id: task for task in tasks}
     return [task_by_id[task_id] for task_id in unique_ids]
 
@@ -195,7 +217,9 @@ async def update_milestone(
     if "owner_id" in payload and payload["owner_id"] is not None:
         await ensure_project_assignee(project_id, payload["owner_id"], db)
     if task_ids is not None:
-        milestone.tasks = await _tasks_for_project(project_id, task_ids, db)
+        milestone.tasks = await _tasks_for_project(
+            project_id, task_ids, db, milestone_id=milestone_id
+        )
 
     previous_status = milestone.status
     for field, value in payload.items():

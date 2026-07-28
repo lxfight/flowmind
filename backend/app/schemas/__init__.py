@@ -165,7 +165,7 @@ class TaskCreate(BaseModel):
     priority: int = Field(default=0, ge=0, le=4)
     due_date: datetime | None = None
     parent_task_id: int | None = None
-    milestone_ids: list[int] = Field(default_factory=list, max_length=50)
+    milestone_ids: list[int] = Field(default_factory=list, max_length=1)
 
 
 class TaskUpdate(BaseModel):
@@ -177,7 +177,7 @@ class TaskUpdate(BaseModel):
     order: float | None = None
     due_date: datetime | None = None
     is_completed: bool | None = None
-    milestone_ids: list[int] | None = Field(default=None, max_length=50)
+    milestone_ids: list[int] | None = Field(default=None, max_length=1)
 
 
 class SubtaskUpdate(BaseModel):

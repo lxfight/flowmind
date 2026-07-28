@@ -32,7 +32,7 @@ milestone_tasks = Table(
     ),
     Column("linked_at", DateTime(timezone=True), default=lambda: datetime.now(UTC)),
 )
-Index("ix_milestone_tasks_task_id", milestone_tasks.c.task_id)
+Index("ix_milestone_tasks_task_id", milestone_tasks.c.task_id, unique=True)
 
 
 class Milestone(Base):

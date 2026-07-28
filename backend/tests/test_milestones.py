@@ -1,4 +1,4 @@
-"""Project milestone CRUD, permissions, progress, and many-to-many task links."""
+"""Project milestone CRUD, permissions, progress, and exclusive task links."""
 
 from datetime import UTC, datetime, timedelta
 
@@ -30,27 +30,38 @@ def _create_milestone(client, headers, project_id: int, title: str, task_ids=Non
     return response.json()
 
 
-def test_task_can_belong_to_multiple_milestones(client):
+def test_task_cannot_belong_to_multiple_milestones(client):
     headers = admin_login(client)
     project_id, statuses = create_project(client, headers, name="多里程碑项目")
     todo = next(status for status in statuses if not status["is_done"])
     task = create_task(client, headers, project_id, todo["id"], "跨阶段任务")
 
     first = _create_milestone(client, headers, project_id, "方案冻结", [task["id"]])
-    second = _create_milestone(client, headers, project_id, "正式发布", [task["id"]])
+    response = client.post(
+        f"/api/projects/{project_id}/milestones",
+        headers=headers,
+        json={
+            "title": "正式发布",
+            "target_date": _future_date(60),
+            "task_ids": [task["id"]],
+        },
+    )
+    assert response.status_code == 409
+    assert "方案冻结" in response.json()["detail"]
+    assert "只能关联一个里程碑" in response.json()["detail"]
 
     response = client.get(
         f"/api/projects/{project_id}/tasks/{task['id']}", headers=headers
     )
     assert response.status_code == 200, response.text
-    assert set(response.json()["milestone_ids"]) == {first["id"], second["id"]}
+    assert response.json()["milestone_ids"] == [first["id"]]
 
     milestones = client.get(
         f"/api/projects/{project_id}/milestones", headers=headers
     )
     assert milestones.status_code == 200, milestones.text
-    assert [item["title"] for item in milestones.json()] == ["方案冻结", "正式发布"]
-    assert all(item["task_ids"] == [task["id"]] for item in milestones.json())
+    assert [item["title"] for item in milestones.json()] == ["方案冻结"]
+    assert milestones.json()[0]["task_ids"] == [task["id"]]
 
 
 def test_task_update_replaces_milestone_links(client):
@@ -66,8 +77,7 @@ def test_task_update_replaces_milestone_links(client):
         headers=headers,
         json={"milestone_ids": [first["id"], second["id"]]},
     )
-    assert response.status_code == 200, response.text
-    assert response.json()["milestone_ids"] == [first["id"], second["id"]]
+    assert response.status_code == 422, response.text
 
     response = client.put(
         f"/api/projects/{project_id}/tasks/{task['id']}",
@@ -76,6 +86,25 @@ def test_task_update_replaces_milestone_links(client):
     )
     assert response.status_code == 200, response.text
     assert response.json()["milestone_ids"] == [second["id"]]
+
+
+def test_milestone_update_cannot_take_task_from_another_milestone(client):
+    headers = admin_login(client)
+    project_id, statuses = create_project(client, headers, name="里程碑互斥更新")
+    todo = next(status for status in statuses if not status["is_done"])
+    task = create_task(client, headers, project_id, todo["id"], "独占任务")
+    first = _create_milestone(client, headers, project_id, "第一阶段", [task["id"]])
+    second = _create_milestone(client, headers, project_id, "第二阶段")
+
+    response = client.put(
+        f"/api/projects/{project_id}/milestones/{second['id']}",
+        headers=headers,
+        json={"task_ids": [task["id"]]},
+    )
+
+    assert response.status_code == 409
+    assert first["title"] in response.json()["detail"]
+    assert "只能关联一个里程碑" in response.json()["detail"]
 
 
 def test_milestone_progress_and_completion_health(client):

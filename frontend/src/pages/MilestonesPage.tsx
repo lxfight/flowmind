@@ -450,6 +450,7 @@ export default function MilestonesPage() {
       <MilestoneDialog
         open={dialogOpen}
         milestone={editing}
+        milestones={milestones}
         members={members}
         tasks={tasks}
         saving={saving}
