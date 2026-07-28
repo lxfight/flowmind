@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import {
@@ -12,6 +12,7 @@ import {
   Clock3,
   Edit3,
   Flag,
+  History,
   Loader2,
   MoreHorizontal,
   Plus,
@@ -29,6 +30,7 @@ import {
   createMilestone,
   deleteMilestone,
   listMilestones,
+  listMilestoneTimeline,
   updateMilestone,
 } from '../api/milestones'
 import { MilestoneDialog } from '../components/milestones/MilestoneDialog'
@@ -45,6 +47,7 @@ import { useProjectSocket } from '../hooks/useProjectSocket'
 import { useAuthStore } from '../stores/authStore'
 import api, { errDetail } from '../utils/api'
 import { cn } from '../utils/cn'
+import { buildMilestoneTimelineLayout } from '../utils/milestoneTimeline'
 import type {
   MemberOption,
   Milestone,
@@ -76,13 +79,31 @@ function targetCopy(targetDate: string, health: MilestoneHealth) {
   return `还有 ${days} 天`
 }
 
-function timelineGapWidth(days: number) {
-  return Math.min(240, Math.max(104, 88 + Math.min(Math.max(days, 0), 48) * 3))
-}
-
 function timelineGapCopy(days: number) {
   if (days <= 0) return '同日'
   return `相隔 ${days} 天`
+}
+
+const TIMELINE_PAGE_SIZE = 12
+
+function statusForView(view: ViewFilter) {
+  if (view === 'open') return 'open' as const
+  if (view === 'completed') return 'archived' as const
+  return undefined
+}
+
+function milestoneMatchesView(milestone: Milestone, view: ViewFilter) {
+  if (view === 'open') return milestone.status === 'open'
+  if (view === 'completed') return milestone.status !== 'open'
+  return true
+}
+
+function mergeMilestones(current: Milestone[], incoming: Milestone[]) {
+  const byId = new Map(current.map((milestone) => [milestone.id, milestone]))
+  incoming.forEach((milestone) => byId.set(milestone.id, milestone))
+  return [...byId.values()].sort((left, right) =>
+    left.target_date.localeCompare(right.target_date) || left.id - right.id,
+  )
 }
 
 async function loadAllTasks(projectId: number): Promise<TaskSummary[]> {
@@ -110,10 +131,20 @@ export default function MilestonesPage() {
   const role = useProjectRole()
   const isViewer = role === 'viewer'
   const currentUserId = useAuthStore((state) => state.user?.id)
+  const anchorDate = useMemo(() => format(new Date(), 'yyyy-MM-dd'), [])
   const [milestones, setMilestones] = useState<Milestone[]>([])
+  const [dialogMilestones, setDialogMilestones] = useState<Milestone[] | null>(null)
   const [tasks, setTasks] = useState<TaskSummary[]>([])
   const [members, setMembers] = useState<MemberOption[]>([])
-  const [loading, setLoading] = useState(true)
+  const [supportLoading, setSupportLoading] = useState(true)
+  const [timelineLoading, setTimelineLoading] = useState(true)
+  const [loadingFuture, setLoadingFuture] = useState(false)
+  const [loadingPast, setLoadingPast] = useState(false)
+  const [hasMoreFuture, setHasMoreFuture] = useState(false)
+  const [hasMorePast, setHasMorePast] = useState(false)
+  const [historyStarted, setHistoryStarted] = useState(false)
+  const [futureCursor, setFutureCursor] = useState<{ date: string; id: number } | null>(null)
+  const [pastCursor, setPastCursor] = useState<{ date: string; id: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [view, setView] = useState<ViewFilter>('open')
   const [selectedId, setSelectedId] = useState<number | null>(null)
@@ -121,62 +152,203 @@ export default function MilestonesPage() {
   const [editing, setEditing] = useState<Milestone | null>(null)
   const [saving, setSaving] = useState(false)
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const timelineRequest = useRef(0)
+  const loadingFutureRef = useRef(false)
+  const loadingPastRef = useRef(false)
+  const dialogMilestonesLoading = useRef(false)
+  const historyStartedRef = useRef(false)
+  const pendingScrollShift = useRef(0)
+  const timelineScrollRef = useRef<HTMLDivElement>(null)
+  const futureSentinelRef = useRef<HTMLSpanElement>(null)
 
-  const loadWorkspace = useCallback(async (showLoading = true) => {
+  const loadSupportData = useCallback(async (showLoading = true) => {
     if (!projectId) return
-    if (showLoading) setLoading(true)
-    setError(null)
+    if (showLoading) setSupportLoading(true)
     try {
-      const [nextMilestones, nextTasks, membersResponse] = await Promise.all([
-        listMilestones(projectId),
+      const [nextTasks, membersResponse] = await Promise.all([
         loadAllTasks(projectId),
         api.get(`/projects/${projectId}/members`),
       ])
-      setMilestones(nextMilestones)
       setTasks(nextTasks)
       setMembers(membersResponse.data)
-      setSelectedId((current) =>
-        current && nextMilestones.some((item) => item.id === current)
-          ? current
-          : (nextMilestones.find((item) => item.status === 'open')?.id ?? nextMilestones[0]?.id ?? null),
-      )
     } catch (requestError) {
       setError(errDetail(requestError, '里程碑工作台加载失败'))
     } finally {
-      if (showLoading) setLoading(false)
+      if (showLoading) setSupportLoading(false)
     }
   }, [projectId])
 
+  const loadInitialTimeline = useCallback(async (showLoading = true) => {
+    if (!projectId) return
+    const request = ++timelineRequest.current
+    if (showLoading) setTimelineLoading(true)
+    setError(null)
+    loadingFutureRef.current = false
+    loadingPastRef.current = false
+    historyStartedRef.current = false
+    setHistoryStarted(false)
+    setPastCursor(null)
+    try {
+      const page = await listMilestoneTimeline(projectId, {
+        anchorDate,
+        direction: 'forward',
+        limit: TIMELINE_PAGE_SIZE,
+        status: statusForView(view),
+      })
+      if (request !== timelineRequest.current) return
+      setMilestones(page.items)
+      setHasMoreFuture(page.has_more)
+      setHasMorePast(page.has_history)
+      setFutureCursor(page.next_cursor_date && page.next_cursor_id
+        ? { date: page.next_cursor_date, id: page.next_cursor_id }
+        : null)
+      setSelectedId((current) =>
+        current && page.items.some((item) => item.id === current)
+          ? current
+          : (page.items[0]?.id ?? null),
+      )
+      if (timelineScrollRef.current) timelineScrollRef.current.scrollLeft = 0
+    } catch (requestError) {
+      if (request === timelineRequest.current) {
+        setError(errDetail(requestError, '里程碑时间线加载失败'))
+      }
+    } finally {
+      if (showLoading && request === timelineRequest.current) setTimelineLoading(false)
+    }
+  }, [anchorDate, projectId, view])
+
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount loader updates state after awaiting requests
-    void loadWorkspace()
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount loader owns the support-data state
+    void loadSupportData()
+  }, [loadSupportData])
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- filter changes intentionally reset the paged timeline
+    void loadInitialTimeline()
     return () => {
       if (refreshTimer.current) clearTimeout(refreshTimer.current)
     }
-  }, [loadWorkspace])
+  }, [loadInitialTimeline])
 
   useProjectSocket(projectId || undefined, (event) => {
     if (!event.type.startsWith('milestone_') && !event.type.startsWith('task_')) return
     if (event.actor_id && event.actor_id === currentUserId) return
     if (refreshTimer.current) clearTimeout(refreshTimer.current)
-    refreshTimer.current = setTimeout(() => void loadWorkspace(false), 250)
+    refreshTimer.current = setTimeout(() => {
+      void loadInitialTimeline(false)
+      if (event.type.startsWith('task_')) void loadSupportData(false)
+    }, 250)
   })
 
-  const filtered = useMemo(() => {
-    if (view === 'all') return milestones
-    if (view === 'completed') {
-      return milestones.filter((milestone) => milestone.status !== 'open')
+  const loadFuture = useCallback(async () => {
+    if (!projectId || !hasMoreFuture || !futureCursor || loadingFutureRef.current) return
+    loadingFutureRef.current = true
+    setLoadingFuture(true)
+    const request = timelineRequest.current
+    try {
+      const page = await listMilestoneTimeline(projectId, {
+        anchorDate,
+        direction: 'forward',
+        limit: TIMELINE_PAGE_SIZE,
+        status: statusForView(view),
+        cursorDate: futureCursor.date,
+        cursorId: futureCursor.id,
+      })
+      if (request !== timelineRequest.current) return
+      setMilestones((current) => mergeMilestones(current, page.items))
+      setHasMoreFuture(page.has_more)
+      setFutureCursor(page.next_cursor_date && page.next_cursor_id
+        ? { date: page.next_cursor_date, id: page.next_cursor_id }
+        : null)
+    } catch (requestError) {
+      toast.error(errDetail(requestError, '后续里程碑加载失败'))
+    } finally {
+      loadingFutureRef.current = false
+      setLoadingFuture(false)
     }
-    return milestones.filter((milestone) => milestone.status === 'open')
-  }, [milestones, view])
+  }, [anchorDate, futureCursor, hasMoreFuture, projectId, view])
 
-  const selected = filtered.find((milestone) => milestone.id === selectedId) ?? filtered[0] ?? null
+  const loadPast = useCallback(async () => {
+    if (!projectId || !hasMorePast || loadingPastRef.current) return
+    loadingPastRef.current = true
+    setLoadingPast(true)
+    const request = timelineRequest.current
+    try {
+      const page = await listMilestoneTimeline(projectId, {
+        anchorDate,
+        direction: 'backward',
+        limit: TIMELINE_PAGE_SIZE,
+        status: statusForView(view),
+        cursorDate: pastCursor?.date,
+        cursorId: pastCursor?.id,
+      })
+      if (request !== timelineRequest.current) return
+      setMilestones((current) => {
+        const next = mergeMilestones(current, page.items)
+        const shift = buildMilestoneTimelineLayout(next, anchorDate).todayX
+          - buildMilestoneTimelineLayout(current, anchorDate).todayX
+        pendingScrollShift.current += Math.max(shift, 0)
+        return next
+      })
+      setHasMorePast(page.has_more)
+      setPastCursor(page.next_cursor_date && page.next_cursor_id
+        ? { date: page.next_cursor_date, id: page.next_cursor_id }
+        : null)
+    } catch (requestError) {
+      toast.error(errDetail(requestError, '历史里程碑加载失败'))
+    } finally {
+      loadingPastRef.current = false
+      setLoadingPast(false)
+    }
+  }, [anchorDate, hasMorePast, pastCursor, projectId, view])
+
+  useLayoutEffect(() => {
+    if (!pendingScrollShift.current || !timelineScrollRef.current) return
+    timelineScrollRef.current.scrollLeft += pendingScrollShift.current
+    pendingScrollShift.current = 0
+  }, [milestones])
+
+  useEffect(() => {
+    const root = timelineScrollRef.current
+    const sentinel = futureSentinelRef.current
+    if (!root || !sentinel || !hasMoreFuture) return
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) void loadFuture()
+      },
+      { root, rootMargin: '0px 240px 0px 0px' },
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [hasMoreFuture, loadFuture, milestones.length])
+
+  const timelineLayout = useMemo(
+    () => buildMilestoneTimelineLayout(milestones, anchorDate),
+    [anchorDate, milestones],
+  )
+  const timelineIntervals = useMemo(() => {
+    const points = [{ date: anchorDate, x: timelineLayout.todayX }]
+    timelineLayout.items.forEach(({ milestone, x }) => {
+      if (!points.some((point) => point.date === milestone.target_date)) {
+        points.push({ date: milestone.target_date, x })
+      }
+    })
+    points.sort((left, right) => left.date.localeCompare(right.date))
+    return points.slice(0, -1).map((point, index) => {
+      const next = points[index + 1]
+      return {
+        days: differenceInCalendarDays(parseISO(next.date), parseISO(point.date)),
+        x: point.x + (next.x - point.x) / 2,
+      }
+    })
+  }, [anchorDate, timelineLayout])
+
+  const selected = milestones.find((milestone) => milestone.id === selectedId) ?? milestones[0] ?? null
   const selectedTasks = selected
     ? selected.task_ids
         .map((id) => tasks.find((task) => task.id === id))
         .filter((task): task is TaskSummary => Boolean(task))
     : []
-  const openCount = milestones.filter((milestone) => milestone.status === 'open').length
   const atRiskCount = milestones.filter((milestone) =>
     ['at_risk', 'overdue'].includes(milestone.health),
   ).length
@@ -184,14 +356,37 @@ export default function MilestonesPage() {
     ? Math.round(milestones.reduce((sum, milestone) => sum + milestone.progress, 0) / milestones.length)
     : 0
 
+  const hydrateDialogMilestones = useCallback(async () => {
+    if (dialogMilestones || dialogMilestonesLoading.current || !projectId) return
+    dialogMilestonesLoading.current = true
+    try {
+      setDialogMilestones(await listMilestones(projectId))
+    } catch (requestError) {
+      toast.error(errDetail(requestError, '完整里程碑归属加载失败'))
+    } finally {
+      dialogMilestonesLoading.current = false
+    }
+  }, [dialogMilestones, projectId])
+
   const openCreate = () => {
     setEditing(null)
     setDialogOpen(true)
+    void hydrateDialogMilestones()
   }
 
   const openEdit = (milestone: Milestone) => {
     setEditing(milestone)
     setDialogOpen(true)
+    void hydrateDialogMilestones()
+  }
+
+  const applySavedMilestone = (saved: Milestone) => {
+    const visible = milestoneMatchesView(saved, view)
+    setMilestones((current) => visible
+      ? mergeMilestones(current, [saved])
+      : current.filter((item) => item.id !== saved.id))
+    setDialogMilestones((current) => current ? mergeMilestones(current, [saved]) : current)
+    setSelectedId(visible ? saved.id : null)
   }
 
   const handleSubmit = async (input: MilestoneInput) => {
@@ -200,8 +395,8 @@ export default function MilestonesPage() {
       const saved = editing
         ? await updateMilestone(projectId, editing.id, input)
         : await createMilestone(projectId, input)
-      await loadWorkspace(false)
-      setSelectedId(saved.id)
+      applySavedMilestone(saved)
+      setTasks(await loadAllTasks(projectId))
       setDialogOpen(false)
       setEditing(null)
       toast.success(editing ? '里程碑已更新' : '里程碑已建立')
@@ -214,8 +409,8 @@ export default function MilestonesPage() {
 
   const handleStatus = async (milestone: Milestone, status: 'open' | 'completed') => {
     try {
-      await updateMilestone(projectId, milestone.id, { status })
-      await loadWorkspace(false)
+      const saved = await updateMilestone(projectId, milestone.id, { status })
+      applySavedMilestone(saved)
       toast.success(status === 'completed' ? '里程碑已完成' : '里程碑已重新开启')
     } catch (requestError) {
       toast.error(errDetail(requestError, '更新里程碑状态失败'))
@@ -233,14 +428,16 @@ export default function MilestonesPage() {
     if (!confirmed) return
     try {
       await deleteMilestone(projectId, milestone.id)
-      await loadWorkspace(false)
+      setMilestones((current) => current.filter((item) => item.id !== milestone.id))
+      setDialogMilestones((current) => current?.filter((item) => item.id !== milestone.id) ?? null)
+      setSelectedId(null)
       toast.success('里程碑已删除')
     } catch (requestError) {
       toast.error(errDetail(requestError, '删除里程碑失败'))
     }
   }
 
-  if (loading) {
+  if (supportLoading || timelineLoading) {
     return (
       <div className="milestone-loading">
         <Loader2 className="h-7 w-7 animate-spin text-primary" />
@@ -254,7 +451,10 @@ export default function MilestonesPage() {
       <div className="milestone-loading">
         <AlertCircle className="h-8 w-8 text-danger" />
         <p>{error}</p>
-        <Button variant="outline" size="sm" onClick={() => void loadWorkspace()}>
+        <Button variant="outline" size="sm" onClick={() => {
+          void loadSupportData()
+          void loadInitialTimeline()
+        }}>
           <RefreshCw className="h-4 w-4" />重试
         </Button>
       </div>
@@ -274,7 +474,7 @@ export default function MilestonesPage() {
           </div>
           <div className="milestone-toolbar-actions">
             <div className="milestone-metrics" aria-label="里程碑概览">
-              <div><span>活跃</span><strong>{String(openCount).padStart(2, '0')}</strong></div>
+              <div><span>已载入</span><strong>{String(milestones.length).padStart(2, '0')}</strong></div>
               <div><span>风险</span><strong className={atRiskCount ? 'text-danger' : ''}>{String(atRiskCount).padStart(2, '0')}</strong></div>
               <div><span>平均进度</span><strong>{overallProgress}%</strong></div>
               <div><span>任务</span><strong>{milestones.reduce((sum, item) => sum + item.task_total, 0)}</strong></div>
@@ -306,54 +506,92 @@ export default function MilestonesPage() {
         </div>
       </section>
 
-      {filtered.length === 0 ? (
+      {milestones.length === 0 && !hasMorePast && !hasMoreFuture ? (
         <section className="milestone-empty">
           <Flag className="h-8 w-8" />
-          <h2>{milestones.length ? '当前视图没有节点' : '建立第一个交付节点'}</h2>
-          <p>{milestones.length ? '切换视图以查看其他里程碑。' : '里程碑将任务、时间和负责人组织成可追踪的交付轨道。'}</p>
-          {!isViewer && !milestones.length && <Button onClick={openCreate}><Plus className="h-4 w-4" />建立节点</Button>}
+          <h2>当前时间之后没有节点</h2>
+          <p>切换视图，或建立新的交付节点。</p>
+          {!isViewer && <Button onClick={openCreate}><Plus className="h-4 w-4" />建立节点</Button>}
         </section>
       ) : (
         <>
           <section className="milestone-timeline-section" aria-label="里程碑时间线">
             <header className="milestone-timeline-heading">
               <div><CalendarClock className="h-4 w-4" /><strong>交付时间线</strong></div>
-              <span>{filtered.length} 个节点，按目标日期排列</span>
+              <div className="milestone-timeline-controls">
+                {hasMorePast && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={loadingPast}
+                    onClick={() => {
+                      historyStartedRef.current = true
+                      setHistoryStarted(true)
+                      void loadPast()
+                    }}
+                  >
+                    {loadingPast ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <History className="h-3.5 w-3.5" />}
+                    {historyStarted ? '加载更早' : '加载历史'}
+                  </Button>
+                )}
+                <span>{milestones.length} 个节点 · 按自然日比例</span>
+                {loadingFuture && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-label="正在加载后续里程碑" />}
+              </div>
             </header>
-            <div className="milestone-timeline-scroll scrollbar-thin">
-              <div className="milestone-timeline-canvas">
-              {filtered.map((milestone, index) => {
+            <div
+              ref={timelineScrollRef}
+              className="milestone-timeline-scroll scrollbar-thin"
+              onScroll={(event) => {
+                if (historyStartedRef.current && event.currentTarget.scrollLeft < 8) {
+                  void loadPast()
+                }
+              }}
+            >
+              <div
+                className="milestone-timeline-canvas"
+                style={{
+                  width: `${timelineLayout.width}px`,
+                  '--axis-start': `${timelineLayout.axisStart}px`,
+                  '--axis-width': `${timelineLayout.axisEnd - timelineLayout.axisStart}px`,
+                  '--today-x': `${timelineLayout.todayX}px`,
+                } as CSSProperties}
+              >
+                <span className="milestone-axis-line" aria-hidden="true" />
+                {timelineIntervals.map((interval, index) => interval.days > 0 && (
+                  <span
+                    key={`${interval.x}-${index}`}
+                    className={cn('milestone-timeline-gap', interval.days <= 4 && 'is-tight')}
+                    style={{ left: `${interval.x}px` }}
+                  >
+                    {timelineGapCopy(interval.days).replace('相隔 ', '')}
+                  </span>
+                ))}
+                <span className="milestone-today-marker" aria-label={`今天 ${anchorDate}`}>
+                  <span>今天</span>
+                  <strong>{format(parseISO(anchorDate), 'MM.dd')}</strong>
+                  <i />
+                </span>
+              {timelineLayout.items.map(({ milestone, x, cardLeft, lane }, index) => {
                 const health = healthConfig[milestone.health]
                 const HealthIcon = health.icon
                 const isSelected = selected?.id === milestone.id
-                const nextMilestone = filtered[index + 1]
-                const gapDays = nextMilestone
-                  ? Math.max(
-                      differenceInCalendarDays(
-                        parseISO(nextMilestone.target_date),
-                        parseISO(milestone.target_date),
-                      ),
-                      0,
-                    )
-                  : 0
-                const connectorWidth = nextMilestone ? timelineGapWidth(gapDays) : 0
-                const stepStyle = {
-                  width: nextMilestone ? `calc(15rem + ${connectorWidth}px)` : '15rem',
-                  '--connector-width': `${connectorWidth}px`,
+                const nodeStyle = {
+                  '--node-x': `${x}px`,
+                  '--card-left': `${cardLeft}px`,
                 } as CSSProperties
                 return (
                   <div
                     key={milestone.id}
-                    className={cn('milestone-timeline-step', index % 2 ? 'is-lower' : 'is-upper')}
-                    style={stepStyle}
+                    className={cn('milestone-timeline-node', `is-lane-${lane}`, health.className)}
+                    style={nodeStyle}
                   >
                     <motion.button
                       type="button"
                       className={cn('milestone-timeline-card', health.className, isSelected && 'is-selected')}
                       onClick={() => setSelectedId(milestone.id)}
-                      initial={reduceMotion ? false : { opacity: 0, y: index % 2 ? 18 : -18 }}
+                      initial={reduceMotion ? false : { opacity: 0, y: lane >= 2 ? 12 : -12 }}
                       animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: reduceMotion ? 0 : index * 0.055, type: 'spring', stiffness: 310, damping: 28 }}
+                      transition={{ delay: reduceMotion ? 0 : Math.min(index, 8) * 0.04, duration: 0.24 }}
                     >
                       <span className="milestone-timeline-card-top">
                         <span className="milestone-timeline-date">
@@ -369,25 +607,17 @@ export default function MilestonesPage() {
                       </span>
                       <span className="milestone-timeline-progress"><i style={{ width: `${milestone.progress}%` }} /></span>
                     </motion.button>
+                    <span className="milestone-timeline-stem" aria-hidden="true" />
                     <span className="milestone-timeline-pin" aria-hidden="true" />
-                    {nextMilestone && (
-                      <>
-                        <svg
-                          className="milestone-timeline-connector"
-                          viewBox="0 0 100 100"
-                          preserveAspectRatio="none"
-                          aria-hidden="true"
-                        >
-                          <path d={index % 2 ? 'M 0 74 C 36 74, 64 26, 100 26' : 'M 0 26 C 36 26, 64 74, 100 74'} />
-                        </svg>
-                        <span className="milestone-timeline-gap">
-                          <Clock3 className="h-3.5 w-3.5" />{timelineGapCopy(gapDays)}
-                        </span>
-                      </>
-                    )}
                   </div>
                 )
               })}
+                <span
+                  ref={futureSentinelRef}
+                  className="milestone-future-sentinel"
+                  style={{ left: `${timelineLayout.width - 8}px` }}
+                  aria-hidden="true"
+                />
               </div>
             </div>
           </section>
@@ -501,7 +731,7 @@ export default function MilestonesPage() {
       <MilestoneDialog
         open={dialogOpen}
         milestone={editing}
-        milestones={milestones}
+        milestones={dialogMilestones ?? milestones}
         members={members}
         tasks={tasks}
         saving={saving}

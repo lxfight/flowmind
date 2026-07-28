@@ -226,12 +226,13 @@ function MilestoneDialogForm({
                     const assignedMilestone = milestones.find(
                       (item) => item.id !== milestone?.id && task.milestone_ids.includes(item.id),
                     )
+                    const assignedElsewhere = task.milestone_ids.some((id) => id !== milestone?.id)
                     return (
                       <button
                         key={task.id}
                         type="button"
                         aria-pressed={selected}
-                        disabled={Boolean(assignedMilestone)}
+                        disabled={assignedElsewhere}
                         onClick={() => toggleTask(task.id)}
                         className={cn(
                           'flex min-h-12 w-full items-start gap-3 px-2 py-3 text-left transition-colors hover:bg-accent/60 disabled:cursor-not-allowed disabled:bg-muted/25 disabled:opacity-55',
@@ -252,9 +253,10 @@ function MilestoneDialogForm({
                           <span className={cn('block text-sm leading-5 text-foreground', task.is_completed && 'line-through text-muted-foreground')}>
                             {task.title}
                           </span>
-                          {assignedMilestone ? (
+                          {assignedElsewhere ? (
                             <span className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
-                              <Lock className="h-3 w-3" />已属于「{assignedMilestone.title}」
+                              <Lock className="h-3 w-3" />
+                              {assignedMilestone ? `已属于「${assignedMilestone.title}」` : '已关联其他里程碑'}
                             </span>
                           ) : task.assignees.length > 0 && (
                             <span className="mt-1 block truncate text-[11px] text-muted-foreground">

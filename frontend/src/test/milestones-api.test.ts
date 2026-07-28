@@ -4,6 +4,7 @@ import {
   createMilestone,
   deleteMilestone,
   listMilestones,
+  listMilestoneTimeline,
   updateMilestone,
 } from '../api/milestones'
 import api from '../utils/api'
@@ -37,6 +38,34 @@ describe('milestones api', () => {
   it('degrades an invalid list payload to an empty workspace', async () => {
     vi.mocked(api.get).mockResolvedValue({ data: { detail: 'unexpected' } })
     await expect(listMilestones(4)).resolves.toEqual([])
+  })
+
+  it('loads timeline pages with a stable date cursor', async () => {
+    const page = {
+      items: [{ id: 8 }],
+      has_more: true,
+      has_history: false,
+      next_cursor_date: '2026-08-15',
+      next_cursor_id: 8,
+    }
+    vi.mocked(api.get).mockResolvedValue({ data: page })
+
+    await expect(listMilestoneTimeline(4, {
+      anchorDate: '2026-07-28',
+      status: 'open',
+      cursorDate: '2026-08-15',
+      cursorId: 8,
+    })).resolves.toEqual(page)
+    expect(api.get).toHaveBeenCalledWith('/projects/4/milestones/timeline', {
+      params: {
+        anchor_date: '2026-07-28',
+        direction: 'forward',
+        limit: 12,
+        status: 'open',
+        cursor_date: '2026-08-15',
+        cursor_id: 8,
+      },
+    })
   })
 
   it('creates and updates milestones with multiple task links', async () => {

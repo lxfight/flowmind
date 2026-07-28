@@ -166,6 +166,14 @@ export interface MilestoneInput {
   status?: MilestoneStatus
 }
 
+export interface MilestoneTimelinePage {
+  items: Milestone[]
+  has_more: boolean
+  has_history: boolean
+  next_cursor_date: string | null
+  next_cursor_id: number | null
+}
+
 // ===== 用户搜索 =====
 
 /** 搜索到的用户信息 */
