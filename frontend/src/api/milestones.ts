@@ -3,7 +3,7 @@ import api from '../utils/api'
 
 export async function listMilestones(projectId: number): Promise<Milestone[]> {
   const response = await api.get(`/projects/${projectId}/milestones`)
-  return response.data
+  return Array.isArray(response.data) ? response.data : []
 }
 
 export async function createMilestone(

@@ -34,6 +34,11 @@ describe('milestones api', () => {
     expect(api.get).toHaveBeenCalledWith('/projects/4/milestones')
   })
 
+  it('degrades an invalid list payload to an empty workspace', async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: { detail: 'unexpected' } })
+    await expect(listMilestones(4)).resolves.toEqual([])
+  })
+
   it('creates and updates milestones with multiple task links', async () => {
     vi.mocked(api.post).mockResolvedValue({ data: { id: 3, ...input } })
     vi.mocked(api.put).mockResolvedValue({ data: { id: 3, ...input, status: 'completed' } })
