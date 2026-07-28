@@ -1,7 +1,16 @@
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Brain, ChevronDown, ChevronRight, HelpCircle, Undo2, Wrench } from 'lucide-react'
+import {
+  Brain,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  HelpCircle,
+  LoaderCircle,
+  Undo2,
+  Wrench,
+} from 'lucide-react'
 import { cn } from '../../utils/cn'
 import { toolLabel } from '../../stores/llmChatStore'
 import { Button } from '../ui/Button'
@@ -115,6 +124,92 @@ function ThinkingDisclosure({ steps, streaming }: { steps: ProcessStep[]; stream
   )
 }
 
+function toolValueText(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (value === null) return 'null'
+  if (value === undefined) return ''
+  return JSON.stringify(value, null, 2)
+}
+
+function StructuredToolData({ value }: { value: Record<string, unknown> }) {
+  return (
+    <dl className="divide-y divide-border/70">
+      {Object.entries(value).map(([key, item]) => (
+        <div key={key} className="grid grid-cols-[minmax(5rem,auto)_1fr] gap-3 py-1.5 first:pt-0 last:pb-0">
+          <dt className="font-mono text-[11px] text-muted-foreground">{key}</dt>
+          <dd className="min-w-0 whitespace-pre-wrap break-words text-foreground/75">
+            {toolValueText(item)}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
+function parsedToolOutput(output: string): Record<string, unknown> | null {
+  try {
+    const value = JSON.parse(output)
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : null
+  } catch {
+    return null
+  }
+}
+
+function ToolCallItem({ step, index }: { step: ProcessStep; index: number }) {
+  const [expanded, setExpanded] = useState(false)
+  const args = step.args && Object.keys(step.args).length > 0 ? step.args : null
+  const structuredOutput = step.output ? parsedToolOutput(step.output) : null
+
+  return (
+    <div className="border-b border-border/70 pb-1.5 last:border-b-0 last:pb-0" data-testid="tool-call-item">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        aria-expanded={expanded}
+        className="flex min-h-7 w-full items-center gap-2 text-left text-xs text-foreground/80 transition-colors duration-150 hover:text-foreground"
+      >
+        <span className="w-5 shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">
+          {String(index + 1).padStart(2, '0')}
+        </span>
+        <Wrench className="h-3 w-3 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 truncate font-medium">{toolLabel(step.tool || '')}</span>
+        {step.status === 'running' ? (
+          <LoaderCircle className="h-3 w-3 shrink-0 animate-spin text-primary" aria-label="执行中" />
+        ) : (
+          <CheckCircle2 className="h-3 w-3 shrink-0 text-muted-foreground" aria-label="已完成" />
+        )}
+        <ChevronRight
+          className={cn('h-3 w-3 shrink-0 transition-transform duration-150', expanded && 'rotate-90')}
+        />
+      </button>
+
+      {expanded && (
+        <div className="ml-7 mt-1.5 space-y-3 border-l border-border pl-3 text-xs text-muted-foreground">
+          {args && (
+            <section aria-label="调用参数">
+              <div className="mb-1.5 font-medium text-foreground/70">调用参数</div>
+              <StructuredToolData value={args} />
+            </section>
+          )}
+          {step.output && (
+            <section aria-label="执行结果">
+              <div className="mb-1.5 font-medium text-foreground/70">执行结果</div>
+              {structuredOutput ? (
+                <StructuredToolData value={structuredOutput} />
+              ) : (
+                <div className="whitespace-pre-wrap break-words leading-relaxed">{step.output}</div>
+              )}
+            </section>
+          )}
+          {!args && !step.output && (
+            <div>{step.status === 'running' ? '等待工具返回结果' : '无调用参数或返回内容'}</div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ToolCallsDisclosure({ steps }: { steps: ProcessStep[] }) {
   const [expanded, setExpanded] = useState(false)
   const toolSteps = steps.filter((step) => step.kind === 'tool')
@@ -142,23 +237,9 @@ function ToolCallsDisclosure({ steps }: { steps: ProcessStep[] }) {
       </button>
       {expanded && (
         <div className="mt-1.5 max-h-64 overflow-y-auto border-l border-border pl-3 text-xs text-muted-foreground scrollbar-thin">
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             {toolSteps.map((step, index) => (
-              <div key={step.id || `${step.tool}-${index}`}>
-                <div className="flex items-center gap-1.5 font-medium text-foreground/75">
-                  <Wrench className="h-3 w-3" />
-                  <span>{toolLabel(step.tool || '')}</span>
-                  {step.status === 'running' && <span className="text-muted-foreground">执行中</span>}
-                </div>
-                {step.args && Object.keys(step.args).length > 0 && (
-                  <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed">
-                    {JSON.stringify(step.args, null, 2)}
-                  </pre>
-                )}
-                {step.output && (
-                  <div className="mt-1 whitespace-pre-wrap break-words leading-relaxed">{step.output}</div>
-                )}
-              </div>
+              <ToolCallItem key={step.id || `${step.tool}-${index}`} step={step} index={index} />
             ))}
           </div>
         </div>
