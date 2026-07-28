@@ -286,6 +286,14 @@ class MilestoneOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class MilestoneTimelinePage(BaseModel):
+    items: list[MilestoneOut]
+    has_more: bool = False
+    has_history: bool = False
+    next_cursor_date: date | None = None
+    next_cursor_id: int | None = None
+
+
 # Generic paginated envelope
 class PageOut(BaseModel):
     total: int

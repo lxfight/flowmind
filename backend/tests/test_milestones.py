@@ -15,19 +15,74 @@ def _future_date(days: int = 30) -> str:
     return (datetime.now(UTC).date() + timedelta(days=days)).isoformat()
 
 
-def _create_milestone(client, headers, project_id: int, title: str, task_ids=None):
+def _create_milestone(
+    client,
+    headers,
+    project_id: int,
+    title: str,
+    task_ids=None,
+    *,
+    days: int = 30,
+):
     response = client.post(
         f"/api/projects/{project_id}/milestones",
         headers=headers,
         json={
             "title": title,
             "description": f"{title} 的验收边界",
-            "target_date": _future_date(),
+            "target_date": _future_date(days),
             "task_ids": task_ids or [],
         },
     )
     assert response.status_code == 201, response.text
     return response.json()
+
+
+def test_timeline_uses_stable_date_cursor_and_skips_history_by_default(client):
+    headers = admin_login(client)
+    project_id, _ = create_project(client, headers, name="时间线分页项目")
+    today = datetime.now(UTC).date()
+    past = _create_milestone(client, headers, project_id, "历史节点", days=-3)
+    current = _create_milestone(client, headers, project_id, "今日节点", days=0)
+    first = _create_milestone(client, headers, project_id, "同日节点 A", days=2)
+    second = _create_milestone(client, headers, project_id, "同日节点 B", days=2)
+
+    response = client.get(
+        f"/api/projects/{project_id}/milestones/timeline",
+        headers=headers,
+        params={"anchor_date": today.isoformat(), "limit": 2},
+    )
+    assert response.status_code == 200, response.text
+    page = response.json()
+    assert [item["id"] for item in page["items"]] == [current["id"], first["id"]]
+    assert page["has_more"] is True
+    assert page["has_history"] is True
+
+    response = client.get(
+        f"/api/projects/{project_id}/milestones/timeline",
+        headers=headers,
+        params={
+            "anchor_date": today.isoformat(),
+            "limit": 2,
+            "cursor_date": page["next_cursor_date"],
+            "cursor_id": page["next_cursor_id"],
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert [item["id"] for item in response.json()["items"]] == [second["id"]]
+    assert response.json()["has_more"] is False
+
+    response = client.get(
+        f"/api/projects/{project_id}/milestones/timeline",
+        headers=headers,
+        params={
+            "anchor_date": today.isoformat(),
+            "direction": "backward",
+            "limit": 2,
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert [item["id"] for item in response.json()["items"]] == [past["id"]]
 
 
 def test_task_cannot_belong_to_multiple_milestones(client):

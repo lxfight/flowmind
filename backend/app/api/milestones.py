@@ -1,3 +1,6 @@
+from datetime import date
+from typing import Literal
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -5,7 +8,12 @@ from app.core.database import get_db
 from app.core.realtime import queue_ws_event
 from app.core.security import get_current_user
 from app.models.user import User
-from app.schemas import MilestoneCreate, MilestoneOut, MilestoneUpdate
+from app.schemas import (
+    MilestoneCreate,
+    MilestoneOut,
+    MilestoneTimelinePage,
+    MilestoneUpdate,
+)
 from app.services import milestone_service
 
 router = APIRouter(
@@ -44,6 +52,34 @@ async def create_milestone(
         actor_id=current_user.id,
     )
     return milestone
+
+
+@router.get("/timeline", response_model=MilestoneTimelinePage)
+async def list_milestone_timeline(
+    project_id: int,
+    anchor_date: date = Query(),
+    direction: Literal["forward", "backward"] = Query(default="forward"),
+    limit: int = Query(default=12, ge=1, le=50),
+    status: str | None = Query(
+        default=None,
+        pattern="^(open|completed|cancelled|archived)$",
+    ),
+    cursor_date: date | None = Query(default=None),
+    cursor_id: int | None = Query(default=None, ge=1),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await milestone_service.list_milestone_timeline(
+        project_id,
+        current_user,
+        db,
+        anchor_date=anchor_date,
+        direction=direction,
+        limit=limit,
+        status=status,
+        cursor_date=cursor_date,
+        cursor_id=cursor_id,
+    )
 
 
 @router.get("/{milestone_id}", response_model=MilestoneOut)

@@ -1,7 +1,7 @@
 from datetime import UTC, date, datetime, timedelta
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -14,7 +14,12 @@ from app.models.activity import ActivityLog
 from app.models.milestone import Milestone
 from app.models.task import Task
 from app.models.user import User
-from app.schemas import MilestoneCreate, MilestoneOut, MilestoneUpdate
+from app.schemas import (
+    MilestoneCreate,
+    MilestoneOut,
+    MilestoneTimelinePage,
+    MilestoneUpdate,
+)
 
 
 def _aware(value: datetime) -> datetime:
@@ -159,6 +164,89 @@ async def list_milestones(
         query = query.where(Milestone.status == status)
     result = await db.execute(query)
     return [_out(milestone) for milestone in result.scalars().all()]
+
+
+async def list_milestone_timeline(
+    project_id: int,
+    user: User,
+    db: AsyncSession,
+    *,
+    anchor_date: date,
+    direction: str,
+    limit: int,
+    status: str | None = None,
+    cursor_date: date | None = None,
+    cursor_id: int | None = None,
+) -> MilestoneTimelinePage:
+    await ensure_project_member(project_id, user, db)
+    if (cursor_date is None) != (cursor_id is None):
+        raise HTTPException(status_code=422, detail="时间线游标必须同时包含日期和 ID")
+
+    filters = [Milestone.project_id == project_id]
+    if status == "archived":
+        filters.append(Milestone.status != "open")
+    elif status:
+        filters.append(Milestone.status == status)
+
+    history_result = await db.execute(
+        select(Milestone.id)
+        .where(*filters, Milestone.target_date < anchor_date)
+        .limit(1)
+    )
+    has_history = history_result.scalar_one_or_none() is not None
+
+    query = select(Milestone).where(*filters)
+    if direction == "forward":
+        if cursor_date is None:
+            query = query.where(Milestone.target_date >= anchor_date)
+        else:
+            query = query.where(
+                or_(
+                    Milestone.target_date > cursor_date,
+                    and_(
+                        Milestone.target_date == cursor_date,
+                        Milestone.id > cursor_id,
+                    ),
+                )
+            )
+        query = query.order_by(Milestone.target_date, Milestone.id)
+    else:
+        if cursor_date is None:
+            query = query.where(Milestone.target_date < anchor_date)
+        else:
+            query = query.where(
+                or_(
+                    Milestone.target_date < cursor_date,
+                    and_(
+                        Milestone.target_date == cursor_date,
+                        Milestone.id < cursor_id,
+                    ),
+                )
+            )
+        query = query.order_by(Milestone.target_date.desc(), Milestone.id.desc())
+
+    result = await db.execute(
+        query.options(
+            selectinload(Milestone.owner),
+            selectinload(Milestone.tasks),
+        ).limit(limit + 1)
+    )
+    rows = list(result.scalars().all())
+    has_more = len(rows) > limit
+    page_rows = rows[:limit]
+    if direction == "backward":
+        page_rows.reverse()
+
+    boundary = None
+    if has_more and page_rows:
+        boundary = page_rows[-1] if direction == "forward" else page_rows[0]
+    return MilestoneTimelinePage(
+        items=[_out(milestone) for milestone in page_rows],
+        has_more=has_more,
+        has_history=has_history,
+        next_cursor_date=boundary.target_date if boundary else None,
+        next_cursor_id=boundary.id if boundary else None,
+    )
 
 
 async def get_milestone(
