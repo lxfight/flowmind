@@ -39,6 +39,8 @@ describe('milestone timeline layout', () => {
     expect(layout.items[0].x - layout.todayX).toBe(2 * TIMELINE_DAY_WIDTH)
     expect(layout.items[1].x - layout.items[0].x).toBe(5 * TIMELINE_DAY_WIDTH)
     expect(layout.axisEnd - layout.todayX).toBe(7 * TIMELINE_DAY_WIDTH)
+    expect(layout.curvePath).toContain(' C ')
+    expect(layout.items[0].y).not.toBe(layout.todayY)
   })
 
   it('moves today right by the exact historical interval after history loads', () => {
@@ -48,6 +50,14 @@ describe('milestone timeline layout', () => {
     ], '2026-07-28')
 
     expect(layout.todayX).toBe(TIMELINE_ORIGIN_PADDING + 10 * TIMELINE_DAY_WIDTH)
+  })
+
+  it('keeps a visible vertical sweep across a two-week interval', () => {
+    const layout = buildMilestoneTimelineLayout([
+      milestone(1, '2026-08-11'),
+    ], '2026-07-28')
+
+    expect(Math.abs(layout.items[0].y - layout.todayY)).toBeGreaterThan(45)
   })
 
   it('uses separate lanes for nearby milestones', () => {

@@ -47,7 +47,10 @@ import { useProjectSocket } from '../hooks/useProjectSocket'
 import { useAuthStore } from '../stores/authStore'
 import api, { errDetail } from '../utils/api'
 import { cn } from '../utils/cn'
-import { buildMilestoneTimelineLayout } from '../utils/milestoneTimeline'
+import {
+  buildMilestoneTimelineLayout,
+  TIMELINE_CANVAS_HEIGHT,
+} from '../utils/milestoneTimeline'
 import type {
   MemberOption,
   Milestone,
@@ -327,10 +330,10 @@ export default function MilestonesPage() {
     [anchorDate, milestones],
   )
   const timelineIntervals = useMemo(() => {
-    const points = [{ date: anchorDate, x: timelineLayout.todayX }]
-    timelineLayout.items.forEach(({ milestone, x }) => {
+    const points = [{ date: anchorDate, x: timelineLayout.todayX, y: timelineLayout.todayY }]
+    timelineLayout.items.forEach(({ milestone, x, y }) => {
       if (!points.some((point) => point.date === milestone.target_date)) {
-        points.push({ date: milestone.target_date, x })
+        points.push({ date: milestone.target_date, x, y })
       }
     })
     points.sort((left, right) => left.date.localeCompare(right.date))
@@ -339,6 +342,7 @@ export default function MilestonesPage() {
       return {
         days: differenceInCalendarDays(parseISO(next.date), parseISO(point.date)),
         x: point.x + (next.x - point.x) / 2,
+        y: point.y + (next.y - point.y) / 2,
       }
     })
   }, [anchorDate, timelineLayout])
@@ -551,17 +555,40 @@ export default function MilestonesPage() {
                 className="milestone-timeline-canvas"
                 style={{
                   width: `${timelineLayout.width}px`,
-                  '--axis-start': `${timelineLayout.axisStart}px`,
-                  '--axis-width': `${timelineLayout.axisEnd - timelineLayout.axisStart}px`,
                   '--today-x': `${timelineLayout.todayX}px`,
+                  '--today-y': `${timelineLayout.todayY}px`,
                 } as CSSProperties}
               >
-                <span className="milestone-axis-line" aria-hidden="true" />
+                <svg
+                  className="milestone-curve-track"
+                  width={timelineLayout.width}
+                  height={TIMELINE_CANVAS_HEIGHT}
+                  viewBox={`0 0 ${timelineLayout.width} ${TIMELINE_CANVAS_HEIGHT}`}
+                  aria-hidden="true"
+                >
+                  <path className="milestone-curve-aura" d={timelineLayout.curvePath} />
+                  <motion.path
+                    className="milestone-curve-core"
+                    d={timelineLayout.curvePath}
+                    initial={reduceMotion ? false : { pathLength: 0, opacity: 0.25 }}
+                    animate={{ pathLength: 1, opacity: 1 }}
+                    transition={{ duration: reduceMotion ? 0 : 0.85, ease: [0.22, 1, 0.36, 1] }}
+                  />
+                  <motion.path
+                    className="milestone-curve-flow"
+                    d={timelineLayout.curvePath}
+                    animate={reduceMotion ? undefined : { strokeDashoffset: [0, -40] }}
+                    transition={reduceMotion ? undefined : { duration: 6, ease: 'linear', repeat: Infinity }}
+                  />
+                </svg>
                 {timelineIntervals.map((interval, index) => interval.days > 0 && (
                   <span
                     key={`${interval.x}-${index}`}
-                    className={cn('milestone-timeline-gap', interval.days <= 4 && 'is-tight')}
-                    style={{ left: `${interval.x}px` }}
+                    className="milestone-timeline-gap"
+                    style={{
+                      left: `${interval.x}px`,
+                      top: `${interval.y + (interval.y >= timelineLayout.todayY ? -14 : 14)}px`,
+                    }}
                   >
                     {timelineGapCopy(interval.days).replace('相隔 ', '')}
                   </span>
@@ -571,12 +598,13 @@ export default function MilestonesPage() {
                   <strong>{format(parseISO(anchorDate), 'MM.dd')}</strong>
                   <i />
                 </span>
-              {timelineLayout.items.map(({ milestone, x, cardLeft, lane }, index) => {
+              {timelineLayout.items.map(({ milestone, x, y, cardLeft, lane }, index) => {
                 const health = healthConfig[milestone.health]
                 const HealthIcon = health.icon
                 const isSelected = selected?.id === milestone.id
                 const nodeStyle = {
                   '--node-x': `${x}px`,
+                  '--node-y': `${y}px`,
                   '--card-left': `${cardLeft}px`,
                 } as CSSProperties
                 return (
@@ -591,7 +619,13 @@ export default function MilestonesPage() {
                       onClick={() => setSelectedId(milestone.id)}
                       initial={reduceMotion ? false : { opacity: 0, y: lane >= 2 ? 12 : -12 }}
                       animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: reduceMotion ? 0 : Math.min(index, 8) * 0.04, duration: 0.24 }}
+                      transition={{
+                        delay: reduceMotion ? 0 : Math.min(index, 8) * 0.04,
+                        duration: reduceMotion ? 0 : undefined,
+                        type: reduceMotion ? 'tween' : 'spring',
+                        stiffness: 260,
+                        damping: 24,
+                      }}
                     >
                       <span className="milestone-timeline-card-top">
                         <span className="milestone-timeline-date">
