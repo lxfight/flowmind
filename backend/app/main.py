@@ -18,6 +18,7 @@ from app.api import (
     auth,
     knowledge,
     llm,
+    milestones,
     notifications,
     projects,
     statuses,
@@ -170,6 +171,7 @@ app.include_router(projects.router)
 app.include_router(tasks.router)
 app.include_router(statuses.router)
 app.include_router(knowledge.router)
+app.include_router(milestones.router)
 app.include_router(llm.router)
 app.include_router(notifications.router)
 app.include_router(task_search.router)

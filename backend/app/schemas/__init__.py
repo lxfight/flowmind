@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field
@@ -165,6 +165,7 @@ class TaskCreate(BaseModel):
     priority: int = Field(default=0, ge=0, le=4)
     due_date: datetime | None = None
     parent_task_id: int | None = None
+    milestone_ids: list[int] = Field(default_factory=list, max_length=50)
 
 
 class TaskUpdate(BaseModel):
@@ -176,6 +177,7 @@ class TaskUpdate(BaseModel):
     order: float | None = None
     due_date: datetime | None = None
     is_completed: bool | None = None
+    milestone_ids: list[int] | None = Field(default=None, max_length=50)
 
 
 class SubtaskUpdate(BaseModel):
@@ -201,6 +203,7 @@ class TaskOut(BaseModel):
     comment_count: int = 0
     subtask_count: int = 0
     subtask_done: int = 0
+    milestone_ids: list[int] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 
@@ -240,6 +243,45 @@ class TaskAttachmentOut(BaseModel):
     content_type: str
     size: int
     created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# Milestone
+class MilestoneCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=256)
+    description: str = Field(default="", max_length=20_000)
+    target_date: date
+    owner_id: int | None = None
+    task_ids: list[int] = Field(default_factory=list, max_length=200)
+
+
+class MilestoneUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=256)
+    description: str | None = Field(default=None, max_length=20_000)
+    target_date: date | None = None
+    owner_id: int | None = None
+    status: Literal["open", "completed", "cancelled"] | None = None
+    task_ids: list[int] | None = Field(default=None, max_length=200)
+
+
+class MilestoneOut(BaseModel):
+    id: int
+    project_id: int
+    title: str
+    description: str
+    target_date: date
+    owner_id: int | None = None
+    owner: UserBriefOut | None = None
+    status: str
+    health: str = "on_track"
+    task_ids: list[int] = Field(default_factory=list)
+    task_total: int = 0
+    task_completed: int = 0
+    progress: int = 0
+    completed_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
 
     model_config = {"from_attributes": True}
 
@@ -461,6 +503,9 @@ __all__ = [
     "TaskCommentUpdate",
     "TaskCommentOut",
     "TaskAttachmentOut",
+    "MilestoneCreate",
+    "MilestoneUpdate",
+    "MilestoneOut",
     "TaskMove",
     "PageOut",
     "TaskListOut",

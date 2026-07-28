@@ -1,6 +1,7 @@
 from app.models.activity import ActivityLog
 from app.models.knowledge import DocChunk, DocChunkEmbedding, KnowledgeDoc
 from app.models.llm_chat import LLMChatMessage, LLMChatSession
+from app.models.milestone import Milestone, milestone_tasks
 from app.models.notification import Notification
 from app.models.project import Project, ProjectMember
 from app.models.project_report import ProjectReport, ProjectReportGeneration
@@ -24,6 +25,8 @@ __all__ = [
     "ActivityLog",
     "LLMChatSession",
     "LLMChatMessage",
+    "Milestone",
+    "milestone_tasks",
     "Notification",
     "SystemConfig",
     "SystemUpdateRun",

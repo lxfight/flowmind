@@ -1,0 +1,240 @@
+from datetime import UTC, date, datetime, timedelta
+
+from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.api.permissions import (
+    ensure_project_assignee,
+    ensure_project_editor,
+    ensure_project_member,
+)
+from app.models.activity import ActivityLog
+from app.models.milestone import Milestone
+from app.models.task import Task
+from app.models.user import User
+from app.schemas import MilestoneCreate, MilestoneOut, MilestoneUpdate
+
+
+def _aware(value: datetime) -> datetime:
+    return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+
+def _health(milestone: Milestone, today: date | None = None) -> str:
+    if milestone.status == "completed":
+        return "completed"
+    if milestone.status == "cancelled":
+        return "cancelled"
+    today = today or datetime.now(UTC).date()
+    if milestone.target_date < today:
+        return "overdue"
+
+    open_tasks = [task for task in milestone.tasks if not task.is_completed]
+    has_overdue_task = any(
+        task.due_date and _aware(task.due_date).date() < today
+        for task in open_tasks
+    )
+    if has_overdue_task or (
+        milestone.target_date <= today + timedelta(days=7) and open_tasks
+    ):
+        return "at_risk"
+    return "on_track"
+
+
+def _out(milestone: Milestone) -> MilestoneOut:
+    total = len(milestone.tasks)
+    completed = sum(1 for task in milestone.tasks if task.is_completed)
+    output = MilestoneOut.model_validate(milestone)
+    output.health = _health(milestone)
+    output.task_ids = sorted(task.id for task in milestone.tasks)
+    output.task_total = total
+    output.task_completed = completed
+    output.progress = round(completed / total * 100) if total else 0
+    return output
+
+
+def _log(
+    db: AsyncSession,
+    *,
+    project_id: int,
+    user_id: int,
+    action: str,
+    milestone_id: int,
+    summary: str,
+) -> None:
+    db.add(
+        ActivityLog(
+            project_id=project_id,
+            user_id=user_id,
+            action=action,
+            target_type="milestone",
+            target_id=milestone_id,
+            summary=summary,
+        )
+    )
+
+
+async def _tasks_for_project(
+    project_id: int,
+    task_ids: list[int],
+    db: AsyncSession,
+) -> list[Task]:
+    unique_ids = list(dict.fromkeys(task_ids))
+    if not unique_ids:
+        return []
+    result = await db.execute(
+        select(Task).where(
+            Task.project_id == project_id,
+            Task.parent_task_id.is_(None),
+            Task.id.in_(unique_ids),
+        )
+    )
+    tasks = result.scalars().all()
+    if len(tasks) != len(unique_ids):
+        raise HTTPException(
+            status_code=400,
+            detail="里程碑只能关联当前项目的顶层任务",
+        )
+    task_by_id = {task.id: task for task in tasks}
+    return [task_by_id[task_id] for task_id in unique_ids]
+
+
+async def _milestone_or_404(
+    project_id: int,
+    milestone_id: int,
+    db: AsyncSession,
+) -> Milestone:
+    result = await db.execute(
+        select(Milestone)
+        .where(
+            Milestone.id == milestone_id,
+            Milestone.project_id == project_id,
+        )
+        .options(selectinload(Milestone.owner), selectinload(Milestone.tasks))
+    )
+    milestone = result.scalar_one_or_none()
+    if not milestone:
+        raise HTTPException(status_code=404, detail="里程碑不存在")
+    return milestone
+
+
+async def list_milestones(
+    project_id: int,
+    user: User,
+    db: AsyncSession,
+    *,
+    status: str | None = None,
+) -> list[MilestoneOut]:
+    await ensure_project_member(project_id, user, db)
+    query = (
+        select(Milestone)
+        .where(Milestone.project_id == project_id)
+        .options(selectinload(Milestone.owner), selectinload(Milestone.tasks))
+        .order_by(Milestone.target_date, Milestone.id)
+    )
+    if status:
+        query = query.where(Milestone.status == status)
+    result = await db.execute(query)
+    return [_out(milestone) for milestone in result.scalars().all()]
+
+
+async def get_milestone(
+    project_id: int,
+    milestone_id: int,
+    user: User,
+    db: AsyncSession,
+) -> MilestoneOut:
+    await ensure_project_member(project_id, user, db)
+    return _out(await _milestone_or_404(project_id, milestone_id, db))
+
+
+async def create_milestone(
+    project_id: int,
+    data: MilestoneCreate,
+    user: User,
+    db: AsyncSession,
+) -> MilestoneOut:
+    await ensure_project_editor(project_id, user, db)
+    if data.owner_id is not None:
+        await ensure_project_assignee(project_id, data.owner_id, db)
+    tasks = await _tasks_for_project(project_id, data.task_ids, db)
+    milestone = Milestone(
+        project_id=project_id,
+        title=data.title,
+        description=data.description,
+        target_date=data.target_date,
+        owner_id=data.owner_id,
+        created_by=user.id,
+        tasks=tasks,
+    )
+    db.add(milestone)
+    await db.flush()
+    _log(
+        db,
+        project_id=project_id,
+        user_id=user.id,
+        action="create",
+        milestone_id=milestone.id,
+        summary=f"创建里程碑: {milestone.title}",
+    )
+    return _out(await _milestone_or_404(project_id, milestone.id, db))
+
+
+async def update_milestone(
+    project_id: int,
+    milestone_id: int,
+    data: MilestoneUpdate,
+    user: User,
+    db: AsyncSession,
+) -> MilestoneOut:
+    await ensure_project_editor(project_id, user, db)
+    milestone = await _milestone_or_404(project_id, milestone_id, db)
+    payload = data.model_dump(exclude_unset=True)
+    task_ids = payload.pop("task_ids", None)
+    if "owner_id" in payload and payload["owner_id"] is not None:
+        await ensure_project_assignee(project_id, payload["owner_id"], db)
+    if task_ids is not None:
+        milestone.tasks = await _tasks_for_project(project_id, task_ids, db)
+
+    previous_status = milestone.status
+    for field, value in payload.items():
+        setattr(milestone, field, value)
+    if "target_date" in payload:
+        milestone.due_notified_at = None
+        milestone.overdue_notified_at = None
+    if "status" in payload and milestone.status != previous_status:
+        milestone.completed_at = (
+            datetime.now(UTC) if milestone.status == "completed" else None
+        )
+
+    await db.flush()
+    _log(
+        db,
+        project_id=project_id,
+        user_id=user.id,
+        action="update",
+        milestone_id=milestone.id,
+        summary=f"更新里程碑: {milestone.title}",
+    )
+    return _out(await _milestone_or_404(project_id, milestone.id, db))
+
+
+async def delete_milestone(
+    project_id: int,
+    milestone_id: int,
+    user: User,
+    db: AsyncSession,
+) -> None:
+    await ensure_project_editor(project_id, user, db)
+    milestone = await _milestone_or_404(project_id, milestone_id, db)
+    title = milestone.title
+    _log(
+        db,
+        project_id=project_id,
+        user_id=user.id,
+        action="delete",
+        milestone_id=milestone.id,
+        summary=f"删除里程碑: {title}",
+    )
+    await db.delete(milestone)

@@ -42,6 +42,12 @@ class Project(Base):
         cascade="all, delete-orphan",
         uselist=False,
     )
+    milestones = relationship(
+        "Milestone",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        order_by="Milestone.target_date",
+    )
     owner = relationship("User")
     chat_sessions = relationship("LLMChatSession", back_populates="project")
 

@@ -65,6 +65,11 @@ class Task(Base):
     parent_task = relationship("Task", back_populates="subtasks", remote_side=[id])
     attachments = relationship("TaskAttachment", back_populates="task", cascade="all, delete-orphan",
                                order_by="TaskAttachment.created_at")
+    milestones = relationship(
+        "Milestone",
+        secondary="milestone_tasks",
+        back_populates="tasks",
+    )
 
 
 class TaskComment(Base):

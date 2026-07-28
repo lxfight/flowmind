@@ -3,7 +3,7 @@ import json
 from datetime import UTC, datetime
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -17,6 +17,7 @@ from app.api.permissions import (
 )
 from app.core.notify import create_notification
 from app.models.activity import ActivityLog
+from app.models.milestone import Milestone
 from app.models.project import Project, ProjectMember
 from app.models.task import Task, TaskComment, TaskStatus
 from app.models.user import User
@@ -105,18 +106,55 @@ async def _subtask_status_map(db: AsyncSession, task_id: int) -> dict[str, int]:
 # ---------------------------------------------------------------------------
 def _task_out(t: Task) -> TaskOut:
     out = TaskOut.model_validate(t)
-    out.comment_count = len(getattr(t, "comments", []))
-    out.subtask_count = len(getattr(t, "subtasks", []))
-    out.subtask_done = sum(1 for s in getattr(t, "subtasks", []) if s.is_completed)
+    state = inspect(t).attrs
+    comments = state.comments.loaded_value
+    subtasks = state.subtasks.loaded_value
+    milestones = state.milestones.loaded_value
+    if isinstance(comments, list):
+        out.comment_count = len(comments)
+    if isinstance(subtasks, list):
+        out.subtask_count = len(subtasks)
+        out.subtask_done = sum(1 for subtask in subtasks if subtask.is_completed)
+    if isinstance(milestones, list):
+        out.milestone_ids = sorted(milestone.id for milestone in milestones)
     return out
 
 
 def _task_detail_out(t: Task) -> TaskDetailOut:
     out = TaskDetailOut.model_validate(t)
-    out.comment_count = len(getattr(t, "comments", []))
-    out.subtask_count = len(getattr(t, "subtasks", []))
-    out.subtask_done = sum(1 for s in getattr(t, "subtasks", []) if s.is_completed)
+    state = inspect(t).attrs
+    comments = state.comments.loaded_value
+    subtasks = state.subtasks.loaded_value
+    milestones = state.milestones.loaded_value
+    if isinstance(comments, list):
+        out.comment_count = len(comments)
+    if isinstance(subtasks, list):
+        out.subtask_count = len(subtasks)
+        out.subtask_done = sum(1 for subtask in subtasks if subtask.is_completed)
+    if isinstance(milestones, list):
+        out.milestone_ids = sorted(milestone.id for milestone in milestones)
     return out
+
+
+async def _resolve_milestones(
+    project_id: int,
+    milestone_ids: list[int],
+    db: AsyncSession,
+) -> list[Milestone]:
+    unique_ids = list(dict.fromkeys(milestone_ids))
+    if not unique_ids:
+        return []
+    result = await db.execute(
+        select(Milestone).where(
+            Milestone.project_id == project_id,
+            Milestone.id.in_(unique_ids),
+        )
+    )
+    milestones = result.scalars().all()
+    if len(milestones) != len(unique_ids):
+        raise HTTPException(status_code=400, detail="里程碑必须属于当前项目")
+    milestone_by_id = {milestone.id: milestone for milestone in milestones}
+    return [milestone_by_id[milestone_id] for milestone_id in unique_ids]
 
 
 async def _require_admin(project_id: int, user: User, db: AsyncSession) -> None:
@@ -221,6 +259,7 @@ async def list_tasks(
             selectinload(Task.assignees),
             selectinload(Task.subtasks),
             selectinload(Task.comments),
+            selectinload(Task.milestones),
         )
         .where(*filters)
         .order_by(Task.order, Task.created_at.desc())
@@ -250,6 +289,7 @@ async def get_task(project_id: int, task_id: int, user: User, db: AsyncSession) 
             selectinload(Task.assignees),
             selectinload(Task.subtasks).selectinload(Task.assignees),
             selectinload(Task.comments).selectinload(TaskComment.user),
+            selectinload(Task.milestones),
         )
         .where(Task.id == task_id, Task.project_id == project_id)
     )
@@ -273,9 +313,16 @@ async def create_task(
             raise HTTPException(status_code=400, detail="子任务不能继续创建下级任务")
         if parent.status_id != data.status_id:
             raise HTTPException(status_code=400, detail="子任务状态必须与父任务一致")
+        if data.milestone_ids:
+            raise HTTPException(status_code=400, detail="子任务不能单独关联里程碑")
     assignees: list[User] = []
     for assignee_id in dict.fromkeys(data.assignee_ids):
         assignees.append(await ensure_project_assignee(project_id, assignee_id, db))
+    milestones = (
+        await _resolve_milestones(project_id, data.milestone_ids, db)
+        if data.parent_task_id is None
+        else []
+    )
 
     result = await db.execute(
         select(func.max(Task.order)).where(
@@ -298,10 +345,11 @@ async def create_task(
         completed_at=datetime.now(UTC) if status.is_done else None,
     )
     task.assignees = assignees
+    task.milestones = milestones
     db.add(task)
     await db.flush()
     await db.refresh(task)
-    await db.refresh(task, ["assignees"])
+    await db.refresh(task, ["assignees", "milestones"])
 
     _log(
         db,
@@ -315,7 +363,7 @@ async def create_task(
     )
     if assignees:
         await _notify_task_assigned(db, project_id, task, [u.id for u in assignees], user)
-    return TaskOut.model_validate(task)
+    return _task_out(task)
 
 
 async def update_task(
@@ -329,6 +377,7 @@ async def update_task(
     task = await ensure_task_in_project(project_id, task_id, db)
     payload = data.model_dump(exclude_unset=True)
     new_assignees: list[User] | None = None
+    new_milestones: list[Milestone] | None = None
     target_status = None
     if data.status_id is not None:
         target_status = await ensure_status_in_project(project_id, data.status_id, db)
@@ -340,8 +389,13 @@ async def update_task(
         new_assignees = []
         for assignee_id in dict.fromkeys(payload.pop("assignee_ids") or []):
             new_assignees.append(await ensure_project_assignee(project_id, assignee_id, db))
+    if "milestone_ids" in payload:
+        milestone_ids = payload.pop("milestone_ids") or []
+        if task.parent_task_id is not None:
+            raise HTTPException(status_code=400, detail="子任务不能单独关联里程碑")
+        new_milestones = await _resolve_milestones(project_id, milestone_ids, db)
 
-    await db.refresh(task, ["assignees"])
+    await db.refresh(task, ["assignees", "milestones"])
     old_assignee_ids = {u.id for u in task.assignees}
 
     snapshot = None
@@ -361,6 +415,8 @@ async def update_task(
 
     if new_assignees is not None:
         task.assignees = new_assignees
+    if new_milestones is not None:
+        task.milestones = new_milestones
 
     for field, value in payload.items():
         setattr(task, field, value)
@@ -401,7 +457,7 @@ async def update_task(
 
     await db.flush()
     await db.refresh(task)
-    await db.refresh(task, ["assignees"])
+    await db.refresh(task, ["assignees", "milestones"])
 
     _log(
         db,
@@ -417,7 +473,7 @@ async def update_task(
         added_ids = [u.id for u in task.assignees if u.id not in old_assignee_ids]
         if added_ids:
             await _notify_task_assigned(db, project_id, task, added_ids, user)
-    return TaskOut.model_validate(task)
+    return _task_out(task)
 
 
 async def move_task(
@@ -469,7 +525,7 @@ async def move_task(
 
     await db.flush()
     await db.refresh(task)
-    await db.refresh(task, ["assignees"])
+    await db.refresh(task, ["assignees", "milestones"])
 
     _log(
         db,
@@ -481,7 +537,7 @@ async def move_task(
         summary=f"移动任务: {task.title}",
         snapshot=snapshot,
     )
-    return TaskOut.model_validate(task)
+    return _task_out(task)
 
 
 async def delete_task(project_id: int, task_id: int, user: User, db: AsyncSession) -> None:
