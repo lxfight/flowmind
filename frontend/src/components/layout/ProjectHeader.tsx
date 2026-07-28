@@ -10,6 +10,7 @@ import {
   Activity,
   Users,
   FileText,
+  Flag,
   Settings,
 } from 'lucide-react'
 import { Button } from '../ui/Button'
@@ -22,6 +23,7 @@ interface ProjectHeaderProps {
 
 const tabs = [
   { path: 'board', label: '看板', icon: KanbanSquare },
+  { path: 'milestones', label: '里程碑', icon: Flag },
   { path: 'knowledge', label: '知识库', icon: BookOpen },
   { path: 'activities', label: '动态', icon: Activity },
   { path: 'members', label: '成员', icon: Users },

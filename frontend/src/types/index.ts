@@ -21,6 +21,7 @@ export interface TaskSummary {
   comment_count: number
   subtask_count: number
   subtask_done: number
+  milestone_ids: number[]
   created_at: string
   updated_at: string
 }
@@ -36,6 +37,7 @@ export interface TaskCard {
   subtask_count: number
   subtask_done: number
   comment_count: number
+  milestone_ids: number[]
   created_at: string
   updated_at: string
 }
@@ -76,6 +78,7 @@ export interface TaskDetail {
   comment_count: number
   subtask_count: number
   subtask_done: number
+  milestone_ids: number[]
   subtasks?: SubTask[]
   comments: TaskComment[]
 }
@@ -128,6 +131,39 @@ export interface MemberOption {
   username: string
   avatar_url: string
   role?: string
+}
+
+// ===== 里程碑 =====
+
+export type MilestoneStatus = 'open' | 'completed' | 'cancelled'
+export type MilestoneHealth = 'on_track' | 'at_risk' | 'overdue' | 'completed' | 'cancelled'
+
+export interface Milestone {
+  id: number
+  project_id: number
+  title: string
+  description: string
+  target_date: string
+  owner_id: number | null
+  owner: AssigneeBrief | null
+  status: MilestoneStatus
+  health: MilestoneHealth
+  task_ids: number[]
+  task_total: number
+  task_completed: number
+  progress: number
+  completed_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface MilestoneInput {
+  title: string
+  description: string
+  target_date: string
+  owner_id: number | null
+  task_ids: number[]
+  status?: MilestoneStatus
 }
 
 // ===== 用户搜索 =====

@@ -10,6 +10,7 @@ const RegisterPage = lazy(() => import('./pages/RegisterPage'))
 const DashboardPage = lazy(() => import('./pages/DashboardPage'))
 const ProjectPage = lazy(() => import('./pages/ProjectPage'))
 const KanbanView = lazy(() => import('./pages/KanbanView'))
+const MilestonesPage = lazy(() => import('./pages/MilestonesPage'))
 const KnowledgePage = lazy(() => import('./pages/KnowledgePage'))
 const ProjectMembersPage = lazy(() => import('./pages/ProjectMembersPage'))
 const ProjectReportPage = lazy(() => import('./pages/ProjectReportPage'))
@@ -86,6 +87,7 @@ export default function App() {
               <Route path="project/:projectId" element={<ProjectPage />}>
                 <Route index element={<Navigate to="board" replace />} />
                 <Route path="board" element={<KanbanView />} />
+                <Route path="milestones" element={<MilestonesPage />} />
                 <Route path="knowledge" element={<KnowledgePage />} />
                 <Route path="members" element={<ProjectMembersPage />} />
                 <Route path="report" element={<ProjectReportPage />} />

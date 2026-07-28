@@ -15,6 +15,7 @@ function task(overrides: Partial<TaskSummary> & Pick<TaskSummary, 'id' | 'title'
     comment_count: 0,
     subtask_count: 0,
     subtask_done: 0,
+    milestone_ids: [],
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     ...overrides,
