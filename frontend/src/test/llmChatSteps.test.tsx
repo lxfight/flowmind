@@ -6,7 +6,7 @@ import { LLMChatMessage } from '../components/llm-chat/LLMChatMessage'
 import type { ChatMessage } from '../types'
 
 describe('LLMChatMessage process steps', () => {
-  it('renders one collapsed process disclosure with the current running state', async () => {
+  it('renders thinking and tool calls as separate disclosures', async () => {
     const message: ChatMessage = {
       role: 'assistant',
       content: '',
@@ -20,11 +20,17 @@ describe('LLMChatMessage process steps', () => {
     render(<LLMChatMessage message={message} />)
 
     expect(screen.getByTestId('process-steps')).toBeInTheDocument()
-    expect(screen.getByText('正在创建任务')).toBeInTheDocument()
+    expect(screen.getByTestId('thinking-steps')).toBeInTheDocument()
+    expect(screen.getByTestId('tool-steps')).toBeInTheDocument()
+    expect(screen.getByText('思考中')).toBeInTheDocument()
+    expect(screen.getByText('工具调用 · 正在创建任务')).toBeInTheDocument()
     expect(screen.queryByText('先查项目信息…')).not.toBeInTheDocument()
 
-    await userEvent.click(screen.getByText('正在创建任务'))
+    await userEvent.click(screen.getByText('思考中'))
     expect(screen.getByText('先查项目信息…')).toBeInTheDocument()
+    expect(screen.queryByText('查看项目信息')).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByText('工具调用 · 正在创建任务'))
     expect(screen.getByText('查看项目信息')).toBeInTheDocument()
     expect(screen.getByText('创建任务')).toBeInTheDocument()
   })
@@ -40,7 +46,7 @@ describe('LLMChatMessage process steps', () => {
     render(<LLMChatMessage message={message} />)
 
     expect(screen.getByTestId('process-steps')).toBeInTheDocument()
-    expect(screen.getByText('使用了 1 个工具')).toBeInTheDocument()
+    expect(screen.getByText('工具调用 · 1')).toBeInTheDocument()
   })
 
   it('expands a finished tool step to show its output', async () => {
@@ -52,7 +58,7 @@ describe('LLMChatMessage process steps', () => {
     render(<LLMChatMessage message={message} />)
 
     expect(screen.queryByText(/检索到 3 条结果/)).not.toBeInTheDocument()
-    await userEvent.click(screen.getByText('使用了 1 个工具'))
+    await userEvent.click(screen.getByText('工具调用 · 1'))
     expect(screen.getByText(/检索到 3 条结果/)).toBeInTheDocument()
   })
 
@@ -65,7 +71,7 @@ describe('LLMChatMessage process steps', () => {
     render(<LLMChatMessage message={message} />)
 
     expect(screen.queryByText('需要先确认状态列，再创建任务。')).not.toBeInTheDocument()
-    await userEvent.click(screen.getByText('已思考'))
+    await userEvent.click(screen.getByText('思考内容'))
     expect(screen.getByText('需要先确认状态列，再创建任务。')).toBeInTheDocument()
   })
 

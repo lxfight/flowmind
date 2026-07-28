@@ -348,11 +348,13 @@ export const useLLMChatStore = create<LLMChatState>((set, get) => ({
           finalSessionId = data.session_id ?? null
           finalPendingQuestion = data.pending_question ?? null
           finalBatchId = data.action_batch_id ?? null
+          const finalSteps = Array.isArray(data.steps) ? data.steps as ProcessStep[] : null
           patchAssistant({
             streaming: false,
             toolStatus: null,
             content: finalMessage,
             actions: finalActions,
+            ...(finalSteps ? { steps: finalSteps } : {}),
             pending_question: finalPendingQuestion,
             action_batch_id: finalBatchId,
             created_at: new Date().toISOString(),
