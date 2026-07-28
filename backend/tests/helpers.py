@@ -13,9 +13,10 @@ def login(client, username: str, password: str) -> dict[str, str]:
 
 
 def admin_login(client) -> dict[str, str]:
-    # conftest defaults FLOWMIND_ADMIN_PASSWORD to "testadmin", but CI (and
-    # other environments) may override it — honor the env var.
-    return login(client, "admin", os.environ.get("FLOWMIND_ADMIN_PASSWORD", "testadmin"))
+    # conftest provides defaults, but CI may override the initial credentials.
+    username = os.environ.get("FLOWMIND_ADMIN_USERNAME", "admin")
+    password = os.environ.get("FLOWMIND_ADMIN_PASSWORD", "testadmin")
+    return login(client, username, password)
 
 
 def register_and_approve(client, admin_headers, username: str) -> tuple[int, dict[str, str]]:

@@ -63,7 +63,7 @@ SQLite 模式下向量检索降级为关键词检索，其余功能不受影响�
 
 ## 首次登录
 
-1. 打开 http://localhost ，使用管理员账号 `admin` 登录
-2. 初始密码见 `docker compose logs backend` 输出（也可通过 `FLOWMIND_ADMIN_PASSWORD` 预设）
+1. 打开 http://localhost ，使用初始化时配置的管理员账号登录（默认 `admin`）
+2. 管理员用户名可通过 `FLOWMIND_ADMIN_USERNAME` 预设；初始密码见 `docker compose logs backend` 输出（也可通过 `FLOWMIND_ADMIN_PASSWORD` 预设）
 3. 如需 AI 能力：进入 **系统配置** 页填入 LLM API Key，点「连通性测试」确认可用
 4. 创建第一个项目，邀请成员，开始使用

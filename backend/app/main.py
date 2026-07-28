@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import re
 import secrets
 from contextlib import asynccontextmanager
 
@@ -30,6 +31,27 @@ from app.core.database import Base, async_session_factory, engine
 from app.core.version import APP_VERSION, version_info
 
 logger = logging.getLogger(__name__)
+
+_USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{3,64}$")
+
+
+def _initial_admin_username() -> str:
+    username = os.environ.get("FLOWMIND_ADMIN_USERNAME", "").strip() or "admin"
+    if not _USERNAME_PATTERN.fullmatch(username):
+        raise RuntimeError(
+            "FLOWMIND_ADMIN_USERNAME must be 3-64 characters and contain only "
+            "letters, numbers, underscores, dots, or hyphens"
+        )
+    return username
+
+
+def _initial_admin_password() -> tuple[str, bool]:
+    configured_password = os.environ.get("FLOWMIND_ADMIN_PASSWORD", "")
+    if not configured_password.strip():
+        return secrets.token_urlsafe(12), True
+    if not 8 <= len(configured_password) <= 128:
+        raise RuntimeError("FLOWMIND_ADMIN_PASSWORD must be 8-128 characters")
+    return configured_password, False
 
 # Columns that older SQLite dev databases may be missing; create_all never
 # alters existing tables, so add them manually.
@@ -87,12 +109,10 @@ async def lifespan(app: FastAPI):
         from app.models.user import User
         result = await db.execute(select(User).limit(1))
         if not result.scalar_one_or_none():
-            admin_password = os.environ.get(
-                "FLOWMIND_ADMIN_PASSWORD",
-                secrets.token_urlsafe(12),
-            )
+            admin_username = _initial_admin_username()
+            admin_password, generated_password = _initial_admin_password()
             admin = User(
-                username="admin",
+                username=admin_username,
                 email="admin@flowmind.local",
                 hashed_password=hash_password(admin_password),
                 display_name="超级管理员",
@@ -104,8 +124,11 @@ async def lifespan(app: FastAPI):
             await db.commit()
             print(f"\n{'='*60}")
             print("  默认超级管理员已创建")
-            print("  用户名: admin")
-            print(f"  密码:   {admin_password}")
+            print(f"  用户名: {admin_username}")
+            if generated_password:
+                print(f"  随机初始密码: {admin_password}")
+            else:
+                print("  初始密码: 已通过环境变量设置（日志不回显）")
             print("  请登录后立即修改密码!")
             print(f"{'='*60}\n")
 

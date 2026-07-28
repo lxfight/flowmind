@@ -185,7 +185,8 @@ SQLite 模式下向量检索降级为关键词检索，其余功能不受影响�
 |------|------|--------|
 | `DATABASE_URL` | 数据库连接串 | `postgresql+asyncpg://flowmind:flowmind_secret@localhost:5432/flowmind` |
 | `JWT_SECRET` | JWT 签名密钥（生产必设） | 自动生成 |
-| `FLOWMIND_ADMIN_PASSWORD` | 初始管理员密码 | 随机生成（见启动日志） |
+| `FLOWMIND_ADMIN_USERNAME` | 首次初始化的管理员用户名 | `admin` |
+| `FLOWMIND_ADMIN_PASSWORD` | 初始管理员密码（8-128 位，预设值不写入日志） | 随机生成（见首次启动日志） |
 | `LLM_API_KEY` | LLM 对话 API 密钥 | — |
 | `LLM_BASE_URL` | LLM API 地址（OpenAI 兼容） | — |
 | `LLM_MODEL` | 对话模型 | `gpt-4o-mini` |

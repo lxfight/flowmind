@@ -6,6 +6,7 @@ test_db_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 os.environ.setdefault("DATABASE_URL", f"sqlite+aiosqlite:///{test_db_file.name}")
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret-for-ci")
 os.environ.setdefault("JWT_ALGORITHM", "HS256")
+os.environ.setdefault("FLOWMIND_ADMIN_USERNAME", "admin")
 os.environ.setdefault("FLOWMIND_ADMIN_PASSWORD", "testadmin")
 os.environ.setdefault("LLM_API_KEY", "")
 
