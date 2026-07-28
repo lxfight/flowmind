@@ -1021,6 +1021,7 @@ async def agent_chat_stream(
                             "session_id": session.id,
                             "message": result.get("message", ""),
                             "actions": actions,
+                            "steps": result.get("steps") or [],
                             "pending_question": result.get("pending_question"),
                             "action_batch_id": result.get("action_batch_id"),
                         })

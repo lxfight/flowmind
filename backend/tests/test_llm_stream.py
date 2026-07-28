@@ -92,6 +92,10 @@ async def test_stream_happy_path_with_mocked_agent(client):
     done = next(d for e, d in events if e == "done")
     assert done["message"] == "好的，已创建。"
     assert done["actions"] == [{"type": "create_task", "task_id": 1, "title": "任务A"}]
+    assert done["steps"] == [
+        {"kind": "thinking", "text": "先确认状态列"},
+        {"kind": "tool", "tool": "create_task", "status": "done", "output": "已创建"},
+    ]
     assert done["session_id"]
 
     # Messages persisted identically to the buffered endpoint
@@ -289,3 +293,28 @@ async def test_run_agent_stream_emits_thinking_events():
     assert events[-1]["result"]["steps"] == [
         {"kind": "thinking", "text": "先检索知识库…"}
     ]
+
+
+@pytest.mark.asyncio
+async def test_buffered_agent_records_final_reasoning():
+    """Providers that expose reasoning only on the final message are persisted too."""
+    from app.services import agent_service
+
+    answer = AIMessage(content="结论", additional_kwargs={"reasoning_content": "先分析任务依赖。"})
+
+    class FakeAgent:
+        async def ainvoke(self, input, config=None):
+            return {"messages": [HumanMessage(content="hi"), answer]}
+
+    built = (FakeAgent(), [HumanMessage(content="hi")], {}, [], None, "batch-1")
+
+    async def fake_build(*args, **kwargs):
+        return built
+
+    with patch.object(agent_service, "_build_agent_run", side_effect=fake_build):
+        result = await agent_service.run_agent(
+            db=None, user=None, project_id=1, user_message="hi"
+        )
+
+    assert result["message"] == "结论"
+    assert result["steps"] == [{"kind": "thinking", "text": "先分析任务依赖。"}]

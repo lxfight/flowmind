@@ -1668,6 +1668,15 @@ def _extract_reasoning(chunk) -> str:
     return ""
 
 
+def _reasoning_steps_from_messages(messages: list) -> list[dict]:
+    """Build a persisted thinking step when a provider only returns final reasoning."""
+    return [
+        {"kind": "thinking", "text": text}
+        for message in messages
+        if (text := _extract_reasoning(message))
+    ]
+
+
 _TOOL_OUTPUT_MAX = 500
 
 
@@ -1838,7 +1847,14 @@ async def run_agent(
     finally:
         task_service.reset_agent_batch(token)
 
-    return _finalize_result(result["messages"], actions, pending_question, action_batch_id)
+    messages = result["messages"]
+    return _finalize_result(
+        messages,
+        actions,
+        pending_question,
+        action_batch_id,
+        _reasoning_steps_from_messages(messages),
+    )
 
 
 async def run_agent_stream(
@@ -1973,6 +1989,9 @@ async def run_agent_stream(
             "result": _error_result("抱歉，LLM 调用失败：未收到响应。"),
         }
         return
+
+    if not any(step.get("kind") == "thinking" for step in process_steps):
+        process_steps = _reasoning_steps_from_messages(final_messages) + process_steps
 
     yield {
         "type": "result",
