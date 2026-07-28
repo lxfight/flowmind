@@ -10,18 +10,19 @@
   min-height: 24rem;
   overflow: hidden;
   border-block: 1px solid hsl(var(--border));
-  background-color: hsl(var(--foreground));
+  background-color: hsl(var(--card));
   background-image:
-    linear-gradient(rgb(255 255 255 / 0.055) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(255 255 255 / 0.055) 1px, transparent 1px);
+    linear-gradient(rgb(28 25 23 / 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(28 25 23 / 0.05) 1px, transparent 1px);
   background-size: 54px 54px;
-  color: hsl(var(--background));
+  color: hsl(var(--foreground));
   padding: clamp(1.5rem, 4vw, 4rem);
 }
 
 .dark .milestone-stage {
-  background-color: hsl(36 22% 92%);
-  color: hsl(24 12% 8%);
+  background-image:
+    linear-gradient(rgb(255 255 255 / 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 255 255 / 0.055) 1px, transparent 1px);
 }
 
 .milestone-stage::after {
@@ -40,14 +41,12 @@
   z-index: -1;
   right: -0.04em;
   top: -0.18em;
-  color: rgb(255 255 255 / 0.035);
+  color: hsl(var(--foreground) / 0.035);
   font-size: min(34rem, 58vw);
   font-weight: 800;
   line-height: 1;
   user-select: none;
 }
-
-.dark .milestone-stage-mark { color: rgb(0 0 0 / 0.035); }
 
 .milestone-stage-top {
   display: flex;
