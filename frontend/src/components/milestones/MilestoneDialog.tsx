@@ -102,7 +102,7 @@ function MilestoneDialogForm({
     <Dialog open onClose={onClose} className="max-w-3xl overflow-hidden">
       <form onSubmit={handleSubmit}>
         <DialogHeader className="relative overflow-hidden">
-          <div className="absolute right-8 top-3 select-none text-[84px] font-black leading-none text-foreground/[0.035]" aria-hidden="true">
+          <div className="pointer-events-none absolute right-8 top-3 select-none text-[84px] font-black leading-none text-foreground/[0.035]" aria-hidden="true">
             M
           </div>
           <DialogTitle showClose onClose={onClose} className="flex items-center gap-2">
