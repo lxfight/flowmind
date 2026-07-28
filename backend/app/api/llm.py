@@ -32,6 +32,7 @@ from app.schemas import (
     ProjectReportOut,
     SessionScope,
 )
+from app.services import milestone_service
 from app.services.agent_service import run_agent, run_agent_stream
 from app.services.llm_service import (
     LLMNotConfiguredError,
@@ -45,6 +46,7 @@ from app.services.rag_service import rag_service
 from app.services.report_service import (
     ACTIVITY_MAX_LINES,
     ACTIVITY_WINDOW_DAYS,
+    ReportMilestone,
     ReportTask,
     build_report_prompt,
     compute_report_stats,
@@ -367,13 +369,41 @@ async def llm_report(
             for t, sname, is_done in rows
         ]
 
+        milestone_items = await milestone_service.list_milestones(
+            project_id, current_user, db
+        )
+        task_titles = {task.id: task.title for task, _sname, _is_done in rows}
+        report_milestones = [
+            ReportMilestone(
+                title=item.title,
+                status=item.status,
+                health=item.health,
+                target_date=item.target_date,
+                owner=(item.owner.display_name or item.owner.username) if item.owner else None,
+                task_total=item.task_total,
+                task_completed=item.task_completed,
+                progress=item.progress,
+                task_titles=[
+                    task_titles[task_id]
+                    for task_id in item.task_ids
+                    if task_id in task_titles
+                ],
+            )
+            for item in milestone_items
+        ]
+
         # Precompute all statistics in Python — never ask the LLM to count.
         stats = compute_report_stats(report_tasks, now=now)
         # Show the most recent activity, but report the true window total so the
         # "N 条" in the prompt matches reality instead of the truncated count.
         activity_lines = [log.summary for log in logs]
         stats_text = format_stats_text(
-            stats, report_tasks, activity_lines, now=now, activity_total=total_activity
+            stats,
+            report_tasks,
+            activity_lines,
+            now=now,
+            activity_total=total_activity,
+            milestones=report_milestones,
         )
         prompt = build_report_prompt(
             project.name, project.description or "", stats_text

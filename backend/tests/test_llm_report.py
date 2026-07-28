@@ -3,7 +3,7 @@
 import asyncio
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -20,6 +20,7 @@ from app.services.report_service import (
     MAX_PROJECT_DESCRIPTION_CHARS,
     REPORT_SECTION_TITLES,
     InvalidReportOutputError,
+    ReportMilestone,
     ReportTask,
     build_report_prompt,
     compute_report_stats,
@@ -116,6 +117,49 @@ class TestPromptBuilding:
         text = format_stats_text(stats, tasks, ["动态 A", "动态 B"], now=NOW)
         assert "共 2 条" in text
 
+    def test_milestones_include_precomputed_progress_and_tasks(self):
+        tasks = make_tasks()
+        stats = compute_report_stats(tasks, now=NOW)
+        milestones = [
+            ReportMilestone(
+                title="内测发布",
+                status="open",
+                health="at_risk",
+                target_date=date(2025, 6, 20),
+                owner="Alice",
+                task_total=4,
+                task_completed=2,
+                progress=50,
+                task_titles=["完成登录页", "修复支付 Bug"],
+            ),
+            ReportMilestone(
+                title="正式上线",
+                status="completed",
+                health="completed",
+                target_date=date(2025, 7, 1),
+                task_total=1,
+                task_completed=1,
+                progress=100,
+                task_titles=["设计评审"],
+            ),
+        ]
+
+        text = format_stats_text(stats, tasks, [], now=NOW, milestones=milestones)
+
+        assert "项目里程碑（共 2 个）" in text
+        assert "内测发布 | 状态:进行中 | 健康:有风险" in text
+        assert "负责人:Alice | 进度:50%（2/4）" in text
+        assert "关联任务:完成登录页、修复支付 Bug" in text
+        assert "正式上线 | 状态:已完成 | 健康:已完成" in text
+
+    def test_empty_milestones_are_explicit(self):
+        tasks = make_tasks()
+        stats = compute_report_stats(tasks, now=NOW)
+        text = format_stats_text(stats, tasks, [], now=NOW)
+
+        assert "项目里程碑（共 0 个）" in text
+        assert "当前项目暂无里程碑" in text
+
     def test_task_detail_cap(self):
         tasks = [
             ReportTask(title=f"任务{i}", status_name="待办", updated_at=NOW)
@@ -199,6 +243,28 @@ async def test_report_endpoint_with_mocked_llm(client):
     )
     assert resp.status_code == 200, resp.text
 
+    first_milestone = client.post(
+        f"/api/projects/{project_id}/milestones",
+        headers=headers,
+        json={
+            "title": "发布候选版",
+            "description": "完成候选版本验证",
+            "target_date": (datetime.now(UTC).date() + timedelta(days=14)).isoformat(),
+            "task_ids": [task_id],
+        },
+    )
+    assert first_milestone.status_code == 201, first_milestone.text
+    second_milestone = client.post(
+        f"/api/projects/{project_id}/milestones",
+        headers=headers,
+        json={
+            "title": "正式发布",
+            "target_date": (datetime.now(UTC).date() + timedelta(days=30)).isoformat(),
+            "task_ids": [task_id],
+        },
+    )
+    assert second_milestone.status_code == 201, second_milestone.text
+
     mock_report = "## 一、本期概览\n这是 mock 报告"
     captured: dict[str, str] = {}
 
@@ -228,6 +294,11 @@ async def test_report_endpoint_with_mocked_llm(client):
     assert "完成率 0.0%" in prompt
     assert "逾期任务（未完成且已过截止日期）（共 1 个）" in prompt
     assert "高优任务" in prompt
+    assert "项目里程碑（共 2 个）" in prompt
+    assert "发布候选版" in prompt
+    assert "正式发布" in prompt
+    assert "进度:0%（0/1）" in prompt
+    assert "关联任务:高优任务" in prompt
     # required section skeleton present
     for section in ["一、本期概览", "二、进度分析", "三、重点事项与里程碑",
                     "四、风险与阻塞", "五、成员负载", "六、下一步建议"]:
