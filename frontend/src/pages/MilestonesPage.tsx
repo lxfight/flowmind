@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import {
   AlertCircle,
@@ -16,7 +17,6 @@ import {
   Plus,
   RefreshCw,
   RotateCcw,
-  Target,
   Trash2,
   UserRound,
   XCircle,
@@ -74,6 +74,15 @@ function targetCopy(targetDate: string, health: MilestoneHealth) {
   if (days === 0) return '今天到期'
   if (days < 0) return `逾期 ${Math.abs(days)} 天`
   return `还有 ${days} 天`
+}
+
+function timelineGapWidth(days: number) {
+  return Math.min(240, Math.max(104, 88 + Math.min(Math.max(days, 0), 48) * 3))
+}
+
+function timelineGapCopy(days: number) {
+  if (days <= 0) return '同日'
+  return `相隔 ${days} 天`
 }
 
 async function loadAllTasks(projectId: number): Promise<TaskSummary[]> {
@@ -161,7 +170,7 @@ export default function MilestonesPage() {
     return milestones.filter((milestone) => milestone.status === 'open')
   }, [milestones, view])
 
-  const selected = milestones.find((milestone) => milestone.id === selectedId) ?? filtered[0] ?? null
+  const selected = filtered.find((milestone) => milestone.id === selectedId) ?? filtered[0] ?? null
   const selectedTasks = selected
     ? selected.task_ids
         .map((id) => tasks.find((task) => task.id === id))
@@ -254,26 +263,28 @@ export default function MilestonesPage() {
 
   return (
     <div className="milestone-workspace">
-      <section className="milestone-stage" aria-labelledby="milestone-page-title">
-        <div className="milestone-stage-mark" aria-hidden="true">M</div>
-        <div className="milestone-stage-top">
-          <div>
-            <div className="milestone-kicker"><Target className="h-4 w-4" />DELIVERY COORDINATES</div>
-            <h1 id="milestone-page-title">里程碑轨道</h1>
-            <p>把任务压缩成清晰的交付节点，持续校准时间、责任与完成边界。</p>
+      <section className="milestone-toolbar" aria-labelledby="milestone-page-title">
+        <div className="milestone-toolbar-main">
+          <div className="milestone-title-group">
+            <span className="milestone-title-icon"><Flag className="h-5 w-5" /></span>
+            <div>
+              <h1 id="milestone-page-title">里程碑</h1>
+              <p>按目标日期查看交付节奏与后续安排</p>
+            </div>
           </div>
-          {!isViewer && (
-            <Button onClick={openCreate} className="milestone-create-button">
-              <Plus className="h-4 w-4" />建立节点
-            </Button>
-          )}
-        </div>
-
-        <div className="milestone-metrics" aria-label="里程碑概览">
-          <div><span>活跃节点</span><strong>{String(openCount).padStart(2, '0')}</strong></div>
-          <div><span>风险信号</span><strong className={atRiskCount ? 'text-danger' : ''}>{String(atRiskCount).padStart(2, '0')}</strong></div>
-          <div><span>平均完成度</span><strong>{overallProgress}<small>%</small></strong></div>
-          <div><span>关联任务</span><strong>{milestones.reduce((sum, item) => sum + item.task_total, 0)}</strong></div>
+          <div className="milestone-toolbar-actions">
+            <div className="milestone-metrics" aria-label="里程碑概览">
+              <div><span>活跃</span><strong>{String(openCount).padStart(2, '0')}</strong></div>
+              <div><span>风险</span><strong className={atRiskCount ? 'text-danger' : ''}>{String(atRiskCount).padStart(2, '0')}</strong></div>
+              <div><span>平均进度</span><strong>{overallProgress}%</strong></div>
+              <div><span>任务</span><strong>{milestones.reduce((sum, item) => sum + item.task_total, 0)}</strong></div>
+            </div>
+            {!isViewer && (
+              <Button onClick={openCreate} className="milestone-create-button">
+                <Plus className="h-4 w-4" />建立节点
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="milestone-view-switch" role="tablist" aria-label="里程碑视图">
@@ -304,40 +315,80 @@ export default function MilestonesPage() {
         </section>
       ) : (
         <>
-          <section className="milestone-rail-section" aria-label="里程碑时间轨道">
-            <div className="milestone-rail-line" aria-hidden="true" />
-            <div className="milestone-rail scrollbar-thin">
+          <section className="milestone-timeline-section" aria-label="里程碑时间线">
+            <header className="milestone-timeline-heading">
+              <div><CalendarClock className="h-4 w-4" /><strong>交付时间线</strong></div>
+              <span>{filtered.length} 个节点，按目标日期排列</span>
+            </header>
+            <div className="milestone-timeline-scroll scrollbar-thin">
+              <div className="milestone-timeline-canvas">
               {filtered.map((milestone, index) => {
                 const health = healthConfig[milestone.health]
                 const HealthIcon = health.icon
                 const isSelected = selected?.id === milestone.id
+                const nextMilestone = filtered[index + 1]
+                const gapDays = nextMilestone
+                  ? Math.max(
+                      differenceInCalendarDays(
+                        parseISO(nextMilestone.target_date),
+                        parseISO(milestone.target_date),
+                      ),
+                      0,
+                    )
+                  : 0
+                const connectorWidth = nextMilestone ? timelineGapWidth(gapDays) : 0
+                const stepStyle = {
+                  width: nextMilestone ? `calc(15rem + ${connectorWidth}px)` : '15rem',
+                  '--connector-width': `${connectorWidth}px`,
+                } as CSSProperties
                 return (
-                  <motion.button
+                  <div
                     key={milestone.id}
-                    type="button"
-                    className={cn('milestone-node', health.className, isSelected && 'is-selected')}
-                    onClick={() => setSelectedId(milestone.id)}
-                    initial={reduceMotion ? false : { opacity: 0, y: 18 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: reduceMotion ? 0 : index * 0.055, type: 'spring', stiffness: 310, damping: 28 }}
+                    className={cn('milestone-timeline-step', index % 2 ? 'is-lower' : 'is-upper')}
+                    style={stepStyle}
                   >
-                    <span className="milestone-node-index">{String(index + 1).padStart(2, '0')}</span>
-                    <span className="milestone-node-signal"><HealthIcon className="h-4 w-4" /></span>
-                    <span className="milestone-node-date">
-                      {format(parseISO(milestone.target_date), 'MM.dd')}
-                      <small>{format(parseISO(milestone.target_date), 'yyyy')}</small>
-                    </span>
-                    <span className="milestone-node-title">{milestone.title}</span>
-                    <span className="milestone-node-meta">
-                      <span>{health.label}</span>
-                      <span>{milestone.task_completed}/{milestone.task_total}</span>
-                    </span>
-                    <span className="milestone-node-progress">
-                      <i style={{ width: `${milestone.progress}%` }} />
-                    </span>
-                  </motion.button>
+                    <motion.button
+                      type="button"
+                      className={cn('milestone-timeline-card', health.className, isSelected && 'is-selected')}
+                      onClick={() => setSelectedId(milestone.id)}
+                      initial={reduceMotion ? false : { opacity: 0, y: index % 2 ? 18 : -18 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: reduceMotion ? 0 : index * 0.055, type: 'spring', stiffness: 310, damping: 28 }}
+                    >
+                      <span className="milestone-timeline-card-top">
+                        <span className="milestone-timeline-date">
+                          <strong>{format(parseISO(milestone.target_date), 'MM.dd')}</strong>
+                          <small>{format(parseISO(milestone.target_date), 'yyyy')}</small>
+                        </span>
+                        <span className="milestone-timeline-health"><HealthIcon className="h-3.5 w-3.5" />{health.label}</span>
+                      </span>
+                      <span className="milestone-timeline-title">{milestone.title}</span>
+                      <span className="milestone-timeline-meta">
+                        <span>{targetCopy(milestone.target_date, milestone.health)}</span>
+                        <span>{milestone.task_completed}/{milestone.task_total} 项</span>
+                      </span>
+                      <span className="milestone-timeline-progress"><i style={{ width: `${milestone.progress}%` }} /></span>
+                    </motion.button>
+                    <span className="milestone-timeline-pin" aria-hidden="true" />
+                    {nextMilestone && (
+                      <>
+                        <svg
+                          className="milestone-timeline-connector"
+                          viewBox="0 0 100 100"
+                          preserveAspectRatio="none"
+                          aria-hidden="true"
+                        >
+                          <path d={index % 2 ? 'M 0 74 C 36 74, 64 26, 100 26' : 'M 0 26 C 36 26, 64 74, 100 74'} />
+                        </svg>
+                        <span className="milestone-timeline-gap">
+                          <Clock3 className="h-3.5 w-3.5" />{timelineGapCopy(gapDays)}
+                        </span>
+                      </>
+                    )}
+                  </div>
                 )
               })}
+              </div>
             </div>
           </section>
 
