@@ -2,7 +2,7 @@ import asyncio
 import json
 import uuid
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -17,11 +17,21 @@ from sqlalchemy import func, select
 
 from app.core.config import get_settings
 from app.models.knowledge import DocChunk, KnowledgeDoc
+from app.models.milestone import Milestone
 from app.models.project import Project, ProjectMember
 from app.models.task import Task, TaskStatus
 from app.models.user import User
-from app.schemas import TaskCommentCreate, TaskCreate, TaskMove, TaskStatusCreate, TaskStatusUpdate, TaskUpdate
-from app.services import task_service
+from app.schemas import (
+    MilestoneCreate,
+    MilestoneUpdate,
+    TaskCommentCreate,
+    TaskCreate,
+    TaskMove,
+    TaskStatusCreate,
+    TaskStatusUpdate,
+    TaskUpdate,
+)
+from app.services import milestone_service, task_service
 from app.services.config_service import config_service
 from app.services.rag_service import rag_service
 
@@ -65,6 +75,13 @@ async def _find_task_project(db, task_id: int, project_ids: list[int]) -> int | 
 async def _find_status_project(db, status_id: int, project_ids: list[int]) -> int | None:
     """Project that owns the status column, or None when outside the scope."""
     result = await db.execute(select(TaskStatus.project_id).where(TaskStatus.id == status_id))
+    pid = result.scalar_one_or_none()
+    return pid if pid in project_ids else None
+
+
+async def _find_milestone_project(db, milestone_id: int, project_ids: list[int]) -> int | None:
+    """Project that owns the milestone, or None when it is outside the scope."""
+    result = await db.execute(select(Milestone.project_id).where(Milestone.id == milestone_id))
     pid = result.scalar_one_or_none()
     return pid if pid in project_ids else None
 
@@ -383,6 +400,230 @@ async def get_members(config: RunnableConfig, project_id: int | None = None) -> 
             return "暂无成员。"
         lines = [f"- {m.display_name or m.username} (user_id={m.user_id}, 角色={m.role})" for m in members]
         return "\n".join(lines)
+    except Exception as e:
+        return _format_result(False, message=str(e))
+
+
+def _milestone_line(item, prefix: str = "") -> str:
+    owner = item.owner.display_name or item.owner.username if item.owner else "未指定"
+    task_ids = "、".join(str(task_id) for task_id in item.task_ids) or "无"
+    return (
+        f"{prefix}- [{item.id}] {item.title} (状态={item.status}, 健康={item.health}, "
+        f"目标日期={item.target_date}, 负责人={owner}, 进度={item.progress}% "
+        f"[{item.task_completed}/{item.task_total}], 任务id={task_ids})"
+    )
+
+
+@tool
+async def list_milestones(
+    config: RunnableConfig,
+    status: str | None = None,
+    project_id: int | None = None,
+) -> str:
+    """列出项目里程碑及进度。跨项目会话中不传 project_id 时列出所有项目。"""
+    db, user, ctx_pid, project_ids, names = _get_ctx(config)
+    targets = [project_id] if project_id is not None else ([ctx_pid] if ctx_pid is not None else project_ids)
+    for target in targets:
+        if target not in project_ids:
+            return _format_result(False, message=f"项目 id={target} 不在你可访问的项目范围内。")
+    if status not in (None, "open", "completed", "cancelled"):
+        return _format_result(False, message="status 必须是 open、completed 或 cancelled。")
+    try:
+        lines = []
+        labeled = len(targets) > 1
+        for target in targets:
+            items = await milestone_service.list_milestones(target, user, db, status=status)
+            if labeled:
+                lines.append(_proj_label(names, target))
+            lines.extend(_milestone_line(item) for item in items)
+            if labeled and not items:
+                lines.append("（无里程碑）")
+        return "\n".join(lines) if lines else "当前没有符合条件的里程碑。"
+    except Exception as e:
+        return _format_result(False, message=str(e))
+
+
+@tool
+async def get_milestone(milestone_id: int, config: RunnableConfig) -> str:
+    """获取单个里程碑详情（跨项目会话中按 milestone_id 自动定位所属项目）。"""
+    db, user, ctx_pid, project_ids, names = _get_ctx(config)
+    pid = ctx_pid if ctx_pid is not None else await _find_milestone_project(db, milestone_id, project_ids)
+    if pid is None:
+        return _format_result(False, message=f"未找到里程碑 id={milestone_id}（不属于你参与的项目）。")
+    try:
+        item = await milestone_service.get_milestone(pid, milestone_id, user, db)
+        prefix = f"{_proj_label(names, pid)} " if ctx_pid is None else ""
+        return (
+            _milestone_line(item, prefix=prefix)
+            + f"\n描述：{item.description or '无'}\n完成时间：{item.completed_at or '未完成'}"
+        )
+    except Exception as e:
+        return _format_result(False, message=str(e))
+
+
+@tool
+async def create_milestone(
+    title: str,
+    target_date: str,
+    description: str = "",
+    owner_id: int | None = None,
+    task_ids: list[int] | None = None,
+    project_id: int | None = None,
+    config: RunnableConfig = None,
+) -> str:
+    """创建里程碑，可同时关联多个顶层任务。target_date 使用 YYYY-MM-DD。"""
+    db, user, ctx_pid, _project_ids, names = _get_ctx(config)
+    target, err = _resolve_target_project(config, project_id)
+    if target is None:
+        if err == "ASK":
+            return "目标项目不明确，已向用户提问要在哪个项目中创建，请立即结束本轮回复。"
+        return _format_result(False, message=err)
+    try:
+        parsed_date = date.fromisoformat(target_date.strip())
+        normalized_task_ids = sorted(set(task_ids or []))
+        idem_key = (
+            "create_milestone",
+            target,
+            _payload_key(
+                title=_normalize_key(title),
+                description=description,
+                target_date=parsed_date,
+                owner_id=owner_id,
+                task_ids=normalized_task_ids,
+            ),
+        )
+        async with _locked_mutation(config):
+            cached = _idem_lookup(config, idem_key)
+            if cached is not None:
+                return cached
+            item = await milestone_service.create_milestone(
+                target,
+                MilestoneCreate(
+                    title=title,
+                    description=description,
+                    target_date=parsed_date,
+                    owner_id=owner_id,
+                    task_ids=normalized_task_ids,
+                ),
+                user,
+                db,
+            )
+            label = _proj_label(names, target) if ctx_pid is None else ""
+            result = _format_result(
+                True,
+                message=f"已在{label}创建里程碑 [{item.id}] {item.title}。",
+                action={
+                    "type": "create_milestone",
+                    "milestone_id": item.id,
+                    "title": item.title,
+                },
+            )
+            return _idem_store(config, idem_key, result)
+    except Exception as e:
+        return _format_result(False, message=str(e))
+
+
+@tool
+async def update_milestone(
+    milestone_id: int,
+    title: str | None = None,
+    description: str | None = None,
+    target_date: str | None = None,
+    owner_id: int | None = None,
+    clear_owner: bool = False,
+    status: str | None = None,
+    task_ids: list[int] | None = None,
+    config: RunnableConfig = None,
+) -> str:
+    """更新里程碑、完成/取消里程碑，或替换其关联任务；clear_owner=true 可清空负责人。"""
+    db, user, ctx_pid, project_ids, _names = _get_ctx(config)
+    pid = ctx_pid if ctx_pid is not None else await _find_milestone_project(db, milestone_id, project_ids)
+    if pid is None:
+        return _format_result(False, message=f"未找到里程碑 id={milestone_id}（不属于你参与的项目）。")
+    try:
+        if status not in (None, "open", "completed", "cancelled"):
+            return _format_result(False, message="status 必须是 open、completed 或 cancelled。")
+        if clear_owner and owner_id is not None:
+            return _format_result(False, message="owner_id 与 clear_owner=true 不能同时提供。")
+        payload: dict[str, Any] = {}
+        if title is not None:
+            payload["title"] = title
+        if description is not None:
+            payload["description"] = description
+        if target_date is not None:
+            payload["target_date"] = date.fromisoformat(target_date.strip())
+        if clear_owner:
+            payload["owner_id"] = None
+        elif owner_id is not None:
+            payload["owner_id"] = owner_id
+        if status is not None:
+            payload["status"] = status
+        if task_ids is not None:
+            payload["task_ids"] = sorted(set(task_ids))
+        if not payload:
+            return "没有提供任何要更新的字段。"
+        signature = ("update_milestone", _payload_key(**payload))
+        resource = ("milestone", milestone_id)
+        async with _locked_mutation(config):
+            cached = _repeat_lookup(config, resource, signature)
+            if cached is not None:
+                return cached
+            item = await milestone_service.update_milestone(
+                pid, milestone_id, MilestoneUpdate(**payload), user, db
+            )
+            result = _format_result(
+                True,
+                message=f"已更新里程碑 [{item.id}] {item.title}。",
+                action={
+                    "type": "update_milestone",
+                    "milestone_id": item.id,
+                    "title": item.title,
+                    "detail": f"{item.status} · {item.progress}%",
+                },
+            )
+            return _repeat_store(config, resource, signature, result)
+    except Exception as e:
+        return _format_result(False, message=str(e))
+
+
+@tool
+async def delete_milestone(
+    milestone_id: int,
+    confirmed: bool = False,
+    config: RunnableConfig = None,
+) -> str:
+    """删除里程碑但保留其关联任务；破坏性操作，必须先确认再传 confirmed=true。"""
+    db, user, ctx_pid, project_ids, _names = _get_ctx(config)
+    pid = ctx_pid if ctx_pid is not None else await _find_milestone_project(db, milestone_id, project_ids)
+    if pid is None:
+        return _format_result(False, message=f"未找到里程碑 id={milestone_id}（不属于你参与的项目）。")
+    try:
+        if not confirmed:
+            item = await milestone_service.get_milestone(pid, milestone_id, user, db)
+            return _format_result(
+                False,
+                message=(
+                    f"此操作将删除里程碑「{item.title}」并解除 {item.task_total} 个任务关联，"
+                    "但不会删除任务。请先获得用户明确同意，然后使用 confirmed=true 重新调用本工具。"
+                ),
+            )
+        idem_key = ("delete_milestone", milestone_id)
+        async with _locked_mutation(config):
+            cached = _idem_lookup(config, idem_key)
+            if cached is not None:
+                return cached
+            item = await milestone_service.get_milestone(pid, milestone_id, user, db)
+            await milestone_service.delete_milestone(pid, milestone_id, user, db)
+            result = _format_result(
+                True,
+                message=f"已删除里程碑 [{milestone_id}] {item.title}，关联任务均已保留。",
+                action={
+                    "type": "delete_milestone",
+                    "milestone_id": milestone_id,
+                    "title": item.title,
+                },
+            )
+            return _idem_store(config, idem_key, result)
     except Exception as e:
         return _format_result(False, message=str(e))
 
@@ -1207,6 +1448,8 @@ TOOL_GROUPS: list[tuple[str, list]] = [
     ("操作", [create_task, create_tasks, update_task, move_task, add_comment,
               add_subtask, add_subtasks, update_subtask]),
     ("管理", [create_status, update_status, delete_status]),
+    ("里程碑", [list_milestones, get_milestone, create_milestone,
+                update_milestone, delete_milestone]),
     ("知识库", [search_knowledge, list_knowledge_docs, read_knowledge_doc, get_doc_content]),
     ("提问", [ask_user]),
 ]
@@ -1254,9 +1497,10 @@ _SHARED_RULES = (
     "- 能合理推断的直接执行，并在回复中说明所做的假设。\n"
     "- 调用 ask_user 后立即结束本轮回复：不要再调用其他工具，也不要自行假设或编造答案。\n\n"
     "破坏性操作确认规则：\n"
-    "- delete_status 是破坏性操作。首次调用不要传 confirmed；工具会返回待确认信息。\n"
+    "- delete_status 和 delete_milestone 是破坏性操作。首次调用不要传 confirmed；"
+    "工具会返回待确认信息。\n"
     "- 随后必须向用户说明将删除的状态列及其影响并获得明确同意（可直接在回复中询问），"
-    "用户同意后再以 confirmed=true 调用 delete_status 完成删除。\n\n"
+    "用户同意后再以 confirmed=true 调用对应删除工具完成删除。\n\n"
     "工作方式：先调用查询工具确认事实，再执行操作。\n"
     "批量优先规则：\n"
     "- 创建两个及以上任务时必须只调用一次 create_tasks，使用 tasks 数组为每项提供独立属性；"
@@ -1299,7 +1543,7 @@ def _current_time_context() -> str:
 def _build_system_prompt(project_summary: dict) -> str:
     return (
         "你是 FlowMind 智能助手，帮助用户管理任务和项目。你只能通过提供的工具操作当前项目，"
-        "禁止编造 ID。所有 task_id、status_id、assignee_id 必须从工具查询结果中获取。\n\n"
+        "禁止编造 ID。所有 task_id、status_id、milestone_id、assignee_id 必须从工具查询结果中获取。\n\n"
         + _current_time_context()
         + f"当前项目：{project_summary['project_name']}\n"
         f"描述：{project_summary['project_description'] or '无'}\n\n"
@@ -1316,12 +1560,12 @@ def _build_cross_project_prompt(project_names: dict[int, str]) -> str:
         + _current_time_context()
         + f"用户参与的项目：\n{listing}\n\n"
         "跨项目规则：\n"
-        "- 查询类工具（list_tasks / search_tasks / search_knowledge / list_knowledge_docs）"
+        "- 查询类工具（list_tasks / search_tasks / list_milestones / search_knowledge / list_knowledge_docs）"
         "默认覆盖以上所有项目，结果会标注来源项目；回答时注明信息来自哪个项目。\n"
         "- get_project_info / get_members 需要用 project_id 参数指定项目。\n"
-        "- get_task / read_knowledge_doc / get_doc_content 以及按 task_id 定位的更新/移动/"
-        "评论/子任务操作会自动解析所属项目（仅限以上项目）。\n"
-        "- 创建类写操作（create_task / create_status）必须明确目标项目：用户已指明项目时"
+        "- get_task / get_milestone / read_knowledge_doc / get_doc_content，以及按资源 id 定位的"
+        "更新、移动、评论和子任务操作会自动解析所属项目（仅限以上项目）。\n"
+        "- 创建类写操作（create_task / create_status / create_milestone）必须明确目标项目：用户已指明项目时"
         "用 project_id 参数传入；用户未指明时直接调用工具（会触发向用户提问），"
         "绝不自行假设默认项目。\n\n"
         + _build_tools_listing()

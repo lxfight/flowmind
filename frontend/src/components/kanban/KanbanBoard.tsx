@@ -361,8 +361,14 @@ export default function KanbanBoard() {
       if (needsRefresh) {
         void loadTasks(false)
       }
+      const needsBoardRefresh = actions.some((a) =>
+        ['create_milestone', 'update_milestone', 'delete_milestone'].includes(a.type)
+      )
+      if (needsBoardRefresh) {
+        void loadBoard()
+      }
     },
-    [loadTasks]
+    [loadBoard, loadTasks]
   )
 
   return (

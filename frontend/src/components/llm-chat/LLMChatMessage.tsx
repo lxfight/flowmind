@@ -31,6 +31,9 @@ const ACTION_LABELS: Record<string, string> = {
   create_status: '创建状态列',
   update_status: '更新状态列',
   delete_status: '删除状态列',
+  create_milestone: '创建里程碑',
+  update_milestone: '更新里程碑',
+  delete_milestone: '删除里程碑',
 }
 
 function ActionCard({ action }: { action: { type: string; title?: string; detail?: string } }) {

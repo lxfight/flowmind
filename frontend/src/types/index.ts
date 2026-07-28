@@ -237,9 +237,13 @@ export interface ActionSummary {
     | 'create_status'
     | 'update_status'
     | 'delete_status'
+    | 'create_milestone'
+    | 'update_milestone'
+    | 'delete_milestone'
   task_id?: number
   status_id?: number
   parent_task_id?: number
+  milestone_id?: number
   is_completed?: boolean
   title?: string
   detail?: string
