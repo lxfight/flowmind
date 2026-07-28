@@ -5,7 +5,7 @@ RUN --mount=type=cache,id=flowmind-apk-cache,target=/var/cache/apk,sharing=locke
     sed -i "s|https://dl-cdn.alpinelinux.org/alpine|${ALPINE_MIRROR}|g" /etc/apk/repositories && \
     apk add docker-cli docker-cli-compose git curl postgresql-client
 
-ARG APP_VERSION=0.2.2
+ARG APP_VERSION=0.3.0
 ARG GIT_SHA=development
 ARG BUILD_TIME=
 

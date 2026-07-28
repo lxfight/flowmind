@@ -20,7 +20,7 @@ RUN --mount=type=cache,id=flowmind-pip-cache,target=/root/.cache/pip,sharing=loc
     pip install --index-url "${PYPI_INDEX_URL}" uv==0.11.28 && \
     UV_INDEX_URL="${PYPI_INDEX_URL}" uv sync --frozen --no-dev --no-install-project
 
-ARG APP_VERSION=0.2.2
+ARG APP_VERSION=0.3.0
 ARG GIT_SHA=development
 ARG BUILD_TIME=
 

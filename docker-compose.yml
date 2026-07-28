@@ -23,7 +23,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
       args:
-        APP_VERSION: "${FLOWMIND_VERSION:-0.2.2}"
+        APP_VERSION: "${FLOWMIND_VERSION:-0.3.0}"
         GIT_SHA: "${GIT_SHA:-development}"
         BUILD_TIME: "${BUILD_TIME:-}"
         DEBIAN_MIRROR: "${DEBIAN_MIRROR:-http://deb.debian.org/debian}"
@@ -74,7 +74,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        APP_VERSION: "${FLOWMIND_VERSION:-0.2.2}"
+        APP_VERSION: "${FLOWMIND_VERSION:-0.3.0}"
         GIT_SHA: "${GIT_SHA:-development}"
         BUILD_TIME: "${BUILD_TIME:-}"
         NPM_REGISTRY: "${NPM_REGISTRY:-https://registry.npmjs.org}"
@@ -97,7 +97,7 @@ services:
       context: ./updater
       dockerfile: Dockerfile
       args:
-        APP_VERSION: "${FLOWMIND_VERSION:-0.2.2}"
+        APP_VERSION: "${FLOWMIND_VERSION:-0.3.0}"
         GIT_SHA: "${GIT_SHA:-development}"
         BUILD_TIME: "${BUILD_TIME:-}"
         ALPINE_MIRROR: "${ALPINE_MIRROR:-https://dl-cdn.alpinelinux.org/alpine}"
