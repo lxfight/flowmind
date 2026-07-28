@@ -7,6 +7,7 @@ interface TaskViewOptions {
   searchQuery: string
   assigneeId: number | null
   priority: number | null
+  milestoneId?: number | null
   sortKey: TaskSortKey
   sortDirection: TaskSortDirection
 }
@@ -25,6 +26,9 @@ export function filterAndSortTasks(
       return false
     }
     if (options.assigneeId !== null && !task.assignees.some((item) => item.id === options.assigneeId)) {
+      return false
+    }
+    if (options.milestoneId != null && !task.milestone_ids.includes(options.milestoneId)) {
       return false
     }
     return options.priority === null || task.priority === options.priority

@@ -8,12 +8,13 @@ import { Button } from '../ui/Button'
 import { Badge } from '../ui/Badge'
 import { EmptyState } from '../ui/EmptyState'
 import { cn } from '../../utils/cn'
-import type { TaskStatus, TaskCard, MemberOption } from '../../types'
+import type { TaskStatus, TaskCard, MemberOption, Milestone } from '../../types'
 
 interface Props {
   status: Pick<TaskStatus, 'id' | 'name' | 'color' | 'is_done' | 'task_count'>
   tasks: TaskCard[]
   members: MemberOption[]
+  milestones: Milestone[]
   readOnly?: boolean
   /** Column width in px on desktop (mobile stays full-width) */
   columnWidth?: number
@@ -23,7 +24,7 @@ interface Props {
   onAssignTask?: (taskId: number, userIds: number[]) => void
 }
 
-export function KanbanColumn({ status, tasks, members, readOnly = false, columnWidth, onColumnResizeStart, onAddTask, onTaskClick, onAssignTask }: Props) {
+export function KanbanColumn({ status, tasks, members, milestones, readOnly = false, columnWidth, onColumnResizeStart, onAddTask, onTaskClick, onAssignTask }: Props) {
   const { setNodeRef, isOver } = useDroppable({
     id: `status-${status.id}`,
     disabled: readOnly,
@@ -81,6 +82,7 @@ export function KanbanColumn({ status, tasks, members, readOnly = false, columnW
                 <KanbanCard
                   task={task}
                   members={members}
+                  milestones={milestones}
                   readOnly={readOnly}
                   completed={status.is_done || task.is_completed}
                   onClick={() => onTaskClick(task.id)}

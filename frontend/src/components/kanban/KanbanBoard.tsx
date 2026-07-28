@@ -26,13 +26,14 @@ import { filterAndSortTasks, type TaskSortKey } from './taskView'
 import { parseBoardDeepLink, withoutTaskDeepLink } from './boardDeepLink'
 import { LLMChatPanel } from '../llm-chat/LLMChatPanel'
 import { loadOpenState, saveOpenState } from '../llm-chat/floatingGeometry'
-import { AlertCircle, ArrowDown, ArrowUp, Columns3, Filter, Loader2, MessageSquare, Plus, RefreshCw, Search, X } from 'lucide-react'
+import { AlertCircle, ArrowDown, ArrowUp, Columns3, Filter, Flag, Loader2, MessageSquare, Plus, RefreshCw, Search, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
 import { Select } from '../ui/Select'
 import { Badge } from '../ui/Badge'
-import type { TaskSummary, TaskStatus, MemberOption, ActionSummary } from '../../types'
+import { listMilestones } from '../../api/milestones'
+import type { TaskSummary, TaskStatus, MemberOption, ActionSummary, Milestone } from '../../types'
 
 /** 与后端 Task.priority 一致：0=none, 1=low, 2=medium, 3=high, 4=urgent */
 const PRIORITY_OPTIONS = [
@@ -60,6 +61,7 @@ export default function KanbanBoard() {
   const canManageStatuses = userRole === 'owner' || userRole === 'admin'
   const [statuses, setStatuses] = useState<TaskStatus[]>([])
   const [tasks, setTasks] = useState<TaskSummary[]>([])
+  const [milestones, setMilestones] = useState<Milestone[]>([])
   const [activeTask, setActiveTask] = useState<TaskSummary | null>(null)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [showChat, setShowChatRaw] = useState(() => loadOpenState())
@@ -86,6 +88,7 @@ export default function KanbanBoard() {
   const [searchQuery, setSearchQuery] = useState('')
   const [assigneeFilter, setAssigneeFilter] = useState<number | null>(null)
   const [priorityFilter, setPriorityFilter] = useState<number | null>(null)
+  const [milestoneFilter, setMilestoneFilter] = useState<number | null>(null)
   const [sortKey, setSortKey] = useState<TaskSortKey>('manual')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [members, setMembers] = useState<MemberOption[]>([])
@@ -135,12 +138,14 @@ export default function KanbanBoard() {
     setBoardLoading(true)
     setBoardError(null)
     try {
-      const [statusesRes, nextTasks] = await Promise.all([
+      const [statusesRes, nextTasks, nextMilestones] = await Promise.all([
         api.get(`/projects/${projectId}/statuses`),
         fetchTasks(),
+        listMilestones(Number(projectId)),
       ])
       setStatuses(statusesRes.data)
       setTasks(nextTasks || [])
+      setMilestones(nextMilestones)
     } catch {
       setBoardError('看板加载失败')
       toast.error('加载看板失败')
@@ -155,6 +160,7 @@ export default function KanbanBoard() {
     setSearchQuery('')
     setAssigneeFilter(null)
     setPriorityFilter(null)
+    setMilestoneFilter(null)
     setSortKey('manual')
     setSortDir('asc')
     loadBoard()
@@ -179,23 +185,25 @@ export default function KanbanBoard() {
     setSearchQuery('')
     setAssigneeFilter(null)
     setPriorityFilter(null)
+    setMilestoneFilter(null)
     setSortKey('manual')
     setSortDir('asc')
   }
 
-  const hasTaskFilters = Boolean(searchQuery) || assigneeFilter !== null || priorityFilter !== null
+  const hasTaskFilters = Boolean(searchQuery) || assigneeFilter !== null || priorityFilter !== null || milestoneFilter !== null
   const hasActiveFilters = hasTaskFilters || sortKey !== 'manual'
 
-  const visibleTasks = useMemo(
-    () => filterAndSortTasks(tasks, {
+  const visibleTasks = useMemo(() => {
+    const filteredTasks = filterAndSortTasks(tasks, {
       searchQuery,
       assigneeId: assigneeFilter,
       priority: priorityFilter,
+      milestoneId: milestoneFilter,
       sortKey,
       sortDirection: sortDir,
-    }),
-    [tasks, searchQuery, assigneeFilter, priorityFilter, sortKey, sortDir]
-  )
+    })
+    return filteredTasks
+  }, [tasks, searchQuery, assigneeFilter, priorityFilter, milestoneFilter, sortKey, sortDir])
 
   // Real-time sync: refresh the board when other clients mutate the project.
   // Refetches are idempotent and debounced; events from this client are
@@ -205,7 +213,7 @@ export default function KanbanBoard() {
     if (event.actor_id && event.actor_id === currentUserId) return
     if (wsRefreshRef.current) clearTimeout(wsRefreshRef.current)
     wsRefreshRef.current = setTimeout(() => {
-      if (event.type.startsWith('status_')) {
+      if (event.type.startsWith('status_') || event.type.startsWith('milestone_')) {
         void loadBoard().catch(() => {})
       } else {
         void loadTasks(false).catch(() => {})
@@ -311,6 +319,7 @@ export default function KanbanBoard() {
     priority?: number
     assignee_ids?: number[]
     due_date?: string | null
+    milestone_ids?: number[]
   }) => {
     if (!projectId || isViewer) return
     const res = await api.post(`/projects/${projectId}/tasks`, data)
@@ -441,6 +450,20 @@ export default function KanbanBoard() {
                 </option>
               ))}
             </Select>
+            <div className="relative w-full sm:w-auto">
+              <Flag className="pointer-events-none absolute left-2.5 top-1/2 z-10 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Select
+                value={milestoneFilter ?? ''}
+                onChange={(e) => setMilestoneFilter(e.target.value ? Number(e.target.value) : null)}
+                className="w-full pl-8 text-sm sm:w-auto"
+                aria-label="按里程碑筛选"
+              >
+                <option value="">全部里程碑</option>
+                {milestones.map((milestone) => (
+                  <option key={milestone.id} value={milestone.id}>{milestone.title}</option>
+                ))}
+              </Select>
+            </div>
             <Select
               value={priorityFilter ?? ''}
               onChange={(e) => setPriorityFilter(e.target.value === '' ? null : parseInt(e.target.value))}
@@ -534,6 +557,7 @@ export default function KanbanBoard() {
                       status={status}
                       tasks={getTasksByStatus(status.id)}
                       members={members}
+                      milestones={milestones}
                       readOnly={isViewer}
                       columnWidth={columnWidth}
                       onColumnResizeStart={startColumnResize}
@@ -550,7 +574,7 @@ export default function KanbanBoard() {
                 <DragOverlay>
                   {activeTask ? (
                     <div className="opacity-90" aria-hidden="true">
-                      <KanbanCard task={activeTask} members={members} isDragOverlay readOnly />
+                      <KanbanCard task={activeTask} members={members} milestones={milestones} isDragOverlay readOnly />
                     </div>
                   ) : null}
                 </DragOverlay>
@@ -589,6 +613,7 @@ export default function KanbanBoard() {
           statuses={statuses}
           defaultStatusId={createStatusId}
           projectId={parseInt(projectId!)}
+          milestones={milestones}
           onClose={() => setShowCreateDialog(false)}
           onCreate={handleCreateTask}
         />

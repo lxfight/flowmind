@@ -2,17 +2,18 @@ import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
-import { AlertCircle, Clock, GripVertical, ListTodo, MessageSquare } from 'lucide-react'
+import { AlertCircle, Clock, Flag, GripVertical, ListTodo, MessageSquare } from 'lucide-react'
 import { Card } from '../ui/Card'
 import { Badge } from '../ui/Badge'
 import { Avatar } from '../ui/Avatar'
 import { AssigneePicker } from './AssigneePicker'
 import { cn } from '../../utils/cn'
-import type { TaskCard, MemberOption } from '../../types'
+import type { TaskCard, MemberOption, Milestone } from '../../types'
 
 interface Props {
   task: TaskCard
   members: MemberOption[]
+  milestones: Milestone[]
   isDragOverlay?: boolean
   readOnly?: boolean
   completed?: boolean
@@ -28,7 +29,7 @@ const priorityConfig = {
   4: { label: '紧急', variant: 'danger' as const },
 }
 
-export function KanbanCard({ task, members, isDragOverlay, readOnly = false, completed = false, onClick, onAssign }: Props) {
+export function KanbanCard({ task, members, milestones, isDragOverlay, readOnly = false, completed = false, onClick, onAssign }: Props) {
   const {
     attributes,
     listeners,
@@ -57,6 +58,7 @@ export function KanbanCard({ task, members, isDragOverlay, readOnly = false, com
     task.subtask_count > 0
       ? Math.round(((task.subtask_done || 0) / task.subtask_count) * 100)
       : 0
+  const taskMilestones = milestones.filter((milestone) => task.milestone_ids.includes(milestone.id))
 
   return (
     <Card
@@ -110,6 +112,24 @@ export function KanbanCard({ task, members, isDragOverlay, readOnly = false, com
           'text-sm font-medium leading-snug text-foreground',
           completed && 'text-muted-foreground line-through decoration-muted-foreground/50'
         )}>{task.title}</p>
+
+        {taskMilestones.length > 0 && (
+          <div className="flex flex-wrap gap-1" aria-label="关联里程碑">
+            {taskMilestones.slice(0, 2).map((milestone) => (
+              <span
+                key={milestone.id}
+                className="inline-flex h-5 max-w-[9rem] items-center gap-1 rounded-[4px] border border-primary/20 bg-primary/[0.055] px-1.5 text-[10px] font-medium text-primary"
+                title={milestone.title}
+              >
+                <Flag className="h-2.5 w-2.5 flex-none" />
+                <span className="truncate">{milestone.title}</span>
+              </span>
+            ))}
+            {taskMilestones.length > 2 && (
+              <span className="inline-flex h-5 items-center px-1 text-[10px] text-muted-foreground">+{taskMilestones.length - 2}</span>
+            )}
+          </div>
+        )}
 
         {/* Subtask progress */}
         {task.subtask_count > 0 && (

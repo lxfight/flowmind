@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { CheckSquare, CircleUserRound, ListPlus, Plus, SlidersHorizontal, Sparkles, Square, WandSparkles } from 'lucide-react'
+import { CheckSquare, CircleUserRound, Flag, ListPlus, Plus, SlidersHorizontal, Sparkles, Square, WandSparkles } from 'lucide-react'
 import api, { errDetail } from '../../utils/api'
 import toast from 'react-hot-toast'
 import {
@@ -14,13 +14,15 @@ import { Input } from '../ui/Input'
 import { Textarea } from '../ui/Textarea'
 import { Select } from '../ui/Select'
 import { AssigneePicker } from './AssigneePicker'
-import type { StatusOption, MemberOption, GeneratedTask } from '../../types'
+import { MilestonePicker } from '../milestones/MilestonePicker'
+import type { StatusOption, MemberOption, GeneratedTask, Milestone } from '../../types'
 import { cn } from '../../utils/cn'
 
 interface Props {
   statuses: StatusOption[]
   defaultStatusId: number | null
   projectId: number
+  milestones: Milestone[]
   onClose: () => void
   onCreate: (data: {
     title: string
@@ -29,16 +31,18 @@ interface Props {
     priority: number
     assignee_ids?: number[]
     due_date?: string | null
+    milestone_ids?: number[]
   }) => Promise<void> | void
 }
 
-export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose, onCreate }: Props) {
+export function CreateTaskDialog({ statuses, defaultStatusId, projectId, milestones, onClose, onCreate }: Props) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [statusId, setStatusId] = useState(defaultStatusId || statuses[0]?.id || 0)
   const [priority, setPriority] = useState(0)
   const [assigneeIds, setAssigneeIds] = useState<number[]>([])
   const [dueDate, setDueDate] = useState('')
+  const [milestoneIds, setMilestoneIds] = useState<number[]>([])
   const [members, setMembers] = useState<MemberOption[]>([])
   const [llmOpen, setLlmOpen] = useState(false)
   const [llmInstruction, setLlmInstruction] = useState('')
@@ -64,6 +68,7 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose
         priority,
         assignee_ids: assigneeIds,
         due_date: dueDate ? new Date(`${dueDate}T23:59:59`).toISOString() : null,
+        milestone_ids: milestoneIds,
       })
       toast.success('任务已创建')
       onClose()
@@ -308,6 +313,14 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, onClose
                   <h3 className="text-sm font-semibold">协作成员</h3>
                 </div>
                 <AssigneePicker members={members} value={assigneeIds} onChange={setAssigneeIds} disabled={isBusy} />
+              </section>
+
+              <section className="grid gap-4 border-t border-border pt-6 md:grid-cols-[9rem_minmax(0,1fr)] md:gap-8">
+                <div>
+                  <span className="mb-2 flex h-8 w-8 items-center justify-center rounded-[8px] bg-muted text-muted-foreground"><Flag className="h-4 w-4" /></span>
+                  <h3 className="text-sm font-semibold">交付节点</h3>
+                </div>
+                <MilestonePicker milestones={milestones} value={milestoneIds} onChange={setMilestoneIds} disabled={isBusy} />
               </section>
             </div>
           )}

@@ -14,6 +14,7 @@ import {
   Sparkles,
   Paperclip,
   Download,
+  Flag,
   X,
 } from 'lucide-react'
 import api, { errDetail } from '../../utils/api'
@@ -38,8 +39,10 @@ import { MarkdownContent } from '../ui/MarkdownContent'
 import { confirmAction } from '../ui/confirmAction'
 import { AssigneePicker } from './AssigneePicker'
 import { MentionText } from './MentionText'
+import { MilestonePicker } from '../milestones/MilestonePicker'
+import { listMilestones } from '../../api/milestones'
 import { cn } from '../../utils/cn'
-import type { MemberOption, StatusOption, TaskAttachment, TaskDetail } from '../../types'
+import type { MemberOption, Milestone, StatusOption, TaskAttachment, TaskDetail } from '../../types'
 
 interface Props {
   taskId: number
@@ -78,6 +81,7 @@ export function TaskDetailDialog({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [members, setMembers] = useState<MemberOption[]>([])
+  const [milestones, setMilestones] = useState<Milestone[]>([])
   const [updatingAssignee, setUpdatingAssignee] = useState(false)
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('')
   const [addingSubtask, setAddingSubtask] = useState(false)
@@ -158,6 +162,7 @@ export function TaskDetailDialog({
   const [editPriority, setEditPriority] = useState(0)
   const [editStatusId, setEditStatusId] = useState<number>(0)
   const [editDueDate, setEditDueDate] = useState('')
+  const [editMilestoneIds, setEditMilestoneIds] = useState<number[]>([])
 
   const resetEditFields = useCallback((t: TaskDetail) => {
     setEditTitle(t.title)
@@ -165,6 +170,7 @@ export function TaskDetailDialog({
     setEditPriority(t.priority)
     setEditStatusId(t.status_id)
     setEditDueDate(t.due_date ? t.due_date.slice(0, 10) : '')
+    setEditMilestoneIds(t.milestone_ids)
   }, [])
 
   const refreshTask = useCallback(async () => {
@@ -270,21 +276,35 @@ export function TaskDetailDialog({
     }
   }, [projectId])
 
+  const loadMilestones = useCallback(async () => {
+    try {
+      setMilestones(await listMilestones(projectId))
+    } catch {
+      setMilestones([])
+    }
+  }, [projectId])
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount: async loaders update state after await
     loadTaskDetail()
     loadMembers()
+    loadMilestones()
     loadAttachments()
     return () => {
       if (wsRefreshRef.current) clearTimeout(wsRefreshRef.current)
     }
-  }, [loadTaskDetail, loadMembers, loadAttachments])
+  }, [loadTaskDetail, loadMembers, loadMilestones, loadAttachments])
 
   // Real-time sync: refresh this dialog when other clients touch the task.
   useProjectSocket(projectId, (event) => {
     if (event.actor_id && event.actor_id === currentUser?.id) return
     const payload = (event.payload || {}) as { task_id?: number }
     const isTaskEvent = ['task_updated', 'task_moved', 'task_deleted'].includes(event.type)
+    if (event.type.startsWith('milestone_')) {
+      void loadMilestones()
+      void refreshTask().catch(() => {})
+      return
+    }
     const isChildEvent = [
       'comment_created',
       'comment_updated',
@@ -488,6 +508,7 @@ export function TaskDetailDialog({
         description: editDescription,
         priority: editPriority,
         status_id: editStatusId,
+        milestone_ids: editMilestoneIds,
       }
       if (editDueDate) {
         payload.due_date = new Date(editDueDate).toISOString()
@@ -709,6 +730,37 @@ export function TaskDetailDialog({
             ) : (
               <p className="px-1 text-sm italic text-muted-foreground/70">无描述</p>
             )
+          )}
+        </div>
+
+        <Separator />
+
+        <div className="space-y-3">
+          <h4 className={cn(SECTION_TITLE, 'flex items-center gap-1.5')}>
+            <Flag className="h-4 w-4" />
+            里程碑
+          </h4>
+          {isEditing ? (
+            <MilestonePicker
+              milestones={milestones}
+              value={editMilestoneIds}
+              onChange={setEditMilestoneIds}
+              disabled={saving}
+            />
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {milestones.filter((milestone) => task.milestone_ids.includes(milestone.id)).length ? (
+                milestones
+                  .filter((milestone) => task.milestone_ids.includes(milestone.id))
+                  .map((milestone) => (
+                    <span key={milestone.id} className="inline-flex min-h-7 items-center gap-1.5 rounded-[6px] border border-primary/20 bg-primary/[0.06] px-2.5 text-xs font-medium text-primary">
+                      <Flag className="h-3.5 w-3.5" />{milestone.title}
+                    </span>
+                  ))
+              ) : (
+                <p className="text-sm text-muted-foreground">未关联里程碑</p>
+              )}
+            </div>
           )}
         </div>
 

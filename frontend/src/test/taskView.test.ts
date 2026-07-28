@@ -60,6 +60,25 @@ describe('filterAndSortTasks', () => {
     expect(result.map((item) => item.id)).toEqual([1, 3])
   })
 
+  it('filters tasks that share any selected milestone', () => {
+    const tasks = [
+      task({ id: 1, title: '跨阶段交付', milestone_ids: [8, 13] }),
+      task({ id: 2, title: '首阶段交付', milestone_ids: [8] }),
+      task({ id: 3, title: '未规划事项', milestone_ids: [] }),
+    ]
+
+    const result = filterAndSortTasks(tasks, {
+      searchQuery: '',
+      assigneeId: null,
+      priority: null,
+      milestoneId: 13,
+      sortKey: 'manual',
+      sortDirection: 'asc',
+    })
+
+    expect(result.map((item) => item.id)).toEqual([1])
+  })
+
   it('keeps tasks without due dates last in both directions', () => {
     const tasks = [
       task({ id: 1, title: 'No date' }),
