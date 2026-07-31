@@ -18,7 +18,7 @@ services:
     restart: unless-stopped
 
   backend:
-    image: ghcr.io/lxfight/flowmind-backend:${FLOWMIND_VERSION:-local}
+    image: ${FLOWMIND_IMAGE_REGISTRY:-ghcr.io}/lxfight/flowmind-backend:${FLOWMIND_VERSION:-local}
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -71,7 +71,7 @@ services:
     restart: unless-stopped
 
   notifier:
-    image: ghcr.io/lxfight/flowmind-backend:${FLOWMIND_VERSION:-local}
+    image: ${FLOWMIND_IMAGE_REGISTRY:-ghcr.io}/lxfight/flowmind-backend:${FLOWMIND_VERSION:-local}
     container_name: flowmind-notifier
     command: ["python", "-m", "app.workers.webhook"]
     environment:
@@ -95,7 +95,7 @@ services:
     restart: unless-stopped
 
   frontend:
-    image: ghcr.io/lxfight/flowmind-frontend:${FLOWMIND_VERSION:-local}
+    image: ${FLOWMIND_IMAGE_REGISTRY:-ghcr.io}/lxfight/flowmind-frontend:${FLOWMIND_VERSION:-local}
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -118,7 +118,7 @@ services:
     restart: unless-stopped
 
   updater:
-    image: ghcr.io/lxfight/flowmind-updater:${FLOWMIND_VERSION:-local}
+    image: ${FLOWMIND_IMAGE_REGISTRY:-ghcr.io}/lxfight/flowmind-updater:${FLOWMIND_VERSION:-local}
     build:
       context: ./updater
       dockerfile: Dockerfile

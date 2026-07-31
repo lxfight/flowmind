@@ -177,6 +177,21 @@ def configured_application_services(state: dict[str, Any]) -> tuple[str, ...]:
     )
 
 
+def configured_service_image(state: dict[str, Any], service: str) -> str:
+    output = command(
+        state,
+        compose_args("config", "--format", "json"),
+        timeout=60,
+    )
+    try:
+        image = json.loads(output)["services"][service]["image"]
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RuntimeError(f"compose config missing image for service: {service}") from exc
+    if not isinstance(image, str) or not image.strip():
+        raise RuntimeError(f"compose config missing image for service: {service}")
+    return image.strip()
+
+
 def git_args(*args: str) -> list[str]:
     return ["git", "-c", f"safe.directory={PROJECT_DIR}", *args]
 
@@ -476,7 +491,7 @@ def rollback_deployment(
 def schedule_updater_recreate(state: dict[str, Any]) -> None:
     helper_name = f"flowmind-updater-reloader-{str(state['request_id'])[:8]}"
     project = str(PROJECT_DIR)
-    helper_image = f"ghcr.io/lxfight/flowmind-updater:{state['target_version']}"
+    helper_image = configured_service_image(state, "updater")
     script = (
         "sleep 5; "
         f"cd {shlex.quote(project)}; "

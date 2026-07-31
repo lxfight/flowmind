@@ -44,6 +44,40 @@ class GitArgsTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "frontend"):
                 server.configured_application_services(state)
 
+    def test_reads_service_image_from_rendered_compose_config(self) -> None:
+        state = {"logs": []}
+        rendered = json.dumps(
+            {
+                "services": {
+                    "updater": {
+                        "image": "mirror.example/ghcr.io/lxfight/flowmind-updater:1.1.0"
+                    }
+                }
+            }
+        )
+        with patch.object(server, "command", return_value=rendered) as run_command:
+            image = server.configured_service_image(state, "updater")
+
+        self.assertEqual(
+            image,
+            "mirror.example/ghcr.io/lxfight/flowmind-updater:1.1.0",
+        )
+        run_command.assert_called_once_with(
+            state,
+            server.compose_args("config", "--format", "json"),
+            timeout=60,
+        )
+
+    def test_rejects_compose_service_without_image(self) -> None:
+        state = {"logs": []}
+        with patch.object(
+            server,
+            "command",
+            return_value=json.dumps({"services": {"updater": {}}}),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "updater"):
+                server.configured_service_image(state, "updater")
+
     def test_default_accelerators_use_https_prefixes(self) -> None:
         self.assertEqual(server.github_accelerators(""), server.DEFAULT_GITHUB_ACCELERATORS)
         self.assertEqual(server.github_accelerators("off"), ())
@@ -226,6 +260,32 @@ class RecoveryTests(unittest.TestCase):
 
         self.assertEqual(update_state.call_args.kwargs["status"], "failed")
         self.assertIn("docker offline", update_state.call_args.kwargs["error"])
+
+
+class UpdaterRecreateTests(unittest.TestCase):
+    def test_reloader_uses_the_image_resolved_by_compose(self) -> None:
+        state = {
+            "request_id": "request-123",
+            "target_version": "1.1.0",
+            "logs": [],
+        }
+        mirror_image = "mirror.example/ghcr.io/lxfight/flowmind-updater:1.1.0"
+        with (
+            patch.object(server, "PROJECT_DIR", Path("/srv/flowmind")),
+            patch.object(server, "COMPOSE_PROJECT", "flowmind"),
+            patch.object(
+                server,
+                "configured_service_image",
+                return_value=mirror_image,
+            ) as resolve_image,
+            patch.object(server, "command") as run_command,
+        ):
+            server.schedule_updater_recreate(state)
+
+        resolve_image.assert_called_once_with(state, "updater")
+        command = run_command.call_args.args[1]
+        self.assertIn(mirror_image, command)
+        self.assertNotIn("ghcr.io/lxfight/flowmind-updater:1.1.0", command)
 
 
 class HealthCheckTests(unittest.TestCase):
