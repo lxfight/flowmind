@@ -7,7 +7,7 @@ ARG NPM_REGISTRY=https://registry.npmjs.org
 RUN --mount=type=cache,id=flowmind-npm-cache,target=/root/.npm,sharing=locked \
     npm ci --registry="${NPM_REGISTRY}"
 
-ARG APP_VERSION=0.3.0
+ARG APP_VERSION=0.4.0
 ARG GIT_SHA=development
 ARG BUILD_TIME=
 ENV VITE_APP_VERSION=$APP_VERSION
