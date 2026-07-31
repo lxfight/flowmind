@@ -278,6 +278,7 @@ export default function TaskSearchPage() {
                       >
                         {t.title}
                       </span>
+                      <span className="tnum flex-none text-[10px] text-muted-foreground">#{t.id}</span>
                       <Badge variant={prio.variant} className="h-5 shrink-0 px-1.5 text-[10px]">
                         {prio.label}
                       </Badge>

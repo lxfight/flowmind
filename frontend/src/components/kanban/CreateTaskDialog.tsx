@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { CheckSquare, CircleUserRound, Flag, ListPlus, Plus, SlidersHorizontal, Sparkles, Square, WandSparkles } from 'lucide-react'
 import api, { errDetail } from '../../utils/api'
 import toast from 'react-hot-toast'
@@ -17,6 +17,8 @@ import { AssigneePicker } from './AssigneePicker'
 import { MilestonePicker } from '../milestones/MilestonePicker'
 import type { StatusOption, MemberOption, GeneratedTask, Milestone } from '../../types'
 import { cn } from '../../utils/cn'
+import { useTaskReferenceAutocomplete } from '../../hooks/useTaskReferenceAutocomplete'
+import { TaskReferenceMenu } from './TaskReferenceMenu'
 
 interface Props {
   statuses: StatusOption[]
@@ -51,6 +53,13 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, milesto
   const [selectedTasks, setSelectedTasks] = useState<Set<number>>(new Set())
   const [creating, setCreating] = useState(false)
   const [manualSubmitting, setManualSubmitting] = useState(false)
+  const descriptionRef = useRef<HTMLTextAreaElement | null>(null)
+  const taskReference = useTaskReferenceAutocomplete({
+    projectId,
+    value: description,
+    onChange: setDescription,
+    inputRef: descriptionRef,
+  })
 
   useEffect(() => {
     api.get(`/projects/${projectId}/members`).then((res) => setMembers(res.data)).catch(() => {})
@@ -291,7 +300,31 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, milesto
                 </div>
                 <div className="space-y-3">
                   <Input id="create-task-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="输入任务标题" required autoFocus disabled={isBusy} className="h-11 text-base" />
-                  <Textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="补充任务背景与验收标准" disabled={isBusy} className="min-h-28 leading-6" />
+                  <div className="relative">
+                    <Textarea
+                      ref={descriptionRef}
+                      rows={4}
+                      value={description}
+                      onChange={(e) => {
+                        setDescription(e.target.value)
+                        taskReference.updateQuery(e.target.value, e.target.selectionStart ?? e.target.value.length)
+                      }}
+                      onKeyDown={(e) => { taskReference.handleKeyDown(e) }}
+                      onBlur={taskReference.close}
+                      placeholder="补充任务背景与验收标准，输入 # 可引用任务"
+                      disabled={isBusy}
+                      className="min-h-28 leading-6"
+                    />
+                    {taskReference.open && (
+                      <TaskReferenceMenu
+                        tasks={taskReference.candidates}
+                        activeIndex={taskReference.activeIndex}
+                        onChoose={taskReference.choose}
+                        onActiveIndexChange={taskReference.setActiveIndex}
+                        className="left-0 top-full mt-1"
+                      />
+                    )}
+                  </div>
                 </div>
               </section>
 

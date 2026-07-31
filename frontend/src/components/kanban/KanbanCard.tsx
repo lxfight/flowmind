@@ -96,10 +96,13 @@ export function KanbanCard({ task, members, milestones, isDragOverlay, readOnly 
       >
         {/* Header: priority + relative time */}
         <div className="flex items-center justify-between gap-2">
-          <Badge variant={priority.variant} className={cn('gap-1 text-[10px] h-5 px-1.5', completed && 'opacity-55')}>
-            <AlertCircle className="h-3 w-3" aria-hidden="true" />
-            {priority.label}
-          </Badge>
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="tnum flex-none text-[10px] font-medium text-muted-foreground">#{task.id}</span>
+            <Badge variant={priority.variant} className={cn('gap-1 text-[10px] h-5 px-1.5', completed && 'opacity-55')}>
+              <AlertCircle className="h-3 w-3" aria-hidden="true" />
+              {priority.label}
+            </Badge>
+          </div>
           {task.updated_at && (
             <span className="text-[10px] text-muted-foreground">
               {formatDistanceToNow(new Date(task.updated_at), { addSuffix: true, locale: zhCN })}

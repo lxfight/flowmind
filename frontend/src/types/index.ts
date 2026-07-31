@@ -101,6 +101,28 @@ export interface TaskComment {
   user: { id: number; display_name: string }
 }
 
+export interface TaskReferenceTask {
+  id: number
+  project_id: number
+  parent_task_id: number | null
+  title: string
+  status_id: number
+  status_name: string
+  status_color: string
+  is_completed: boolean
+}
+
+export interface TaskReferenceItem {
+  source_type: 'description' | 'comment'
+  source_comment_id: number | null
+  task: TaskReferenceTask
+}
+
+export interface TaskReferences {
+  outgoing: TaskReferenceItem[]
+  incoming: TaskReferenceItem[]
+}
+
 export interface TaskAttachment {
   id: number
   task_id: number

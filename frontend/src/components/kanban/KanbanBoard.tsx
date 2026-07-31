@@ -253,6 +253,14 @@ export default function KanbanBoard() {
     }
   }
 
+  const openTaskDetail = (taskId: number) => {
+    setDetailTaskId(taskId)
+    const next = new URLSearchParams(searchParams)
+    next.set('task', String(taskId))
+    next.delete('comment')
+    setSearchParams(next)
+  }
+
   const handleDragStart = (event: DragStartEvent) => {
     if (isViewer) return
     const task = tasks.find((t) => t.id === event.active.id)
@@ -571,7 +579,7 @@ export default function KanbanBoard() {
                         setCreateStatusId(status.id)
                         setShowCreateDialog(true)
                       }}
-                      onTaskClick={(taskId) => setDetailTaskId(taskId)}
+                      onTaskClick={openTaskDetail}
                       onAssignTask={handleAssignTask}
                     />
                   ))}

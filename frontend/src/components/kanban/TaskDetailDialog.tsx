@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   Calendar,
   AlertCircle,
@@ -15,6 +16,8 @@ import {
   Paperclip,
   Download,
   Flag,
+  Link2,
+  Copy,
   X,
 } from 'lucide-react'
 import api, { errDetail } from '../../utils/api'
@@ -41,8 +44,11 @@ import { AssigneePicker } from './AssigneePicker'
 import { MentionText } from './MentionText'
 import { MilestonePicker } from '../milestones/MilestonePicker'
 import { listMilestones } from '../../api/milestones'
+import { getTaskReferences } from '../../api/tasks'
 import { cn } from '../../utils/cn'
-import type { MemberOption, Milestone, StatusOption, TaskAttachment, TaskDetail } from '../../types'
+import { useTaskReferenceAutocomplete } from '../../hooks/useTaskReferenceAutocomplete'
+import { TaskReferenceMenu } from './TaskReferenceMenu'
+import type { MemberOption, Milestone, StatusOption, TaskAttachment, TaskDetail, TaskReferences } from '../../types'
 
 interface Props {
   taskId: number
@@ -96,6 +102,7 @@ export function TaskDetailDialog({
   const [deletingSubtaskId, setDeletingSubtaskId] = useState<number | null>(null)
   const [suggestingStatus, setSuggestingStatus] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [references, setReferences] = useState<TaskReferences>({ outgoing: [], incoming: [] })
 
   useEffect(() => {
     if (!task || !focusCommentId) return
@@ -117,6 +124,8 @@ export function TaskDetailDialog({
 
   // @mention autocomplete in the comment input
   const commentInputRef = useRef<HTMLInputElement | null>(null)
+  const descriptionInputRef = useRef<HTMLTextAreaElement | null>(null)
+  const editingCommentInputRef = useRef<HTMLTextAreaElement | null>(null)
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
 
   /** Track the active `@query` fragment right before the caret, if any. */
@@ -163,6 +172,27 @@ export function TaskDetailDialog({
   const [editStatusId, setEditStatusId] = useState<number>(0)
   const [editDueDate, setEditDueDate] = useState('')
   const [editMilestoneIds, setEditMilestoneIds] = useState<number[]>([])
+  const commentTaskReference = useTaskReferenceAutocomplete({
+    projectId,
+    excludeTaskId: taskId,
+    value: newComment,
+    onChange: setNewComment,
+    inputRef: commentInputRef,
+  })
+  const descriptionTaskReference = useTaskReferenceAutocomplete({
+    projectId,
+    excludeTaskId: taskId,
+    value: editDescription,
+    onChange: setEditDescription,
+    inputRef: descriptionInputRef,
+  })
+  const editingCommentTaskReference = useTaskReferenceAutocomplete({
+    projectId,
+    excludeTaskId: taskId,
+    value: editingCommentContent,
+    onChange: setEditingCommentContent,
+    inputRef: editingCommentInputRef,
+  })
 
   const resetEditFields = useCallback((t: TaskDetail) => {
     setEditTitle(t.title)
@@ -181,11 +211,23 @@ export function TaskDetailDialog({
     return data
   }, [projectId, taskId, isEditing, resetEditFields])
 
+  const refreshReferences = useCallback(async () => {
+    try {
+      const data = await getTaskReferences(projectId, taskId)
+      setReferences(data)
+      return data
+    } catch {
+      const empty = { outgoing: [], incoming: [] }
+      setReferences(empty)
+      return empty
+    }
+  }, [projectId, taskId])
+
   const loadTaskDetail = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const data = await refreshTask()
+      const [data] = await Promise.all([refreshTask(), refreshReferences()])
       resetEditFields(data)
     } catch {
       setError('任务详情加载失败')
@@ -193,7 +235,7 @@ export function TaskDetailDialog({
     } finally {
       setLoading(false)
     }
-  }, [refreshTask, resetEditFields])
+  }, [refreshReferences, refreshTask, resetEditFields])
 
   const loadAttachments = useCallback(async () => {
     try {
@@ -318,6 +360,7 @@ export function TaskDetailDialog({
       if (wsRefreshRef.current) clearTimeout(wsRefreshRef.current)
       wsRefreshRef.current = setTimeout(() => {
         void refreshTask().catch(() => {})
+        void refreshReferences().catch(() => {})
         void loadAttachments().catch(() => {})
       }, 300)
     }
@@ -330,7 +373,8 @@ export function TaskDetailDialog({
       await api.post(`/projects/${projectId}/tasks/${taskId}/comments`, { content: newComment.trim() })
       setNewComment('')
       setMentionQuery(null)
-      await refreshTask()
+      commentTaskReference.close()
+      await Promise.all([refreshTask(), refreshReferences()])
     } catch {
       toast.error('发送评论失败')
     } finally {
@@ -347,7 +391,7 @@ export function TaskDetailDialog({
       })
       setEditingCommentId(null)
       setEditingCommentContent('')
-      await refreshTask()
+      await Promise.all([refreshTask(), refreshReferences()])
       toast.success('评论已更新')
     } catch (err: any) {
       toast.error(errDetail(err, '更新评论失败'))
@@ -367,7 +411,7 @@ export function TaskDetailDialog({
     setDeletingCommentId(commentId)
     try {
       await api.delete(`/projects/${projectId}/tasks/${taskId}/comments/${commentId}`)
-      await refreshTask()
+      await Promise.all([refreshTask(), refreshReferences()])
       toast.success('评论已删除')
     } catch (err: any) {
       toast.error(errDetail(err, '删除评论失败'))
@@ -517,7 +561,8 @@ export function TaskDetailDialog({
       }
       await api.put(`/projects/${projectId}/tasks/${taskId}`, payload)
       setIsEditing(false)
-      await refreshTask()
+      descriptionTaskReference.close()
+      await Promise.all([refreshTask(), refreshReferences()])
       onUpdated()
       toast.success('任务已更新')
     } catch {
@@ -588,6 +633,12 @@ export function TaskDetailDialog({
 
   const priority = priorityOptions[task.priority]
   const isOverdue = task.due_date && !task.is_completed && new Date(task.due_date) < new Date()
+  const descriptionReferences = references.outgoing
+    .filter((reference) => reference.source_type === 'description')
+    .map((reference) => reference.task)
+  const uniqueOutgoing = Array.from(
+    new Map(references.outgoing.map((reference) => [reference.task.id, reference.task])).values(),
+  )
 
   return (
     <Dialog open onClose={onClose} className="max-h-[calc(100dvh-2rem)] max-w-4xl overflow-hidden">
@@ -599,7 +650,20 @@ export function TaskDetailDialog({
             <ListTodo className="h-5 w-5" aria-hidden="true" />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="mb-1 text-[10px] font-semibold text-muted-foreground tnum">TASK / {task.id}</p>
+            <button
+              type="button"
+              onClick={() => {
+                void navigator.clipboard
+                  .writeText(`${window.location.origin}/project/${projectId}/board?task=${task.id}`)
+                  .then(() => toast.success('任务链接已复制'))
+                  .catch(() => toast.error('复制任务链接失败'))
+              }}
+              className="mb-1 inline-flex items-center gap-1 text-[11px] font-semibold text-muted-foreground hover:text-foreground"
+              title="复制任务链接"
+            >
+              <span className="tnum">#{task.id}</span>
+              <Copy className="h-3 w-3" aria-hidden="true" />
+            </button>
             <DialogTitle
               showClose
               onClose={onClose}
@@ -714,18 +778,36 @@ export function TaskDetailDialog({
         <div className="space-y-2">
           <h4 className={SECTION_TITLE}>描述</h4>
           {isEditing ? (
-            <Textarea
-              rows={5}
-              value={editDescription}
-              onChange={(e) => setEditDescription(e.target.value)}
-              disabled={saving}
-              placeholder="任务描述..."
-            />
+            <div className="relative">
+              <Textarea
+                ref={descriptionInputRef}
+                rows={5}
+                value={editDescription}
+                onChange={(e) => {
+                  setEditDescription(e.target.value)
+                  descriptionTaskReference.updateQuery(e.target.value, e.target.selectionStart ?? e.target.value.length)
+                }}
+                onKeyDown={(e) => { descriptionTaskReference.handleKeyDown(e) }}
+                onBlur={descriptionTaskReference.close}
+                disabled={saving}
+                placeholder="任务描述，输入 # 可引用任务"
+              />
+              {descriptionTaskReference.open && (
+                <TaskReferenceMenu
+                  tasks={descriptionTaskReference.candidates}
+                  activeIndex={descriptionTaskReference.activeIndex}
+                  onChoose={descriptionTaskReference.choose}
+                  onActiveIndexChange={descriptionTaskReference.setActiveIndex}
+                  className="left-0 top-full mt-1"
+                />
+              )}
+            </div>
           ) : (
             task.description ? (
               <MarkdownContent
                 content={task.description}
                 className="rounded-lg bg-muted/30 px-4 py-3"
+                taskReferences={descriptionReferences}
               />
             ) : (
               <p className="px-1 text-sm italic text-muted-foreground/70">无描述</p>
@@ -734,6 +816,57 @@ export function TaskDetailDialog({
         </div>
 
         <Separator />
+
+        {(uniqueOutgoing.length > 0 || references.incoming.length > 0) && (
+          <>
+            <div className="space-y-3">
+              <h4 className={cn(SECTION_TITLE, 'flex items-center gap-1.5')}>
+                <Link2 className="h-4 w-4" />
+                关联任务
+              </h4>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="min-w-0">
+                  <p className="mb-1.5 text-xs text-muted-foreground">引用了</p>
+                  {uniqueOutgoing.length > 0 ? (
+                    <div className="divide-y divide-border border-y border-border">
+                      {uniqueOutgoing.map((target) => (
+                        <Link
+                          key={target.id}
+                          to={`/project/${target.project_id}/board?task=${target.id}`}
+                          className="flex min-w-0 items-center gap-2 py-2 text-sm hover:text-primary"
+                        >
+                          <span className="tnum flex-none text-xs text-muted-foreground">#{target.id}</span>
+                          <span className={cn('truncate', target.is_completed && 'line-through text-muted-foreground')}>{target.title}</span>
+                        </Link>
+                      ))}
+                    </div>
+                  ) : <p className="text-sm text-muted-foreground">无</p>}
+                </div>
+                <div className="min-w-0">
+                  <p className="mb-1.5 text-xs text-muted-foreground">被引用于</p>
+                  {references.incoming.length > 0 ? (
+                    <div className="divide-y divide-border border-y border-border">
+                      {references.incoming.map((reference, index) => (
+                        <Link
+                          key={`${reference.source_type}-${reference.source_comment_id ?? 'description'}-${reference.task.id}-${index}`}
+                          to={`/project/${reference.task.project_id}/board?task=${reference.task.id}${reference.source_comment_id ? `&comment=${reference.source_comment_id}` : ''}`}
+                          className="flex min-w-0 items-center gap-2 py-2 text-sm hover:text-primary"
+                        >
+                          <span className="tnum flex-none text-xs text-muted-foreground">#{reference.task.id}</span>
+                          <span className="min-w-0 flex-1 truncate">{reference.task.title}</span>
+                          <span className="flex-none text-[10px] text-muted-foreground">
+                            {reference.source_type === 'comment' ? '评论' : '描述'}
+                          </span>
+                        </Link>
+                      ))}
+                    </div>
+                  ) : <p className="text-sm text-muted-foreground">无</p>}
+                </div>
+              </div>
+            </div>
+            <Separator />
+          </>
+        )}
 
         <div className="space-y-3">
           <h4 className={cn(SECTION_TITLE, 'flex items-center gap-1.5')}>
@@ -794,6 +927,7 @@ export function TaskDetailDialog({
                     aria-label={`${sub.is_completed ? '取消完成' : '完成'}子任务「${sub.title}」`}
                     className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
                   />
+                  <span className="tnum flex-none text-[10px] text-muted-foreground">#{sub.id}</span>
                   {editingSubtaskId === sub.id ? (
                     <>
                       <Input
@@ -1056,14 +1190,29 @@ export function TaskDetailDialog({
                       )}
                     </div>
                     {isEditingComment ? (
-                      <div className="space-y-2">
+                      <div className="relative space-y-2">
                         <Textarea
+                          ref={editingCommentInputRef}
                           rows={3}
                           value={editingCommentContent}
-                          onChange={(e) => setEditingCommentContent(e.target.value)}
+                          onChange={(e) => {
+                            setEditingCommentContent(e.target.value)
+                            editingCommentTaskReference.updateQuery(e.target.value, e.target.selectionStart ?? e.target.value.length)
+                          }}
+                          onKeyDown={(e) => { editingCommentTaskReference.handleKeyDown(e) }}
+                          onBlur={editingCommentTaskReference.close}
                           disabled={savingComment}
                           className="text-sm"
                         />
+                        {editingCommentTaskReference.open && (
+                          <TaskReferenceMenu
+                            tasks={editingCommentTaskReference.candidates}
+                            activeIndex={editingCommentTaskReference.activeIndex}
+                            onChoose={editingCommentTaskReference.choose}
+                            onActiveIndexChange={editingCommentTaskReference.setActiveIndex}
+                            className="left-0 top-20 mt-1"
+                          />
+                        )}
                         <div className="flex justify-end gap-2">
                           <Button
                             variant="outline"
@@ -1088,7 +1237,13 @@ export function TaskDetailDialog({
                       </div>
                     ) : (
                       <p className="text-sm text-foreground whitespace-pre-wrap">
-                        <MentionText content={c.content} members={members} />
+                        <MentionText
+                          content={c.content}
+                          members={members}
+                          taskReferences={references.outgoing
+                            .filter((reference) => reference.source_type === 'comment' && reference.source_comment_id === c.id)
+                            .map((reference) => reference.task)}
+                        />
                       </p>
                     )}
                   </div>
@@ -1098,7 +1253,15 @@ export function TaskDetailDialog({
           </div>
           {!isViewer && (
             <div className="relative flex gap-2">
-              {mentionCandidates.length > 0 && (
+              {commentTaskReference.open ? (
+                <TaskReferenceMenu
+                  tasks={commentTaskReference.candidates}
+                  activeIndex={commentTaskReference.activeIndex}
+                  onChoose={commentTaskReference.choose}
+                  onActiveIndexChange={commentTaskReference.setActiveIndex}
+                  className="bottom-full left-0 mb-1"
+                />
+              ) : mentionCandidates.length > 0 && (
                 <div
                   role="listbox"
                   aria-label="提及成员"
@@ -1128,10 +1291,13 @@ export function TaskDetailDialog({
                 onChange={(e) => {
                   setNewComment(e.target.value)
                   updateMentionQuery(e.target.value, e.target.selectionStart ?? e.target.value.length)
+                  commentTaskReference.updateQuery(e.target.value, e.target.selectionStart ?? e.target.value.length)
                 }}
                 onKeyDown={(e) => {
+                  if (commentTaskReference.handleKeyDown(e)) return
                   if (e.key === 'Escape') {
                     setMentionQuery(null)
+                    commentTaskReference.close()
                     return
                   }
                   if (e.key === 'Enter' && !e.shiftKey) {
@@ -1143,8 +1309,12 @@ export function TaskDetailDialog({
                     }
                   }
                 }}
+                onBlur={() => {
+                  setMentionQuery(null)
+                  commentTaskReference.close()
+                }}
                 disabled={addingComment}
-                placeholder="输入评论，@ 可提及成员..."
+                placeholder="输入评论，@ 提及成员，# 引用任务"
                 className="text-sm flex-1 min-w-0"
               />
               <Button

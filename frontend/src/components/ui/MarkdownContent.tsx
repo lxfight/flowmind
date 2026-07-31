@@ -1,17 +1,21 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { Link } from 'react-router-dom'
 import { cn } from '../../utils/cn'
+import { markdownTaskReferences } from '../../utils/markdownTaskReferences'
+import type { TaskReferenceTask } from '../../types'
 
 interface MarkdownContentProps {
   content: string
   className?: string
+  taskReferences?: TaskReferenceTask[]
 }
 
-export function MarkdownContent({ content, className }: MarkdownContentProps) {
+export function MarkdownContent({ content, className, taskReferences = [] }: MarkdownContentProps) {
   return (
     <div className={cn('break-words text-sm leading-relaxed text-foreground', className)}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, markdownTaskReferences(taskReferences)]}
         components={{
           h1: ({ children }) => <h1 className="mb-2 mt-4 text-xl font-semibold first:mt-0">{children}</h1>,
           h2: ({ children }) => <h2 className="mb-2 mt-4 text-lg font-semibold first:mt-0">{children}</h2>,
@@ -43,13 +47,10 @@ export function MarkdownContent({ content, className }: MarkdownContentProps) {
           pre: ({ children }) => (
             <pre className="my-2 overflow-x-auto rounded-md bg-muted p-3 scrollbar-thin">{children}</pre>
           ),
-          a: ({ children, href }) => (
-            <a
-              href={href}
-              target="_blank"
-              rel="noreferrer"
-              className="text-primary underline underline-offset-2"
-            >
+          a: ({ children, href }) => href?.startsWith('/project/') ? (
+            <Link to={href} className="font-medium text-primary hover:underline">{children}</Link>
+          ) : (
+            <a href={href} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2">
               {children}
             </a>
           ),

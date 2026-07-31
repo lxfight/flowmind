@@ -1,4 +1,5 @@
 import api from '../utils/api'
+import type { TaskReferences, TaskReferenceTask } from '../types'
 
 export interface TaskSearchItem {
   id: number
@@ -46,5 +47,21 @@ export async function searchTasks(params: TaskSearchParams): Promise<TaskSearchR
       Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '')
     ),
   })
+  return res.data
+}
+
+export async function suggestTaskReferences(
+  projectId: number,
+  query: string,
+  excludeTaskId?: number,
+): Promise<TaskReferenceTask[]> {
+  const res = await api.get(`/projects/${projectId}/tasks/reference-suggestions`, {
+    params: { q: query, exclude_task_id: excludeTaskId, limit: 8 },
+  })
+  return res.data
+}
+
+export async function getTaskReferences(projectId: number, taskId: number): Promise<TaskReferences> {
+  const res = await api.get(`/projects/${projectId}/tasks/${taskId}/references`)
   return res.data
 }
