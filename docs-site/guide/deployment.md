@@ -28,7 +28,11 @@ FLOWMIND_MIRROR_MODE=china ./scripts/deploy.sh       # 强制国内源
 |------|------|
 | `frontend` | Nginx 托管前端静态资源，并反向代理 `/api` |
 | `backend` | FastAPI 应用，启动时自动执行数据库迁移 |
+| `notifier` | 独立扫描 Transactional Outbox，签名并投递外部 Webhook |
 | `postgres` | PostgreSQL 17 + pgvector，持久化卷存储 |
+| `updater` | 编排在线更新、数据库备份、健康检查与失败恢复 |
+
+`notifier` 与后端复用同一镜像，但以独立进程运行。业务写入和外部投递解耦，即使目标平台暂时不可用，也不会阻塞任务、评论或里程碑操作。
 
 ## 反向代理与域名
 
@@ -37,6 +41,17 @@ FLOWMIND_MIRROR_MODE=china ./scripts/deploy.sh       # 强制国内源
 - 终止 TLS，强制 HTTPS（JWT 在 Header 中传输）
 - 将域名流量转发到 `frontend` 容器的 80 端口即可，`/api` 已由前端 Nginx 代理到后端
 - SSE 流式接口需要网关**关闭响应缓冲**（如 Nginx 的 `proxy_buffering off;`），否则 AI 回复会"整段弹出"而非逐字流出
+- 配置 Webhook 前应设置 `PUBLIC_APP_URL=https://你的域名`，让外部通知中的任务与里程碑链接可直接访问
+
+## 外部通知部署注意事项
+
+- 公网 Webhook 默认只允许 HTTPS，并在保存配置和每次投递前检查域名解析结果，阻止回环、链路本地和私网地址。
+- 只有超级管理员可以为可信的自托管接收服务开启“允许内网地址”。
+- Docker 中的 `127.0.0.1` 指向 `notifier` 容器本身。macOS 宿主机服务可使用 `host.docker.internal`，同一 Compose 网络内应使用接收服务名。
+- 接收端应先校验 HMAC 签名，再将事件加入自己的队列，并尽快返回 `2xx`。
+- `INTEGRATION_ENCRYPTION_KEY` 必须纳入密钥备份；更换后应逐个轮换 Webhook 密钥。
+
+完整配置、签名校验和平台适配方式见[外部集成](/features/integrations)。
 
 ## 数据库
 

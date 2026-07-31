@@ -22,10 +22,20 @@ FlowMind 的配置分两层：**环境变量**（部署时设定）与 **系统�
 | `LLM_EMBEDDING_DIM` | 向量维度（需与模型输出一致） | `1536` |
 | `KNOWLEDGE_MAX_BYTES` | 知识库单文件上限 | `26214400`（25MB） |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Token 有效期 | `1440` |
+| `INTEGRATION_ENCRYPTION_KEY` | 加密 Webhook 签名密钥，生产环境必须固定设置 | 回退到 `JWT_SECRET` |
+| `PUBLIC_APP_URL` | Webhook 事件中的 FlowMind 绝对链接前缀 | 相对路径 |
+| `WEBHOOK_REQUEST_TIMEOUT` | 单次 Webhook 请求超时（秒） | `10` |
+| `WEBHOOK_WORKER_POLL_SECONDS` | notifier 扫描待投递事件的间隔（秒） | `1` |
+| `WEBHOOK_MAX_ATTEMPTS` | 每条通知的最大投递次数 | `6` |
+| `WEBHOOK_AUTO_PAUSE_FAILURES` | 连续失败多少次后自动暂停集成 | `20` |
 | `FLOWMIND_UPDATE_MIN_FREE_BYTES` | 更新备份后保留的最小空间 | `1073741824`（1 GiB） |
 
 ::: danger 生产环境
 `JWT_SECRET` 务必显式设置为强随机值，避免实例重启后旧 Token 失效或密钥泄露。
+:::
+
+::: warning Webhook 密钥
+生产环境应独立设置稳定、随机的 `INTEGRATION_ENCRYPTION_KEY`，并让 `backend` 与 `notifier` 使用同一个值。修改该值后，已有 Webhook 的签名密钥将无法解密，需要在项目“集成”页面重新生成。
 :::
 
 ## 系统配置页（在线配置）

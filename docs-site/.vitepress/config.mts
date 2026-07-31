@@ -17,7 +17,7 @@ export default defineConfig({
 
     nav: [
       { text: '指南', link: '/guide/introduction', activeMatch: '^/guide/(?!releases)' },
-      { text: 'v0.2.2', link: '/guide/releases', activeMatch: '/guide/releases' },
+      { text: 'v0.4.0', link: '/guide/releases', activeMatch: '/guide/releases' },
       { text: '功能', link: '/features/kanban', activeMatch: '/features/' },
       { text: '架构', link: '/architecture/', activeMatch: '/architecture/' },
     ],
@@ -43,6 +43,7 @@ export default defineConfig({
             { text: 'AI 助手', link: '/features/ai-assistant' },
             { text: 'RAG 知识库', link: '/features/knowledge' },
             { text: '跨项目助手', link: '/features/cross-project' },
+            { text: '外部集成', link: '/features/integrations' },
             { text: '系统管理', link: '/features/admin' },
           ],
         },
