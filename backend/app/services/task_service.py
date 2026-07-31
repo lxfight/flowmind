@@ -36,6 +36,7 @@ from app.schemas import (
     TaskStatusUpdate,
     TaskUpdate,
 )
+from app.services.integration_service import emit_domain_event
 from app.services.mention_service import notify_mentions
 from app.services.task_reference_service import sync_references
 
@@ -65,6 +66,49 @@ def current_agent_batch() -> str | None:
 
 def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value else None
+
+
+def _task_event_data(task: Task | TaskOut) -> dict:
+    return {
+        "id": task.id,
+        "title": task.title,
+        "status_id": task.status_id,
+        "parent_task_id": task.parent_task_id,
+        "priority": task.priority,
+        "order": task.order,
+        "due_date": _iso(task.due_date),
+        "is_completed": task.is_completed,
+    }
+
+
+def _changes(before: dict, after: dict) -> dict:
+    return {
+        field: {"from": before[field], "to": value}
+        for field, value in after.items()
+        if field != "id" and before.get(field) != value
+    }
+
+
+async def _emit_task_event(
+    db: AsyncSession,
+    *,
+    project_id: int,
+    event_type: str,
+    user: User,
+    data: dict,
+    changes: dict | None = None,
+) -> None:
+    await emit_domain_event(
+        db,
+        project_id=project_id,
+        event_type=event_type,
+        actor=user,
+        resource_type="task",
+        resource_id=data["id"],
+        data=data,
+        changes=changes,
+        link=f"/project/{project_id}/board?task={data['id']}",
+    )
 
 
 def _log(
@@ -376,7 +420,15 @@ async def create_task(
     )
     if assignees:
         await _notify_task_assigned(db, project_id, task, [u.id for u in assignees], user)
-    return _task_out(task)
+    output = _task_out(task)
+    await _emit_task_event(
+        db,
+        project_id=project_id,
+        event_type="task.created",
+        user=user,
+        data=_task_event_data(output),
+    )
+    return output
 
 
 async def update_task(
@@ -410,6 +462,7 @@ async def update_task(
 
     await db.refresh(task, ["assignees", "milestones"])
     old_assignee_ids = {u.id for u in task.assignees}
+    before_event = _task_event_data(task)
 
     snapshot = None
     if current_agent_batch():
@@ -496,7 +549,36 @@ async def update_task(
         added_ids = [u.id for u in task.assignees if u.id not in old_assignee_ids]
         if added_ids:
             await _notify_task_assigned(db, project_id, task, added_ids, user)
-    return _task_out(task)
+    output = _task_out(task)
+    event_data = _task_event_data(output)
+    event_changes = _changes(before_event, event_data)
+    await _emit_task_event(
+        db,
+        project_id=project_id,
+        event_type="task.updated",
+        user=user,
+        data=event_data,
+        changes=event_changes,
+    )
+    if before_event["status_id"] != event_data["status_id"]:
+        await _emit_task_event(
+            db,
+            project_id=project_id,
+            event_type="task.moved",
+            user=user,
+            data=event_data,
+            changes={"status_id": event_changes["status_id"]},
+        )
+    if before_event["is_completed"] != event_data["is_completed"]:
+        await _emit_task_event(
+            db,
+            project_id=project_id,
+            event_type="task.completed",
+            user=user,
+            data=event_data,
+            changes={"is_completed": event_changes["is_completed"]},
+        )
+    return output
 
 
 async def move_task(
@@ -513,6 +595,8 @@ async def move_task(
         parent = await ensure_task_in_project(project_id, task.parent_task_id, db)
         if parent.status_id != data.status_id:
             raise HTTPException(status_code=400, detail="子任务状态必须与父任务一致")
+
+    before_event = _task_event_data(task)
 
     snapshot = None
     if current_agent_batch():
@@ -560,12 +644,33 @@ async def move_task(
         summary=f"移动任务: {task.title}",
         snapshot=snapshot,
     )
-    return _task_out(task)
+    output = _task_out(task)
+    event_data = _task_event_data(output)
+    event_changes = _changes(before_event, event_data)
+    await _emit_task_event(
+        db,
+        project_id=project_id,
+        event_type="task.moved",
+        user=user,
+        data=event_data,
+        changes=event_changes,
+    )
+    if before_event["is_completed"] != event_data["is_completed"]:
+        await _emit_task_event(
+            db,
+            project_id=project_id,
+            event_type="task.completed",
+            user=user,
+            data=event_data,
+            changes={"is_completed": event_changes["is_completed"]},
+        )
+    return output
 
 
 async def delete_task(project_id: int, task_id: int, user: User, db: AsyncSession) -> None:
     await _require_admin(project_id, user, db)
     task = await ensure_task_in_project(project_id, task_id, db)
+    event_data = _task_event_data(task)
 
     snapshot = None
     if current_agent_batch():
@@ -620,6 +725,13 @@ async def delete_task(project_id: int, task_id: int, user: User, db: AsyncSessio
         target_id=task.id,
         summary=f"删除任务: {task.title}",
         snapshot=snapshot,
+    )
+    await _emit_task_event(
+        db,
+        project_id=project_id,
+        event_type="task.deleted",
+        user=user,
+        data=event_data,
     )
     await db.delete(task)
 
@@ -689,6 +801,22 @@ async def add_comment(
             body=excerpt,
             link=link,
         )
+
+    await emit_domain_event(
+        db,
+        project_id=project_id,
+        event_type="comment.created",
+        actor=user,
+        resource_type="comment",
+        resource_id=comment.id,
+        data={
+            "id": comment.id,
+            "task_id": task.id,
+            "task_title": task.title,
+            "content": comment.content,
+        },
+        link=f"/project/{project_id}/board?task={task.id}&comment={comment.id}",
+    )
 
     return TaskCommentOut.model_validate(comment)
 

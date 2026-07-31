@@ -20,6 +20,7 @@ from app.schemas import (
     MilestoneTimelinePage,
     MilestoneUpdate,
 )
+from app.services.integration_service import emit_domain_event
 
 
 def _aware(value: datetime) -> datetime:
@@ -57,6 +58,49 @@ def _out(milestone: Milestone) -> MilestoneOut:
     output.task_completed = completed
     output.progress = round(completed / total * 100) if total else 0
     return output
+
+
+def _event_data(milestone: MilestoneOut) -> dict:
+    return {
+        "id": milestone.id,
+        "title": milestone.title,
+        "status": milestone.status,
+        "target_date": milestone.target_date.isoformat(),
+        "owner_id": milestone.owner_id,
+        "task_ids": milestone.task_ids,
+        "progress": milestone.progress,
+        "completed_at": milestone.completed_at.isoformat() if milestone.completed_at else None,
+    }
+
+
+def _event_changes(before: dict, after: dict) -> dict:
+    return {
+        field: {"from": before[field], "to": value}
+        for field, value in after.items()
+        if field != "id" and before.get(field) != value
+    }
+
+
+async def _emit_milestone_event(
+    db: AsyncSession,
+    *,
+    project_id: int,
+    event_type: str,
+    user: User,
+    data: dict,
+    changes: dict | None = None,
+) -> None:
+    await emit_domain_event(
+        db,
+        project_id=project_id,
+        event_type=event_type,
+        actor=user,
+        resource_type="milestone",
+        resource_id=data["id"],
+        data=data,
+        changes=changes,
+        link=f"/project/{project_id}/milestones",
+    )
 
 
 def _log(
@@ -288,7 +332,15 @@ async def create_milestone(
         milestone_id=milestone.id,
         summary=f"创建里程碑: {milestone.title}",
     )
-    return _out(await _milestone_or_404(project_id, milestone.id, db))
+    output = _out(await _milestone_or_404(project_id, milestone.id, db))
+    await _emit_milestone_event(
+        db,
+        project_id=project_id,
+        event_type="milestone.created",
+        user=user,
+        data=_event_data(output),
+    )
+    return output
 
 
 async def update_milestone(
@@ -300,6 +352,7 @@ async def update_milestone(
 ) -> MilestoneOut:
     await ensure_project_editor(project_id, user, db)
     milestone = await _milestone_or_404(project_id, milestone_id, db)
+    before_event = _event_data(_out(milestone))
     payload = data.model_dump(exclude_unset=True)
     task_ids = payload.pop("task_ids", None)
     if "owner_id" in payload and payload["owner_id"] is not None:
@@ -329,7 +382,27 @@ async def update_milestone(
         milestone_id=milestone.id,
         summary=f"更新里程碑: {milestone.title}",
     )
-    return _out(await _milestone_or_404(project_id, milestone.id, db))
+    output = _out(await _milestone_or_404(project_id, milestone.id, db))
+    event_data = _event_data(output)
+    event_changes = _event_changes(before_event, event_data)
+    await _emit_milestone_event(
+        db,
+        project_id=project_id,
+        event_type="milestone.updated",
+        user=user,
+        data=event_data,
+        changes=event_changes,
+    )
+    if (before_event["status"] == "completed") != (event_data["status"] == "completed"):
+        await _emit_milestone_event(
+            db,
+            project_id=project_id,
+            event_type="milestone.completed",
+            user=user,
+            data=event_data,
+            changes={"status": event_changes["status"]},
+        )
+    return output
 
 
 async def delete_milestone(
@@ -340,6 +413,7 @@ async def delete_milestone(
 ) -> None:
     await ensure_project_editor(project_id, user, db)
     milestone = await _milestone_or_404(project_id, milestone_id, db)
+    event_data = _event_data(_out(milestone))
     title = milestone.title
     _log(
         db,
@@ -348,5 +422,12 @@ async def delete_milestone(
         action="delete",
         milestone_id=milestone.id,
         summary=f"删除里程碑: {title}",
+    )
+    await _emit_milestone_event(
+        db,
+        project_id=project_id,
+        event_type="milestone.deleted",
+        user=user,
+        data=event_data,
     )
     await db.delete(milestone)

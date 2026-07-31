@@ -8,7 +8,10 @@ from helpers import add_member, admin_login, create_project, register_and_approv
 from sqlalchemy import func, select
 
 from app.models.integration import DomainEvent, ExternalDelivery, ExternalIntegration
+from app.models.task import Task
 from app.models.user import User
+from app.schemas import TaskCreate
+from app.services import task_service
 from app.services.integration_service import emit_domain_event
 from app.services.webhook_delivery import process_next_delivery, sign_webhook
 
@@ -194,5 +197,144 @@ async def test_domain_event_rolls_back_with_business_transaction(client):
         await db.rollback()
 
     async with async_session_factory() as db:
+        assert await db.scalar(select(func.count(DomainEvent.id))) == 0
+        assert await db.scalar(select(func.count(ExternalDelivery.id))) == 0
+
+
+@pytest.mark.asyncio
+async def test_business_apis_emit_task_comment_and_milestone_events(client):
+    headers = admin_login(client)
+    project_id, statuses = create_project(client, headers, name="Webhook 业务事件项目")
+    all_events = [
+        "task.created",
+        "task.updated",
+        "task.moved",
+        "task.completed",
+        "task.deleted",
+        "comment.created",
+        "milestone.created",
+        "milestone.updated",
+        "milestone.completed",
+        "milestone.deleted",
+    ]
+    _create_webhook(client, headers, project_id, event_types=all_events)
+
+    task_response = client.post(
+        f"/api/projects/{project_id}/tasks",
+        headers=headers,
+        json={"title": "准备发布", "status_id": statuses[0]["id"]},
+    )
+    assert task_response.status_code == 201, task_response.text
+    task = task_response.json()
+
+    update_response = client.put(
+        f"/api/projects/{project_id}/tasks/{task['id']}",
+        headers=headers,
+        json={"title": "准备正式发布"},
+    )
+    assert update_response.status_code == 200, update_response.text
+
+    done_status = next(status for status in statuses if status["is_done"])
+    move_response = client.patch(
+        f"/api/projects/{project_id}/tasks/{task['id']}/move",
+        headers=headers,
+        json={"status_id": done_status["id"], "order": 1000},
+    )
+    assert move_response.status_code == 200, move_response.text
+
+    comment_response = client.post(
+        f"/api/projects/{project_id}/tasks/{task['id']}/comments",
+        headers=headers,
+        json={"content": "已经部署到预发布环境"},
+    )
+    assert comment_response.status_code == 201, comment_response.text
+
+    delete_task_response = client.delete(
+        f"/api/projects/{project_id}/tasks/{task['id']}", headers=headers
+    )
+    assert delete_task_response.status_code == 200, delete_task_response.text
+
+    milestone_response = client.post(
+        f"/api/projects/{project_id}/milestones",
+        headers=headers,
+        json={
+            "title": "正式发布",
+            "description": "",
+            "target_date": "2027-01-15",
+            "owner_id": None,
+            "task_ids": [],
+        },
+    )
+    assert milestone_response.status_code == 201, milestone_response.text
+    milestone = milestone_response.json()
+
+    complete_response = client.put(
+        f"/api/projects/{project_id}/milestones/{milestone['id']}",
+        headers=headers,
+        json={"status": "completed"},
+    )
+    assert complete_response.status_code == 200, complete_response.text
+    delete_milestone_response = client.delete(
+        f"/api/projects/{project_id}/milestones/{milestone['id']}", headers=headers
+    )
+    assert delete_milestone_response.status_code == 200, delete_milestone_response.text
+
+    async with async_session_factory() as db:
+        events = list(
+            (
+                await db.execute(
+                    select(DomainEvent).where(DomainEvent.project_id == project_id)
+                )
+            ).scalars()
+        )
+        assert sorted(event.event_type for event in events) == sorted(all_events)
+        assert await db.scalar(
+            select(func.count(ExternalDelivery.id)).join(DomainEvent).where(
+                DomainEvent.project_id == project_id
+            )
+        ) == len(all_events)
+
+        updated = next(event for event in events if event.event_type == "task.updated")
+        assert updated.payload["changes"]["title"] == {
+            "from": "准备发布",
+            "to": "准备正式发布",
+        }
+        completed = next(event for event in events if event.event_type == "task.completed")
+        assert completed.payload["changes"]["is_completed"] == {
+            "from": False,
+            "to": True,
+        }
+        comment = next(event for event in events if event.event_type == "comment.created")
+        assert comment.payload["data"]["task_id"] == task["id"]
+        milestone_completed = next(
+            event for event in events if event.event_type == "milestone.completed"
+        )
+        assert milestone_completed.payload["changes"]["status"] == {
+            "from": "open",
+            "to": "completed",
+        }
+
+
+@pytest.mark.asyncio
+async def test_task_and_outbox_roll_back_in_the_same_transaction(client):
+    headers = admin_login(client)
+    project_id, statuses = create_project(client, headers, name="Webhook 业务回滚项目")
+    _create_webhook(client, headers, project_id, event_types=["task.created"])
+
+    async with async_session_factory() as db:
+        actor = await db.scalar(select(User).where(User.username == "admin"))
+        task = await task_service.create_task(
+            project_id,
+            TaskCreate(title="随事务回滚", status_id=statuses[0]["id"]),
+            actor,
+            db,
+        )
+        assert task.id is not None
+        assert await db.scalar(select(func.count(DomainEvent.id))) == 1
+        assert await db.scalar(select(func.count(ExternalDelivery.id))) == 1
+        await db.rollback()
+
+    async with async_session_factory() as db:
+        assert await db.scalar(select(func.count(Task.id))) == 0
         assert await db.scalar(select(func.count(DomainEvent.id))) == 0
         assert await db.scalar(select(func.count(ExternalDelivery.id))) == 0
