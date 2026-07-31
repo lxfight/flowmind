@@ -15,6 +15,14 @@ class Settings(BaseSettings):
     update_check_ttl_seconds: int = 6 * 60 * 60
     updater_url: str = "http://updater:8090"
     updater_token: str = ""
+    public_app_url: str = ""
+
+    # Outbound integrations
+    integration_encryption_key: str = ""
+    webhook_request_timeout: float = 10.0
+    webhook_worker_poll_seconds: float = 1.0
+    webhook_max_attempts: int = 6
+    webhook_auto_pause_failures: int = 20
 
     # Local timezone used when surfacing "current time" to the LLM assistant.
     # The server runs in UTC, but users see times in their local zone; this makes
@@ -81,9 +89,11 @@ class Settings(BaseSettings):
             self.jwt_secret = secrets.token_urlsafe(32)
             if not os.environ.get("JWT_SECRET") and not kwargs.get("jwt_secret"):
                 import sys
-                print("\n⚠️  JWT_SECRET 未设置，已自动生成随机密钥。"
-                      "生产环境请通过环境变量设置 JWT_SECRET。\n",
-                      file=sys.stderr)
+
+                print(
+                    "\n⚠️  JWT_SECRET 未设置，已自动生成随机密钥。生产环境请通过环境变量设置 JWT_SECRET。\n",
+                    file=sys.stderr,
+                )
 
 
 @lru_cache

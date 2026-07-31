@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 # Import all models so Base.metadata is populated
 import app.models.activity  # noqa: F401
+import app.models.integration  # noqa: F401
 import app.models.knowledge  # noqa: F401
 import app.models.llm_chat  # noqa: F401
 import app.models.project  # noqa: F401

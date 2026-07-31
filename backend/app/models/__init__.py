@@ -1,4 +1,5 @@
 from app.models.activity import ActivityLog
+from app.models.integration import DomainEvent, ExternalDelivery, ExternalIntegration
 from app.models.knowledge import DocChunk, DocChunkEmbedding, KnowledgeDoc
 from app.models.llm_chat import LLMChatMessage, LLMChatSession
 from app.models.milestone import Milestone, milestone_tasks
@@ -24,6 +25,9 @@ __all__ = [
     "DocChunk",
     "DocChunkEmbedding",
     "ActivityLog",
+    "ExternalIntegration",
+    "DomainEvent",
+    "ExternalDelivery",
     "LLMChatSession",
     "LLMChatMessage",
     "Milestone",
