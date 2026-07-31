@@ -17,6 +17,7 @@ from app.api import (
     admin_update,
     attachments,
     auth,
+    integrations,
     knowledge,
     llm,
     milestones,
@@ -52,6 +53,7 @@ def _initial_admin_password() -> tuple[str, bool]:
     if not 8 <= len(configured_password) <= 128:
         raise RuntimeError("FLOWMIND_ADMIN_PASSWORD must be 8-128 characters")
     return configured_password, False
+
 
 # Columns that older SQLite dev databases may be missing; create_all never
 # alters existing tables, so add them manually.
@@ -101,12 +103,14 @@ async def lifespan(app: FastAPI):
 
     # Ensure upload directories exist
     from app.core.paths import get_avatars_dir
+
     get_avatars_dir()
 
     # Auto-create default superuser if no users exist
     async with async_session_factory() as db:
         from app.core.security import hash_password
         from app.models.user import User
+
         result = await db.execute(select(User).limit(1))
         if not result.scalar_one_or_none():
             admin_username = _initial_admin_username()
@@ -122,7 +126,7 @@ async def lifespan(app: FastAPI):
             )
             db.add(admin)
             await db.commit()
-            print(f"\n{'='*60}")
+            print(f"\n{'=' * 60}")
             print("  默认超级管理员已创建")
             print(f"  用户名: {admin_username}")
             if generated_password:
@@ -130,7 +134,7 @@ async def lifespan(app: FastAPI):
             else:
                 print("  初始密码: 已通过环境变量设置（日志不回显）")
             print("  请登录后立即修改密码!")
-            print(f"{'='*60}\n")
+            print(f"{'=' * 60}\n")
 
     # Recover docs stuck mid-indexing from a previous process lifetime.
     # Reset to 'failed' (rather than silently auto-reindexing) so startup
@@ -145,6 +149,7 @@ async def lifespan(app: FastAPI):
                 DOC_STATUS_PARSING,
                 KnowledgeDoc,
             )
+
             result = await db.execute(
                 update(KnowledgeDoc)
                 .where(KnowledgeDoc.status.in_([DOC_STATUS_INDEXING, DOC_STATUS_PARSING]))
@@ -161,6 +166,7 @@ async def lifespan(app: FastAPI):
 
     # Start hourly due-date reminder background task
     from app.services.due_reminder import due_reminder_loop
+
     reminder_task = asyncio.create_task(due_reminder_loop(async_session_factory))
 
     yield
@@ -169,6 +175,7 @@ async def lifespan(app: FastAPI):
     with contextlib.suppress(asyncio.CancelledError):
         await reminder_task
     await engine.dispose()
+
 
 app = FastAPI(
     title="FlowMind API",
@@ -194,6 +201,7 @@ app.include_router(projects.router)
 app.include_router(tasks.router)
 app.include_router(statuses.router)
 app.include_router(knowledge.router)
+app.include_router(integrations.router)
 app.include_router(milestones.router)
 app.include_router(llm.router)
 app.include_router(notifications.router)
