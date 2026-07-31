@@ -60,8 +60,6 @@ import type {
 } from '../types'
 import './MilestonesPage.css'
 
-type ViewFilter = 'open' | 'completed' | 'all'
-
 const healthConfig: Record<
   MilestoneHealth,
   { label: string; className: string; icon: typeof CircleDot }
@@ -88,18 +86,6 @@ function timelineGapCopy(days: number) {
 }
 
 const TIMELINE_PAGE_SIZE = 12
-
-function statusForView(view: ViewFilter) {
-  if (view === 'open') return 'open' as const
-  if (view === 'completed') return 'archived' as const
-  return undefined
-}
-
-function milestoneMatchesView(milestone: Milestone, view: ViewFilter) {
-  if (view === 'open') return milestone.status === 'open'
-  if (view === 'completed') return milestone.status !== 'open'
-  return true
-}
 
 function mergeMilestones(current: Milestone[], incoming: Milestone[]) {
   const byId = new Map(current.map((milestone) => [milestone.id, milestone]))
@@ -149,7 +135,6 @@ export default function MilestonesPage() {
   const [futureCursor, setFutureCursor] = useState<{ date: string; id: number } | null>(null)
   const [pastCursor, setPastCursor] = useState<{ date: string; id: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [view, setView] = useState<ViewFilter>('open')
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Milestone | null>(null)
@@ -196,7 +181,6 @@ export default function MilestonesPage() {
         anchorDate,
         direction: 'forward',
         limit: TIMELINE_PAGE_SIZE,
-        status: statusForView(view),
       })
       if (request !== timelineRequest.current) return
       setMilestones(page.items)
@@ -218,7 +202,7 @@ export default function MilestonesPage() {
     } finally {
       if (showLoading && request === timelineRequest.current) setTimelineLoading(false)
     }
-  }, [anchorDate, projectId, view])
+  }, [anchorDate, projectId])
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount loader owns the support-data state
@@ -226,7 +210,7 @@ export default function MilestonesPage() {
   }, [loadSupportData])
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- filter changes intentionally reset the paged timeline
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the timeline loader owns its paged state
     void loadInitialTimeline()
     return () => {
       if (refreshTimer.current) clearTimeout(refreshTimer.current)
@@ -253,7 +237,6 @@ export default function MilestonesPage() {
         anchorDate,
         direction: 'forward',
         limit: TIMELINE_PAGE_SIZE,
-        status: statusForView(view),
         cursorDate: futureCursor.date,
         cursorId: futureCursor.id,
       })
@@ -269,7 +252,7 @@ export default function MilestonesPage() {
       loadingFutureRef.current = false
       setLoadingFuture(false)
     }
-  }, [anchorDate, futureCursor, hasMoreFuture, projectId, view])
+  }, [anchorDate, futureCursor, hasMoreFuture, projectId])
 
   const loadPast = useCallback(async () => {
     if (!projectId || !hasMorePast || loadingPastRef.current) return
@@ -281,7 +264,6 @@ export default function MilestonesPage() {
         anchorDate,
         direction: 'backward',
         limit: TIMELINE_PAGE_SIZE,
-        status: statusForView(view),
         cursorDate: pastCursor?.date,
         cursorId: pastCursor?.id,
       })
@@ -303,7 +285,7 @@ export default function MilestonesPage() {
       loadingPastRef.current = false
       setLoadingPast(false)
     }
-  }, [anchorDate, hasMorePast, pastCursor, projectId, view])
+  }, [anchorDate, hasMorePast, pastCursor, projectId])
 
   useLayoutEffect(() => {
     if (!pendingScrollShift.current || !timelineScrollRef.current) return
@@ -385,12 +367,9 @@ export default function MilestonesPage() {
   }
 
   const applySavedMilestone = (saved: Milestone) => {
-    const visible = milestoneMatchesView(saved, view)
-    setMilestones((current) => visible
-      ? mergeMilestones(current, [saved])
-      : current.filter((item) => item.id !== saved.id))
+    setMilestones((current) => mergeMilestones(current, [saved]))
     setDialogMilestones((current) => current ? mergeMilestones(current, [saved]) : current)
-    setSelectedId(visible ? saved.id : null)
+    setSelectedId(saved.id)
   }
 
   const handleSubmit = async (input: MilestoneInput) => {
@@ -491,30 +470,13 @@ export default function MilestonesPage() {
           </div>
         </div>
 
-        <div className="milestone-view-switch" role="tablist" aria-label="里程碑视图">
-          {([
-            ['open', '推进中', CircleDot],
-            ['completed', '已归档', CheckCircle2],
-            ['all', '全部', Flag],
-          ] as const).map(([value, label, Icon]) => (
-            <button
-              key={value}
-              role="tab"
-              aria-selected={view === value}
-              onClick={() => setView(value)}
-              className={cn(view === value && 'is-active')}
-            >
-              <Icon className="h-4 w-4" />{label}
-            </button>
-          ))}
-        </div>
       </section>
 
       {milestones.length === 0 && !hasMorePast && !hasMoreFuture ? (
         <section className="milestone-empty">
           <Flag className="h-8 w-8" />
-          <h2>当前时间之后没有节点</h2>
-          <p>切换视图，或建立新的交付节点。</p>
+          <h2>时间线上还没有节点</h2>
+          <p>建立新的交付节点后，它会按目标日期显示在这里。</p>
           {!isViewer && <Button onClick={openCreate}><Plus className="h-4 w-4" />建立节点</Button>}
         </section>
       ) : (

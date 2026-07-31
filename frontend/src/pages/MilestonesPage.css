@@ -106,46 +106,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.milestone-view-switch {
-  display: flex;
-  gap: 0.45rem;
-  min-height: 3rem;
-  align-items: center;
-  border-top: 1px solid hsl(var(--border));
-}
-
-.milestone-view-switch button {
-  position: relative;
-  display: inline-flex;
-  height: 2rem;
-  align-items: center;
-  gap: 0.4rem;
-  border: 0;
-  border-radius: 0;
-  padding: 0 0.7rem;
-  color: hsl(var(--muted-foreground));
-  font-size: 0.72rem;
-  transition: color 160ms ease;
-}
-
-.milestone-view-switch button:hover {
-  color: hsl(var(--foreground));
-}
-
-.milestone-view-switch button.is-active {
-  color: var(--signal);
-}
-
-.milestone-view-switch button.is-active::after {
-  position: absolute;
-  right: 0.7rem;
-  bottom: -0.5rem;
-  left: 0.7rem;
-  height: 2px;
-  background: var(--signal);
-  content: '';
-}
-
 .milestone-timeline-section {
   border-bottom: 1px solid hsl(var(--border));
   background: color-mix(in srgb, var(--signal) 0.8%, hsl(var(--background)));
