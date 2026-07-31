@@ -22,6 +22,7 @@ const SystemUpdatePage = lazy(() => import('./pages/SystemUpdatePage'))
 const ProfilePage = lazy(() => import('./pages/ProfilePage'))
 const NotificationsPage = lazy(() => import('./pages/NotificationsPage'))
 const TaskSearchPage = lazy(() => import('./pages/TaskSearchPage'))
+const AboutPage = lazy(() => import('./pages/AboutPage'))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
 const Layout = lazy(() => import('./components/common/Layout'))
 
@@ -96,6 +97,7 @@ export default function App() {
                 <Route path="integrations" element={<ProjectIntegrationsPage />} />
               </Route>
               <Route path="profile" element={<ProfilePage />} />
+              <Route path="about" element={<AboutPage />} />
               <Route path="notifications" element={<NotificationsPage />} />
               <Route path="search" element={<TaskSearchPage />} />
               <Route

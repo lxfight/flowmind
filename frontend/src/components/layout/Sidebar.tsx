@@ -14,6 +14,7 @@ import {
   Bell,
   Search,
   CircleArrowUp,
+  Info,
 } from 'lucide-react'
 
 interface SidebarProps {
@@ -111,6 +112,13 @@ export function Sidebar({
       <div className="flex-1 min-h-0" aria-hidden="true" />
 
       <div className="border-t border-border px-4 py-4">
+        <NavItem
+          to="/about"
+          label="关于 FlowMind"
+          icon={Info}
+          className="mb-2"
+          onClick={onCloseMobile}
+        />
         <Link
           to="/profile"
           className="mb-3 flex items-center gap-3 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
