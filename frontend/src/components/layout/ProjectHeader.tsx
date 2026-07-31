@@ -12,6 +12,7 @@ import {
   FileText,
   Flag,
   Settings,
+  Webhook,
 } from 'lucide-react'
 import { Button } from '../ui/Button'
 import { Badge } from '../ui/Badge'
@@ -28,6 +29,7 @@ const tabs = [
   { path: 'activities', label: '动态', icon: Activity },
   { path: 'members', label: '成员', icon: Users },
   { path: 'report', label: '报告', icon: FileText },
+  { path: 'integrations', label: '集成', icon: Webhook, adminOnly: true },
 ]
 
 export function ProjectHeader({ project }: ProjectHeaderProps) {
@@ -79,7 +81,7 @@ export function ProjectHeader({ project }: ProjectHeaderProps) {
       </div>
 
       <nav className="flex items-center gap-1 overflow-x-auto scrollbar-thin" aria-label="项目页面">
-        {tabs.map((tab) => {
+        {tabs.filter((tab) => !tab.adminOnly || canEdit || project.current_user_role === 'admin').map((tab) => {
           const fullPath = `/project/${project.id}/${tab.path}`
           const active = location.pathname.startsWith(fullPath)
           const Icon = tab.icon

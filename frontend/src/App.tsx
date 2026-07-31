@@ -15,6 +15,7 @@ const KnowledgePage = lazy(() => import('./pages/KnowledgePage'))
 const ProjectMembersPage = lazy(() => import('./pages/ProjectMembersPage'))
 const ProjectReportPage = lazy(() => import('./pages/ProjectReportPage'))
 const ActivityPage = lazy(() => import('./pages/ActivityPage'))
+const ProjectIntegrationsPage = lazy(() => import('./pages/ProjectIntegrationsPage'))
 const AdminUsersPage = lazy(() => import('./pages/AdminUsersPage'))
 const AdminConfigPage = lazy(() => import('./pages/AdminConfigPage'))
 const SystemUpdatePage = lazy(() => import('./pages/SystemUpdatePage'))
@@ -92,6 +93,7 @@ export default function App() {
                 <Route path="members" element={<ProjectMembersPage />} />
                 <Route path="report" element={<ProjectReportPage />} />
                 <Route path="activities" element={<ActivityPage />} />
+                <Route path="integrations" element={<ProjectIntegrationsPage />} />
               </Route>
               <Route path="profile" element={<ProfilePage />} />
               <Route path="notifications" element={<NotificationsPage />} />

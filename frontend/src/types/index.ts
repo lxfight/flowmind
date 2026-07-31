@@ -196,6 +196,72 @@ export interface MilestoneTimelinePage {
   next_cursor_id: number | null
 }
 
+// ===== 外部集成 =====
+
+export interface EventDefinition {
+  type: string
+  label: string
+  group: string
+  default_enabled: boolean
+}
+
+export interface ExternalIntegration {
+  id: number
+  project_id: number
+  kind: 'webhook'
+  name: string
+  url: string
+  event_types: string[]
+  is_enabled: boolean
+  allow_private_network: boolean
+  consecutive_failures: number
+  last_success_at: string | null
+  last_failure_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ExternalIntegrationInput {
+  name: string
+  url: string
+  event_types: string[]
+  is_enabled: boolean
+  allow_private_network: boolean
+}
+
+export type ExternalDeliveryStatus =
+  | 'pending'
+  | 'processing'
+  | 'retrying'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled'
+
+export interface ExternalDelivery {
+  id: string
+  integration_id: number
+  integration_name: string
+  event_id: string
+  event_type: string
+  resource_type: string
+  resource_id: number | null
+  status: ExternalDeliveryStatus
+  attempt_count: number
+  next_attempt_at: string
+  last_attempt_at: string | null
+  completed_at: string | null
+  response_status: number | null
+  error_message: string
+  created_at: string
+}
+
+export interface ExternalDeliveryList {
+  items: ExternalDelivery[]
+  total: number
+  page: number
+  page_size: number
+}
+
 // ===== 用户搜索 =====
 
 /** 搜索到的用户信息 */
