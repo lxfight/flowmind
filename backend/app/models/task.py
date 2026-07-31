@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Table, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Table, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -91,6 +91,34 @@ class TaskComment(Base):
     # Relationships
     task = relationship("Task", back_populates="comments")
     user = relationship("User")
+
+
+class TaskReference(Base):
+    __tablename__ = "task_references"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_type",
+            "source_id",
+            "target_task_id",
+            name="uq_task_references_source_target",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    source_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    source_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_task_id: Mapped[int] = mapped_column(
+        ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    target_task_id: Mapped[int] = mapped_column(
+        ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    created_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
 
 
 class TaskAttachment(Base):

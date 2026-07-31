@@ -24,9 +24,11 @@ from app.schemas import (
     TaskListOut,
     TaskMove,
     TaskOut,
+    TaskReferencesOut,
+    TaskReferenceTaskOut,
     TaskUpdate,
 )
-from app.services import task_service
+from app.services import task_reference_service, task_service
 
 router = APIRouter(prefix="/api/projects/{project_id}/tasks", tags=["tasks"])
 
@@ -65,6 +67,25 @@ async def create_task(
     return task
 
 
+@router.get("/reference-suggestions", response_model=list[TaskReferenceTaskOut])
+async def reference_suggestions(
+    project_id: int,
+    q: str = Query(default="", max_length=128),
+    exclude_task_id: int | None = None,
+    limit: int = Query(default=8, ge=1, le=20),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await task_reference_service.suggest_tasks(
+        project_id,
+        current_user,
+        db,
+        query=q,
+        exclude_task_id=exclude_task_id,
+        limit=limit,
+    )
+
+
 @router.get("/{task_id}", response_model=TaskDetailOut)
 async def get_task(
     project_id: int,
@@ -73,6 +94,18 @@ async def get_task(
     db: AsyncSession = Depends(get_db),
 ):
     return await task_service.get_task(project_id, task_id, current_user, db)
+
+
+@router.get("/{task_id}/references", response_model=TaskReferencesOut)
+async def get_task_references(
+    project_id: int,
+    task_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await task_reference_service.get_references(
+        project_id, task_id, current_user, db
+    )
 
 
 @router.put("/{task_id}", response_model=TaskOut)
@@ -261,6 +294,15 @@ async def update_comment(
     await _ensure_comment_moderator(project_id, comment, current_user, db)
     comment.content = data.content
     await db.flush()
+    await task_reference_service.sync_references(
+        db,
+        project_id=project_id,
+        source_type="comment",
+        source_id=comment.id,
+        source_task_id=task_id,
+        text=comment.content,
+        actor_id=current_user.id,
+    )
     await db.refresh(comment)
     queue_ws_event(
         db, "comment_updated", project_id,
@@ -284,6 +326,7 @@ async def delete_comment(
     await ensure_task_in_project(project_id, task_id, db)
     comment = await _get_comment_or_404(task_id, comment_id, db)
     await _ensure_comment_moderator(project_id, comment, current_user, db)
+    await task_reference_service.delete_comment_references(db, comment_id)
     await db.delete(comment)
     queue_ws_event(
         db, "comment_deleted", project_id,

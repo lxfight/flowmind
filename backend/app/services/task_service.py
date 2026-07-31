@@ -37,6 +37,7 @@ from app.schemas import (
     TaskUpdate,
 )
 from app.services.mention_service import notify_mentions
+from app.services.task_reference_service import sync_references
 
 # ---------------------------------------------------------------------------
 # Agent action batching (undo support)
@@ -350,6 +351,16 @@ async def create_task(
     task.milestones = milestones
     db.add(task)
     await db.flush()
+    if task.description:
+        await sync_references(
+            db,
+            project_id=project_id,
+            source_type="description",
+            source_id=task.id,
+            source_task_id=task.id,
+            text=task.description,
+            actor_id=user.id,
+        )
     await db.refresh(task)
     await db.refresh(task, ["assignees", "milestones"])
 
@@ -458,6 +469,16 @@ async def update_task(
         task.completed_at = datetime.now(UTC) if task.is_completed else None
 
     await db.flush()
+    if "description" in payload:
+        await sync_references(
+            db,
+            project_id=project_id,
+            source_type="description",
+            source_id=task.id,
+            source_task_id=task.id,
+            text=task.description,
+            actor_id=user.id,
+        )
     await db.refresh(task)
     await db.refresh(task, ["assignees", "milestones"])
 
@@ -616,6 +637,15 @@ async def add_comment(
     comment = TaskComment(task_id=task_id, user_id=user.id, content=data.content)
     db.add(comment)
     await db.flush()
+    await sync_references(
+        db,
+        project_id=project_id,
+        source_type="comment",
+        source_id=comment.id,
+        source_task_id=task_id,
+        text=comment.content,
+        actor_id=user.id,
+    )
     await db.refresh(comment)
     await db.refresh(comment, ["user"])
     _log(

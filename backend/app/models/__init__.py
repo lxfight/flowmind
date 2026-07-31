@@ -7,7 +7,7 @@ from app.models.project import Project, ProjectMember
 from app.models.project_report import ProjectReport, ProjectReportGeneration
 from app.models.system_config import SystemConfig
 from app.models.system_update import SystemUpdateRun
-from app.models.task import Task, TaskComment, TaskStatus
+from app.models.task import Task, TaskComment, TaskReference, TaskStatus
 from app.models.user import User
 
 __all__ = [
@@ -19,6 +19,7 @@ __all__ = [
     "Task",
     "TaskStatus",
     "TaskComment",
+    "TaskReference",
     "KnowledgeDoc",
     "DocChunk",
     "DocChunkEmbedding",

@@ -235,6 +235,28 @@ class TaskCommentOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class TaskReferenceTaskOut(BaseModel):
+    id: int
+    project_id: int
+    parent_task_id: int | None = None
+    title: str
+    status_id: int
+    status_name: str
+    status_color: str
+    is_completed: bool
+
+
+class TaskReferenceItemOut(BaseModel):
+    source_type: Literal["description", "comment"]
+    source_comment_id: int | None = None
+    task: TaskReferenceTaskOut
+
+
+class TaskReferencesOut(BaseModel):
+    outgoing: list[TaskReferenceItemOut] = []
+    incoming: list[TaskReferenceItemOut] = []
+
+
 class TaskAttachmentOut(BaseModel):
     id: int
     task_id: int
@@ -510,6 +532,9 @@ __all__ = [
     "TaskCommentCreate",
     "TaskCommentUpdate",
     "TaskCommentOut",
+    "TaskReferenceTaskOut",
+    "TaskReferenceItemOut",
+    "TaskReferencesOut",
     "TaskAttachmentOut",
     "MilestoneCreate",
     "MilestoneUpdate",
