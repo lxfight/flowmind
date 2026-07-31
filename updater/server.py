@@ -162,6 +162,21 @@ def compose_args(*args: str) -> list[str]:
     return ["docker", "compose", "-p", COMPOSE_PROJECT, *args]
 
 
+def configured_application_services(state: dict[str, Any]) -> tuple[str, ...]:
+    configured = set(
+        command(state, compose_args("config", "--services"), timeout=60).splitlines()
+    )
+    required = {"backend", "frontend"}
+    missing = sorted(required - configured)
+    if missing:
+        raise RuntimeError(f"compose config missing required services: {', '.join(missing)}")
+    return tuple(
+        service
+        for service in ("backend", "frontend", "notifier", "updater")
+        if service in configured
+    )
+
+
 def git_args(*args: str) -> list[str]:
     return ["git", "-c", f"safe.directory={PROJECT_DIR}", *args]
 
@@ -372,6 +387,8 @@ def checkout_and_deploy(state: dict[str, Any], target: str) -> None:
     command(state, git_args("checkout", "--detach", f"refs/tags/v{target}"), timeout=120)
     set_dotenv_version(target)
     command(state, compose_args("config", "--quiet"), timeout=60)
+    services = configured_application_services(state)
+    runtime_services = tuple(service for service in services if service != "updater")
     update_state(
         state,
         status="downloading",
@@ -379,7 +396,7 @@ def checkout_and_deploy(state: dict[str, Any], target: str) -> None:
         progress=45,
         message="正在拉取版本镜像",
     )
-    command(state, compose_args("pull", "backend", "frontend", "updater"), timeout=1200)
+    command(state, compose_args("pull", *services), timeout=1200)
     update_state(
         state,
         status="deploying",
@@ -389,7 +406,17 @@ def checkout_and_deploy(state: dict[str, Any], target: str) -> None:
     )
     command(
         state,
-        compose_args("up", "-d", "--no-build", "--no-deps", "backend", "frontend"),
+        compose_args(
+            "up",
+            "-d",
+            "--no-build",
+            "--no-deps",
+            "--remove-orphans",
+            "--wait",
+            "--wait-timeout",
+            "180",
+            *runtime_services,
+        ),
         timeout=600,
     )
     update_state(
@@ -401,6 +428,8 @@ def checkout_and_deploy(state: dict[str, Any], target: str) -> None:
     )
     wait_for_url(state, BACKEND_HEALTH_URL, "backend", expected_version=target)
     wait_for_url(state, FRONTEND_HEALTH_URL, "frontend")
+    if "notifier" in runtime_services:
+        add_log(state, "notifier 健康检查通过")
 
 
 def rollback_deployment(
@@ -415,9 +444,21 @@ def rollback_deployment(
     )
     command(state, git_args("checkout", "--detach", previous_sha), timeout=120)
     set_dotenv_version(previous_version)
+    services = configured_application_services(state)
+    runtime_services = tuple(service for service in services if service != "updater")
     command(
         state,
-        compose_args("up", "-d", "--no-build", "--no-deps", "backend", "frontend"),
+        compose_args(
+            "up",
+            "-d",
+            "--no-build",
+            "--no-deps",
+            "--remove-orphans",
+            "--wait",
+            "--wait-timeout",
+            "180",
+            *runtime_services,
+        ),
         timeout=600,
     )
     wait_for_url(
@@ -428,6 +469,8 @@ def rollback_deployment(
         expected_version=previous_version,
     )
     wait_for_url(state, FRONTEND_HEALTH_URL, "rollback frontend", timeout=90)
+    if "notifier" in runtime_services:
+        add_log(state, "rollback notifier 健康检查通过")
 
 
 def schedule_updater_recreate(state: dict[str, Any]) -> None:

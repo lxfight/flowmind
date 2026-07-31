@@ -14,6 +14,36 @@ class GitArgsTests(unittest.TestCase):
                 ["git", "-c", "safe.directory=/srv/flowmind", "status", "--short"],
             )
 
+    def test_detects_optional_notifier_service(self) -> None:
+        state = {"logs": []}
+        with patch.object(
+            server,
+            "command",
+            return_value="postgres\nbackend\nnotifier\nfrontend\nupdater\n",
+        ):
+            self.assertEqual(
+                server.configured_application_services(state),
+                ("backend", "frontend", "notifier", "updater"),
+            )
+
+    def test_supports_rollback_to_compose_without_notifier(self) -> None:
+        state = {"logs": []}
+        with patch.object(
+            server,
+            "command",
+            return_value="postgres\nbackend\nfrontend\nupdater\n",
+        ):
+            self.assertEqual(
+                server.configured_application_services(state),
+                ("backend", "frontend", "updater"),
+            )
+
+    def test_requires_backend_and_frontend_services(self) -> None:
+        state = {"logs": []}
+        with patch.object(server, "command", return_value="postgres\nbackend\n"):
+            with self.assertRaisesRegex(RuntimeError, "frontend"):
+                server.configured_application_services(state)
+
     def test_default_accelerators_use_https_prefixes(self) -> None:
         self.assertEqual(server.github_accelerators(""), server.DEFAULT_GITHUB_ACCELERATORS)
         self.assertEqual(server.github_accelerators("off"), ())
