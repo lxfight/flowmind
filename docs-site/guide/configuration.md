@@ -28,6 +28,7 @@ FlowMind 的配置分两层：**环境变量**（部署时设定）与 **系统�
 | `WEBHOOK_WORKER_POLL_SECONDS` | notifier 扫描待投递事件的间隔（秒） | `1` |
 | `WEBHOOK_MAX_ATTEMPTS` | 每条通知的最大投递次数 | `6` |
 | `WEBHOOK_AUTO_PAUSE_FAILURES` | 连续失败多少次后自动暂停集成 | `20` |
+| `FLOWMIND_IMAGE_REGISTRY` | FlowMind 发布镜像仓库前缀；命令行与应用内更新共用 | `ghcr.io` |
 | `FLOWMIND_UPDATE_MIN_FREE_BYTES` | 更新备份后保留的最小空间 | `1073741824`（1 GiB） |
 
 ::: danger 生产环境

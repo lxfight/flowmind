@@ -184,6 +184,7 @@ SQLite 模式下向量检索降级为关键词检索，其余功能不受影响�
 | `EMBEDDING_API_KEY` / `EMBEDDING_BASE_URL` | 独立 Embedding 服务，留空时回退到 LLM 配置 | 未设置 |
 | `LLM_EMBEDDING_MODEL` / `LLM_EMBEDDING_DIM` | 向量模型及维度 | `text-embedding-3-small` / `1536` |
 | `LLM_REPORT_TIMEOUT` | 报告生成总时限，包含重试 | `180` 秒 |
+| `FLOWMIND_IMAGE_REGISTRY` | FlowMind 发布镜像仓库前缀，应用内更新同样使用 | `ghcr.io` |
 | `FLOWMIND_UPDATE_MIN_FREE_BYTES` | 更新备份后的最小剩余空间 | `1 GiB` |
 | `INTEGRATION_ENCRYPTION_KEY` | Webhook 签名密钥的服务端加密密钥 | 生产环境必须固定设置 |
 | `PUBLIC_APP_URL` | 外部通知中的 FlowMind 链接前缀 | 相对路径 |

@@ -68,6 +68,16 @@ FlowMind 使用根目录 `VERSION` 作为唯一版本号，并在 `vX.Y.Z` Tag �
 - `ghcr.io/lxfight/flowmind-frontend:X.Y.Z`
 - `ghcr.io/lxfight/flowmind-updater:X.Y.Z`
 
+默认从 `ghcr.io` 拉取。网络环境需要 GHCR 代理或内部缓存时，在 `.env` 设置镜像仓库前缀：
+
+```bash
+FLOWMIND_IMAGE_REGISTRY=mirror.example/ghcr.io
+```
+
+该值不含 `https://` 和末尾斜杠，上例会生成
+`mirror.example/ghcr.io/lxfight/flowmind-backend:X.Y.Z` 等镜像地址。若代理直接映射
+GHCR 根路径，则填写代理自身域名；私有代理需先对它执行 `docker login`。
+
 超级管理员可在 **系统更新** 页面检查 GitHub Release、阅读发布说明并执行更新。`updater` 是独立容器，只有它挂载 Docker Socket；业务后端通过带时间戳的 HMAC 请求与其通信。
 
 生产环境必须在 `.env` 中设置随机更新密钥：
@@ -84,7 +94,7 @@ BACKEND_PORT=8000
 FRONTEND_PORT=80
 ```
 
-updater 会保留 `.env`，因此这些机器级配置不会随版本切换丢失；受 Git 管理的源码和 Compose 模板则必须保持与发布版本一致，避免更新时静默覆盖本地修改。
+updater 会保留 `.env`，因此这些机器级配置不会随版本切换丢失；受 Git 管理的源码和 Compose 模板则必须保持与发布版本一致，避免更新时静默覆盖本地修改。命令行更新和管理页面内更新都会从目标版本 Compose 读取最终镜像地址，拉取应用镜像及重建 updater 自身时均自动使用 `FLOWMIND_IMAGE_REGISTRY`。
 
 更新顺序如下：
 
@@ -121,7 +131,7 @@ docker compose exec -T updater git config --global --add safe.directory "$PWD"
 
 然后回到系统更新页重试。更新到包含修复的版本后，updater 会为每次 Git 调用安全地限定当前项目目录，不再依赖容器内的全局配置。
 
-GHCR 镜像必须对部署主机可读；私有仓库需先执行 `docker login ghcr.io`。配置数据、上传文件和数据库卷不会因容器重建而删除。
+发布镜像或所配置的代理必须对部署主机可读；使用官方私有仓库时需先执行 `docker login ghcr.io`。配置数据、上传文件和数据库卷不会因容器重建而删除。
 
 匿名 GitHub API 受请求配额限制。需要稳定显示完整 Release 说明时，可在 `.env` 配置只读 `GITHUB_TOKEN`；没有 Token 或 API 被限流时，系统仍会通过 GitHub 的最新 Release 重定向识别版本号。
 
