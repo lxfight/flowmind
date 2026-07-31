@@ -5,13 +5,13 @@
   <p>面向真实团队协作的智能项目管理平台。AI 不只是回答问题，它理解项目身份、读取知识、管理任务与里程碑，并留下可追溯的执行过程。</p>
   <p>
     <a href="https://github.com/lxfight/flowmind/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/lxfight/flowmind/ci.yml?branch=main&style=flat-square&label=CI" alt="CI" /></a>
-    <a href="https://github.com/lxfight/flowmind/releases"><img src="https://img.shields.io/badge/release-v0.3.0-7C5CFC?style=flat-square" alt="Release v0.3.0" /></a>
+    <a href="https://github.com/lxfight/flowmind/releases"><img src="https://img.shields.io/badge/release-v0.4.0-7C5CFC?style=flat-square" alt="Release v0.4.0" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-171717?style=flat-square" alt="MIT License" /></a>
   </p>
   <p>
     <a href="https://lxfight.github.io/flowmind/">产品文档</a> ·
     <a href="#快速开始">快速开始</a> ·
-    <a href="#v030">版本变化</a> ·
+    <a href="#v040">版本变化</a> ·
     <a href="docs-site/architecture/index.md">架构说明</a>
   </p>
 </div>
@@ -74,22 +74,23 @@ PDF、DOCX、PPTX、Markdown 等文档自动解析索引。向量语义与关键
 
 | 工作域 | 能力 |
 |---|---|
-| 看板协作 | 拖拽任务、自定义状态列、子任务、多人指派、评论提及、筛选与排序 |
-| 里程碑 | 多节点管理、任务互斥归属、自然日比例曲线、当前时间标记、游标分页与懒加载 |
+| 看板协作 | 拖拽任务、自定义状态列、任务 ID、`#` 跨任务引用、子任务、多人指派、评论提及、筛选与排序 |
+| 里程碑 | 全状态统一时间线、多节点管理、任务互斥归属、自然日比例曲线、游标分页与懒加载 |
 | LLM 助手 | 项目与跨项目会话、用户身份注入、SSE 流式响应、工具调用、撤销与幂等写入 |
 | 报告 | 项目级共享历史、成员间生成状态同步、超时重试、里程碑上下文与 Markdown 输出 |
 | 知识库 | 多格式解析、向量与关键词混合检索、相似度门槛、全文读取 |
 | 权限安全 | 注册审批、项目角色、JWT、bcrypt、登录限流、初始化管理员凭据保护 |
+| 外部集成 | 项目级 Webhook、Transactional Outbox、HMAC 签名、SSRF 防护、重试与投递历史 |
 | 系统运维 | LLM 与 Embedding 独立配置、密钥脱敏、在线升级、备份检查与中断恢复 |
 
-## v0.3.0
+## v0.4.0
 
-这一版本把 FlowMind 从任务看板推进为完整的交付工作区。
+这一版本让项目内部关系和外部自动化形成连续的交付信号链。
 
-- **里程碑交付时间线**：支持多个里程碑、任务互斥归属、按日期间隔计算的柔和曲线、当前时间定位和历史节点懒加载。
-- **项目级共享报告**：报告历史和生成状态在项目成员间共享，生成内容可纳入里程碑进度与关联任务。
-- **可追溯的 LLM 执行**：助手感知当前用户；思考内容持久化；思考、工具调用与结果独立展示，多次调用逐条展开。
-- **安全的首次初始化**：可通过 `FLOWMIND_ADMIN_USERNAME` 自定义初始管理员登录名；预设密码不再写入日志，空密码自动替换为随机值。
+- **任务编号与引用**：任务卡片和详情稳定展示 ID；描述与评论可通过 `#` 引用同项目任务，并查看双向关系。
+- **完整里程碑时间线**：不再按视图分类截断，全部状态统一展示在真实日期时间线上。
+- **可靠外部通知**：任务、评论和里程碑事件通过 Transactional Outbox 与独立 notifier 投递，支持 HMAC、SSRF 防护、指数退避和人工重试。
+- **可升级的服务编排**：在线更新器动态识别目标版本服务集合，升级和回滚都会正确处理 notifier。
 
 完整兼容性说明与升级步骤见[版本变化文档](docs-site/guide/releases.md)。
 
@@ -101,11 +102,14 @@ graph LR
     API --> AGENT[LangGraph Agent]
     API --> REPORT[报告与里程碑服务]
     API --> RAG[RAG 混合检索]
+    API --> OUTBOX[(领域事件 Outbox)]
     AGENT --> LLM[OpenAI 兼容 LLM]
     RAG --> EMB[Embedding 服务]
     AGENT --> PG[(PostgreSQL + pgvector)]
     REPORT --> PG
     RAG --> PG
+    OUTBOX --> NOTIFIER[Notifier Worker]
+    NOTIFIER --> EXT[自动化 / IM / 自建系统]
 ```
 
 ## 快速开始
@@ -181,6 +185,8 @@ SQLite 模式下向量检索降级为关键词检索，其余功能不受影响�
 | `LLM_EMBEDDING_MODEL` / `LLM_EMBEDDING_DIM` | 向量模型及维度 | `text-embedding-3-small` / `1536` |
 | `LLM_REPORT_TIMEOUT` | 报告生成总时限，包含重试 | `180` 秒 |
 | `FLOWMIND_UPDATE_MIN_FREE_BYTES` | 更新备份后的最小剩余空间 | `1 GiB` |
+| `INTEGRATION_ENCRYPTION_KEY` | Webhook 签名密钥的服务端加密密钥 | 生产环境必须固定设置 |
+| `PUBLIC_APP_URL` | 外部通知中的 FlowMind 链接前缀 | 相对路径 |
 
 全部配置项见[配置说明](docs-site/guide/configuration.md)。LLM、Embedding 与检索参数也可由超级管理员在系统配置页在线调整。
 

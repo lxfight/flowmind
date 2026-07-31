@@ -4,20 +4,20 @@ import { withBase } from 'vitepress'
 import {
   ArrowDownRight,
   ArrowRight,
-  BellRing,
   Blocks,
   Bot,
   Braces,
   CheckCircle2,
   Clock3,
-  DatabaseZap,
   Github,
   LayoutDashboard,
   LibraryBig,
+  Link2,
   Radio,
   RotateCcw,
   ShieldCheck,
   Sparkles,
+  Webhook,
   Workflow,
 } from 'lucide-vue-next'
 
@@ -47,7 +47,7 @@ const capabilities = [
     icon: Radio,
     index: '04',
     title: '实时信号',
-    description: '通知直达任务与评论，让项目变化从消息流直接回到执行现场。',
+    description: '通知直达任务，签名 Webhook 把项目变化可靠送往外部系统。',
   },
   {
     icon: ShieldCheck,
@@ -65,24 +65,24 @@ const capabilities = [
 
 const releaseSignals = [
   {
-    icon: BellRing,
-    label: '通知深链',
-    detail: '任务事件可直达目标看板与任务详情',
+    icon: Link2,
+    label: '任务引用',
+    detail: '稳定任务 ID、# 引用与双向关系导航',
   },
   {
     icon: Clock3,
-    label: '活动时间线',
-    detail: '横向浏览、虚拟渲染、自动定位最新事件',
+    label: '里程碑全景',
+    detail: '全部状态在同一条真实日期时间线上展开',
   },
   {
-    icon: DatabaseZap,
-    label: '报告可靠性',
-    detail: '超时、重试、状态隔离与 Markdown 渲染修复',
+    icon: Webhook,
+    label: '外部集成',
+    detail: '任务、评论与里程碑事件统一向外推送',
   },
   {
     icon: RotateCcw,
-    label: '更新恢复',
-    detail: '备份空间校验、恢复检查点与健康验证',
+    label: '可靠投递',
+    detail: 'Transactional Outbox、HMAC、重试与自动暂停',
   },
 ]
 
@@ -140,7 +140,7 @@ onBeforeUnmount(() => observer?.disconnect())
 
       <div class="flow-hero__content">
         <div class="flow-hero__meta" data-reveal>
-          <span class="flow-hero__status"><span /> VERSION 0.2.2</span>
+          <span class="flow-hero__status"><span /> VERSION 0.4.0</span>
           <span>PROJECT INTELLIGENCE SYSTEM</span>
         </div>
 
@@ -188,12 +188,12 @@ onBeforeUnmount(() => observer?.disconnect())
     </section>
 
     <section id="release" class="flow-release flow-section">
-      <div class="flow-release__number" data-reveal aria-hidden="true">02.2</div>
+      <div class="flow-release__number" data-reveal aria-hidden="true">04.0</div>
       <div class="flow-release__content">
         <p class="flow-kicker flow-kicker--dark" data-reveal>Latest release / July 2026</p>
-        <h2 data-reveal>一次面向工作流完整性的系统升级。</h2>
+        <h2 data-reveal>让项目变化成为可连接的交付信号。</h2>
         <p class="flow-release__intro" data-reveal>
-          v0.2.2 不只更新视觉语言。它让通知准确落到任务，让长时间线保持流畅，让报告生成具备明确的失败边界，也让生产更新在中断后能够恢复。
+          v0.4.0 让任务可以彼此引用，让全部里程碑在同一时间线上展开，并通过可靠、可验证的 Webhook 把变化送到团队已有的自动化系统。
         </p>
 
         <div class="flow-release__signals">
