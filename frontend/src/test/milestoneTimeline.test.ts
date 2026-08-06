@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { Milestone } from '../types'
 import {
   buildMilestoneTimelineLayout,
+  milestoneCurveY,
   TIMELINE_DAY_WIDTH,
   TIMELINE_ORIGIN_PADDING,
 } from '../utils/milestoneTimeline'
@@ -52,12 +53,19 @@ describe('milestone timeline layout', () => {
     expect(layout.todayX).toBe(TIMELINE_ORIGIN_PADDING + 10 * TIMELINE_DAY_WIDTH)
   })
 
-  it('keeps a visible vertical sweep across a two-week interval', () => {
+  it('samples intermediate bends across a two-week interval', () => {
+    const anchorDate = '2026-07-28'
     const layout = buildMilestoneTimelineLayout([
       milestone(1, '2026-08-11'),
-    ], '2026-07-28')
+    ], anchorDate)
+    const sampledHeights = [0, 6, 12, 14].map((days) => {
+      const date = new Date(`${anchorDate}T00:00:00Z`)
+      date.setUTCDate(date.getUTCDate() + days)
+      return Math.round(milestoneCurveY(date.toISOString().slice(0, 10), anchorDate))
+    })
 
-    expect(Math.abs(layout.items[0].y - layout.todayY)).toBeGreaterThan(45)
+    expect(layout.curvePath.match(/ C /g)?.length).toBeGreaterThanOrEqual(3)
+    expect(new Set(sampledHeights).size).toBeGreaterThan(2)
   })
 
   it('uses separate lanes for nearby milestones', () => {
@@ -68,5 +76,21 @@ describe('milestone timeline layout', () => {
     ], '2026-07-28')
 
     expect(new Set(layout.items.map((item) => item.lane)).size).toBe(3)
+  })
+
+  it('keeps long empty intervals visibly curved with noise samples', () => {
+    const anchorDate = '2026-07-28'
+    const layout = buildMilestoneTimelineLayout([
+      milestone(1, '2027-01-24'),
+    ], anchorDate)
+    const segmentCount = layout.curvePath.match(/ C /g)?.length || 0
+    const sampledHeights = [0, 30, 60, 90, 120, 150, 180].map((days) => {
+      const date = new Date(`${anchorDate}T00:00:00Z`)
+      date.setUTCDate(date.getUTCDate() + days)
+      return Math.round(milestoneCurveY(date.toISOString().slice(0, 10), anchorDate))
+    })
+
+    expect(segmentCount).toBeGreaterThan(20)
+    expect(new Set(sampledHeights).size).toBeGreaterThan(3)
   })
 })

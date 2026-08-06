@@ -19,6 +19,15 @@ def _comment(client, headers, project_id, task_id, content="一条评论"):
     return response.json()
 
 
+def _reply(client, headers, project_id, task_id, parent_comment_id, content="一条回复"):
+    response = client.post(
+        f"/api/projects/{project_id}/tasks/{task_id}/comments",
+        headers=headers,
+        json={"content": content, "parent_comment_id": parent_comment_id},
+    )
+    return response
+
+
 @pytest.mark.asyncio
 async def test_comment_create_list_edit_delete_happy_path(client):
     headers = admin_login(client)
@@ -53,6 +62,75 @@ async def test_comment_create_list_edit_delete_happy_path(client):
         f"/api/projects/{project_id}/tasks/{task['id']}/comments", headers=headers
     )
     assert response.json() == []
+
+
+@pytest.mark.asyncio
+async def test_comment_reply_create_list_and_parent_delete(client):
+    headers = admin_login(client)
+    project_id, statuses = create_project(client, headers)
+    task = create_task(client, headers, project_id, statuses[0]["id"], "回复任务")
+    parent = _comment(client, headers, project_id, task["id"], "主评论")
+
+    response = _reply(client, headers, project_id, task["id"], parent["id"])
+    assert response.status_code == 201, response.text
+    reply = response.json()
+    assert reply["parent_comment_id"] == parent["id"]
+
+    response = client.get(
+        f"/api/projects/{project_id}/tasks/{task['id']}/comments", headers=headers
+    )
+    assert [comment["id"] for comment in response.json()] == [parent["id"], reply["id"]]
+
+    response = client.delete(
+        f"/api/projects/{project_id}/tasks/{task['id']}/comments/{parent['id']}",
+        headers=headers,
+    )
+    assert response.status_code == 200
+    response = client.get(
+        f"/api/projects/{project_id}/tasks/{task['id']}/comments", headers=headers
+    )
+    assert response.json()[0]["id"] == reply["id"]
+    assert response.json()[0]["parent_comment_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_comment_reply_rejects_parent_from_another_task(client):
+    headers = admin_login(client)
+    project_id, statuses = create_project(client, headers)
+    first = create_task(client, headers, project_id, statuses[0]["id"], "任务一")
+    second = create_task(client, headers, project_id, statuses[0]["id"], "任务二")
+    parent = _comment(client, headers, project_id, first["id"])
+
+    response = _reply(client, headers, project_id, second["id"], parent["id"])
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_comment_reply_notifies_parent_author(client):
+    headers = admin_login(client)
+    author_id, author_headers = register_and_approve(client, headers, "replyauthor")
+    replier_id, replier_headers = register_and_approve(client, headers, "replywriter")
+    project_id, statuses = create_project(client, headers)
+    add_member(client, headers, project_id, author_id, role="member")
+    add_member(client, headers, project_id, replier_id, role="member")
+    task = create_task(client, headers, project_id, statuses[0]["id"], "回复通知")
+    parent = _comment(client, author_headers, project_id, task["id"], "等待回复")
+
+    response = _reply(
+        client, replier_headers, project_id, task["id"], parent["id"], "这是回复"
+    )
+    assert response.status_code == 201, response.text
+    reply = response.json()
+
+    notifications = client.get("/api/notifications", headers=author_headers).json()["items"]
+    reply_notification = next(
+        notification
+        for notification in notifications
+        if notification["type"] == "comment" and "回复了你" in notification["title"]
+    )
+    assert reply_notification["link"].endswith(
+        f"task={task['id']}&comment={reply['id']}"
+    )
 
 
 @pytest.mark.asyncio

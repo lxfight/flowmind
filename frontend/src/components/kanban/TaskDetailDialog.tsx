@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Calendar,
@@ -19,6 +19,7 @@ import {
   Link2,
   Copy,
   X,
+  Reply,
 } from 'lucide-react'
 import api, { errDetail } from '../../utils/api'
 import toast from 'react-hot-toast'
@@ -48,7 +49,7 @@ import { getTaskReferences } from '../../api/tasks'
 import { cn } from '../../utils/cn'
 import { useTaskReferenceAutocomplete } from '../../hooks/useTaskReferenceAutocomplete'
 import { TaskReferenceMenu } from './TaskReferenceMenu'
-import type { MemberOption, Milestone, StatusOption, TaskAttachment, TaskDetail, TaskReferences } from '../../types'
+import type { MemberOption, Milestone, StatusOption, TaskAttachment, TaskComment, TaskDetail, TaskReferences } from '../../types'
 
 interface Props {
   taskId: number
@@ -92,6 +93,7 @@ export function TaskDetailDialog({
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('')
   const [addingSubtask, setAddingSubtask] = useState(false)
   const [addingComment, setAddingComment] = useState(false)
+  const [replyingToCommentId, setReplyingToCommentId] = useState<number | null>(null)
   const [editingCommentId, setEditingCommentId] = useState<number | null>(null)
   const [editingCommentContent, setEditingCommentContent] = useState('')
   const [savingComment, setSavingComment] = useState(false)
@@ -179,6 +181,38 @@ export function TaskDetailDialog({
     onChange: setNewComment,
     inputRef: commentInputRef,
   })
+  const commentThreads = useMemo(() => {
+    const comments = task?.comments || []
+    const byId = new Map(comments.map((comment) => [comment.id, comment]))
+    const roots: TaskComment[] = []
+    const repliesByRoot = new Map<number, TaskComment[]>()
+
+    comments.forEach((comment) => {
+      let root = comment
+      const visited = new Set([comment.id])
+      while (root.parent_comment_id != null) {
+        const parent = byId.get(root.parent_comment_id)
+        if (!parent || visited.has(parent.id)) break
+        visited.add(parent.id)
+        root = parent
+      }
+      if (root.id === comment.id) {
+        roots.push(comment)
+      } else {
+        const replies = repliesByRoot.get(root.id) || []
+        replies.push(comment)
+        repliesByRoot.set(root.id, replies)
+      }
+    })
+
+    return {
+      byId,
+      threads: roots.map((root) => ({ root, replies: repliesByRoot.get(root.id) || [] })),
+    }
+  }, [task?.comments])
+  const replyingToComment = replyingToCommentId == null
+    ? null
+    : commentThreads.byId.get(replyingToCommentId) || null
   const descriptionTaskReference = useTaskReferenceAutocomplete({
     projectId,
     excludeTaskId: taskId,
@@ -370,8 +404,12 @@ export function TaskDetailDialog({
     if (!newComment.trim() || !task || addingComment) return
     setAddingComment(true)
     try {
-      await api.post(`/projects/${projectId}/tasks/${taskId}/comments`, { content: newComment.trim() })
+      await api.post(`/projects/${projectId}/tasks/${taskId}/comments`, {
+        content: newComment.trim(),
+        parent_comment_id: replyingToCommentId,
+      })
       setNewComment('')
+      setReplyingToCommentId(null)
       setMentionQuery(null)
       commentTaskReference.close()
       await Promise.all([refreshTask(), refreshReferences()])
@@ -411,6 +449,7 @@ export function TaskDetailDialog({
     setDeletingCommentId(commentId)
     try {
       await api.delete(`/projects/${projectId}/tasks/${taskId}/comments/${commentId}`)
+      if (replyingToCommentId === commentId) setReplyingToCommentId(null)
       await Promise.all([refreshTask(), refreshReferences()])
       toast.success('评论已删除')
     } catch (err: any) {
@@ -639,6 +678,162 @@ export function TaskDetailDialog({
   const uniqueOutgoing = Array.from(
     new Map(references.outgoing.map((reference) => [reference.task.id, reference.task])).values(),
   )
+  const renderComment = (comment: TaskComment, isReply = false) => {
+    const isOwn = currentUser?.id === comment.user_id
+    const canDeleteComment = isOwn || canDelete || currentUser?.is_superuser
+    const isEditingComment = editingCommentId === comment.id
+    const parent = comment.parent_comment_id == null
+      ? null
+      : commentThreads.byId.get(comment.parent_comment_id)
+    const wasEdited = Boolean(
+      comment.updated_at
+      && Math.abs(new Date(comment.updated_at).getTime() - new Date(comment.created_at).getTime()) >= 1000,
+    )
+
+    return (
+      <div
+        key={comment.id}
+        id={`task-comment-${comment.id}`}
+        className={cn(
+          'group relative flex gap-2.5 px-1 py-2.5 transition-colors',
+          isReply && 'py-2',
+          focusCommentId === comment.id && 'rounded-[6px] bg-primary/[0.06]',
+        )}
+      >
+        <span
+          className={cn(
+            'flex shrink-0 items-center justify-center rounded-full bg-primary/10 font-medium text-primary',
+            isReply ? 'mt-0.5 h-6 w-6 text-[10px]' : 'h-7 w-7 text-xs',
+          )}
+          aria-hidden="true"
+        >
+          {(comment.user?.display_name || '?').slice(0, 1)}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="mb-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 pr-20 sm:pr-0">
+            <span className="whitespace-nowrap text-xs font-medium">{comment.user?.display_name}</span>
+            {parent && (
+              <span className="max-w-36 truncate text-xs text-muted-foreground">
+                回复 {parent.user?.display_name}
+              </span>
+            )}
+            <span className="whitespace-nowrap text-[11px] text-muted-foreground">
+              {new Date(comment.created_at).toLocaleString('zh-CN')}
+            </span>
+            {wasEdited && (
+              <span className="whitespace-nowrap text-[11px] text-muted-foreground/70">已编辑</span>
+            )}
+            {!isViewer && !isEditingComment && (
+              <span className="absolute right-0 top-2 flex items-center gap-0.5 opacity-100 transition-opacity sm:static sm:ml-auto sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setReplyingToCommentId(comment.id)
+                  requestAnimationFrame(() => commentInputRef.current?.focus())
+                }}
+                className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                aria-label={`回复 ${comment.user?.display_name || '评论'}`}
+                title="回复"
+              >
+                <Reply className="h-3.5 w-3.5" />
+              </button>
+              {isOwn && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingCommentId(comment.id)
+                    setEditingCommentContent(comment.content)
+                  }}
+                  className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  aria-label="编辑评论"
+                  title="编辑"
+                >
+                  <Edit2 className="h-3.5 w-3.5" />
+                </button>
+              )}
+              {canDeleteComment && (
+                <button
+                  type="button"
+                  onClick={() => handleDeleteComment(comment.id)}
+                  disabled={deletingCommentId === comment.id}
+                  className="rounded p-1 text-muted-foreground hover:bg-danger/10 hover:text-danger"
+                  aria-label="删除评论"
+                  title="删除"
+                >
+                  {deletingCommentId === comment.id ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              )}
+              </span>
+            )}
+          </div>
+          {isEditingComment ? (
+            <div className="relative space-y-2">
+            <Textarea
+              ref={editingCommentInputRef}
+              rows={3}
+              value={editingCommentContent}
+              onChange={(event) => {
+                setEditingCommentContent(event.target.value)
+                editingCommentTaskReference.updateQuery(
+                  event.target.value,
+                  event.target.selectionStart ?? event.target.value.length,
+                )
+              }}
+              onKeyDown={(event) => { editingCommentTaskReference.handleKeyDown(event) }}
+              onBlur={editingCommentTaskReference.close}
+              disabled={savingComment}
+              className="text-sm"
+            />
+            {editingCommentTaskReference.open && (
+              <TaskReferenceMenu
+                tasks={editingCommentTaskReference.candidates}
+                activeIndex={editingCommentTaskReference.activeIndex}
+                onChoose={editingCommentTaskReference.choose}
+                onActiveIndexChange={editingCommentTaskReference.setActiveIndex}
+                className="left-0 top-20 mt-1"
+              />
+            )}
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setEditingCommentId(null)
+                  setEditingCommentContent('')
+                }}
+                disabled={savingComment}
+              >
+                取消
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => handleEditComment(comment.id)}
+                disabled={savingComment || !editingCommentContent.trim()}
+                loading={savingComment}
+              >
+                保存
+              </Button>
+            </div>
+            </div>
+          ) : (
+            <p className="whitespace-pre-wrap text-sm leading-6 text-foreground">
+              <MentionText
+                content={comment.content}
+                members={members}
+                taskReferences={references.outgoing
+                  .filter((reference) => reference.source_type === 'comment' && reference.source_comment_id === comment.id)
+                  .map((reference) => reference.task)}
+              />
+            </p>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <Dialog open onClose={onClose} className="max-h-[calc(100dvh-2rem)] max-w-4xl overflow-hidden">
@@ -1131,128 +1326,47 @@ export function TaskDetailDialog({
             <MessageSquare className="h-4 w-4" />
             评论 ({task.comments?.length || 0})
           </h4>
-          <div className="space-y-3">
-            {(task.comments || []).length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">暂无评论</p>
-            ) : (
-              task.comments!.map((c) => {
-                const isOwn = currentUser?.id === c.user_id
-                const canDeleteComment = isOwn || canDelete || currentUser?.is_superuser
-                const isEditingComment = editingCommentId === c.id
-                return (
-                  <div
-                    key={c.id}
-                    id={`task-comment-${c.id}`}
-                    className={cn(
-                      'group rounded-lg border border-border bg-muted/30 p-3 transition-shadow',
-                      focusCommentId === c.id && 'border-primary/60 bg-primary/5 ring-2 ring-primary/20'
-                    )}
-                  >
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs font-medium">{c.user?.display_name}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {new Date(c.created_at).toLocaleString('zh-CN')}
-                      </span>
-                      {c.updated_at && c.updated_at !== c.created_at && (
-                        <span className="text-xs text-muted-foreground/70">（已编辑）</span>
-                      )}
-                      {(isOwn || canDeleteComment) && !isViewer && !isEditingComment && (
-                        <span className="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          {isOwn && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingCommentId(c.id)
-                                setEditingCommentContent(c.content)
-                              }}
-                              className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-accent"
-                              aria-label="编辑评论"
-                            >
-                              <Edit2 className="h-3.5 w-3.5" />
-                            </button>
-                          )}
-                          {canDeleteComment && (
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteComment(c.id)}
-                              disabled={deletingCommentId === c.id}
-                              className="rounded p-1 text-muted-foreground hover:text-danger hover:bg-danger/10"
-                              aria-label="删除评论"
-                            >
-                              {deletingCommentId === c.id ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              ) : (
-                                <Trash2 className="h-3.5 w-3.5" />
-                              )}
-                            </button>
-                          )}
-                        </span>
-                      )}
-                    </div>
-                    {isEditingComment ? (
-                      <div className="relative space-y-2">
-                        <Textarea
-                          ref={editingCommentInputRef}
-                          rows={3}
-                          value={editingCommentContent}
-                          onChange={(e) => {
-                            setEditingCommentContent(e.target.value)
-                            editingCommentTaskReference.updateQuery(e.target.value, e.target.selectionStart ?? e.target.value.length)
-                          }}
-                          onKeyDown={(e) => { editingCommentTaskReference.handleKeyDown(e) }}
-                          onBlur={editingCommentTaskReference.close}
-                          disabled={savingComment}
-                          className="text-sm"
-                        />
-                        {editingCommentTaskReference.open && (
-                          <TaskReferenceMenu
-                            tasks={editingCommentTaskReference.candidates}
-                            activeIndex={editingCommentTaskReference.activeIndex}
-                            onChoose={editingCommentTaskReference.choose}
-                            onActiveIndexChange={editingCommentTaskReference.setActiveIndex}
-                            className="left-0 top-20 mt-1"
-                          />
-                        )}
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setEditingCommentId(null)
-                              setEditingCommentContent('')
-                            }}
-                            disabled={savingComment}
-                          >
-                            取消
-                          </Button>
-                          <Button
-                            size="sm"
-                            onClick={() => handleEditComment(c.id)}
-                            disabled={savingComment || !editingCommentContent.trim()}
-                            loading={savingComment}
-                          >
-                            保存
-                          </Button>
-                        </div>
+          <div className="overflow-hidden rounded-[8px] border border-border bg-muted/[0.06]">
+            <div
+              role="region"
+              aria-label="评论列表"
+              tabIndex={0}
+              className="max-h-[44dvh] space-y-3 overflow-y-auto overscroll-contain px-3 py-2 pr-3.5 scrollbar-thin [scrollbar-gutter:stable] sm:max-h-[28rem]"
+            >
+              {(task.comments || []).length === 0 ? (
+                <p className="py-4 text-center text-sm text-muted-foreground">暂无评论</p>
+              ) : (
+                commentThreads.threads.map(({ root, replies }) => (
+                  <div key={root.id}>
+                    {renderComment(root)}
+                    {replies.length > 0 && (
+                      <div className="ml-3.5 space-y-0.5 border-l border-border/70 pl-3.5">
+                        {replies.map((reply) => renderComment(reply, true))}
                       </div>
-                    ) : (
-                      <p className="text-sm text-foreground whitespace-pre-wrap">
-                        <MentionText
-                          content={c.content}
-                          members={members}
-                          taskReferences={references.outgoing
-                            .filter((reference) => reference.source_type === 'comment' && reference.source_comment_id === c.id)
-                            .map((reference) => reference.task)}
-                        />
-                      </p>
                     )}
                   </div>
-                )
-              })
-            )}
-          </div>
-          {!isViewer && (
-            <div className="relative flex gap-2">
+                ))
+              )}
+            </div>
+            {!isViewer && (
+              <div className="relative flex flex-wrap gap-2 border-t border-border bg-background p-2">
+              {replyingToComment && (
+                <div className="flex w-full items-center gap-2 border-l-2 border-primary/50 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+                  <Reply className="h-3.5 w-3.5 text-primary" />
+                  <span className="min-w-0 flex-1 truncate">
+                    回复 {replyingToComment.user?.display_name}：{replyingToComment.content}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setReplyingToCommentId(null)}
+                    className="rounded p-1 hover:bg-accent hover:text-foreground"
+                    aria-label="取消回复"
+                    title="取消回复"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
               {commentTaskReference.open ? (
                 <TaskReferenceMenu
                   tasks={commentTaskReference.candidates}
@@ -1314,7 +1428,7 @@ export function TaskDetailDialog({
                   commentTaskReference.close()
                 }}
                 disabled={addingComment}
-                placeholder="输入评论，@ 提及成员，# 引用任务"
+                placeholder={replyingToComment ? '输入回复，@ 提及成员，# 引用任务' : '输入评论，@ 提及成员，# 引用任务'}
                 className="text-sm flex-1 min-w-0"
               />
               <Button
@@ -1325,8 +1439,9 @@ export function TaskDetailDialog({
               >
                 发送
               </Button>
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

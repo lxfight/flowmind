@@ -746,7 +746,17 @@ async def add_comment(
     await ensure_project_editor(project_id, user, db)
     task = await ensure_task_in_project(project_id, task_id, db)
     await db.refresh(task, ["assignees"])
-    comment = TaskComment(task_id=task_id, user_id=user.id, content=data.content)
+    parent_comment = None
+    if data.parent_comment_id is not None:
+        parent_comment = await db.get(TaskComment, data.parent_comment_id)
+        if parent_comment is None or parent_comment.task_id != task_id:
+            raise HTTPException(status_code=400, detail="回复的评论不属于当前任务")
+    comment = TaskComment(
+        task_id=task_id,
+        user_id=user.id,
+        parent_comment_id=parent_comment.id if parent_comment else None,
+        content=data.content,
+    )
     db.add(comment)
     await db.flush()
     await sync_references(
@@ -790,14 +800,21 @@ async def add_comment(
     creator_id = await _get_task_creator_id(task_id, db)
     if creator_id is not None:
         recipients.add(creator_id)
+    if parent_comment is not None:
+        recipients.add(parent_comment.user_id)
     for recipient_id in recipients - mentioned_ids:
         if recipient_id == user.id:
             continue
+        is_reply_recipient = parent_comment is not None and recipient_id == parent_comment.user_id
         await create_notification(
             db,
             user_id=recipient_id,
             type="comment",
-            title=f"{actor_name} 评论了任务「{task.title}」",
+            title=(
+                f"{actor_name} 回复了你在任务「{task.title}」中的评论"
+                if is_reply_recipient
+                else f"{actor_name} 评论了任务「{task.title}」"
+            ),
             body=excerpt,
             link=link,
         )
@@ -813,6 +830,7 @@ async def add_comment(
             "id": comment.id,
             "task_id": task.id,
             "task_title": task.title,
+            "parent_comment_id": comment.parent_comment_id,
             "content": comment.content,
         },
         link=f"/project/{project_id}/board?task={task.id}&comment={comment.id}",

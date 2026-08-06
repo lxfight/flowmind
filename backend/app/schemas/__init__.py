@@ -217,6 +217,7 @@ class TaskDetailOut(TaskOut):
 
 class TaskCommentCreate(BaseModel):
     content: str = Field(min_length=1, max_length=10000)
+    parent_comment_id: int | None = None
 
 
 class TaskCommentUpdate(BaseModel):
@@ -227,6 +228,7 @@ class TaskCommentOut(BaseModel):
     id: int
     task_id: int
     user_id: int
+    parent_comment_id: int | None = None
     content: str
     created_at: datetime
     updated_at: datetime

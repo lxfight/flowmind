@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -327,6 +327,11 @@ async def delete_comment(
     comment = await _get_comment_or_404(task_id, comment_id, db)
     await _ensure_comment_moderator(project_id, comment, current_user, db)
     await task_reference_service.delete_comment_references(db, comment_id)
+    await db.execute(
+        update(TaskComment)
+        .where(TaskComment.parent_comment_id == comment_id)
+        .values(parent_comment_id=None)
+    )
     await db.delete(comment)
     queue_ws_event(
         db, "comment_deleted", project_id,

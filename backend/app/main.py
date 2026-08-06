@@ -74,6 +74,9 @@ _SQLITE_COLUMN_FALLBACKS = {
         ("status", "VARCHAR(16) NOT NULL DEFAULT 'indexed'"),
         ("error_message", "TEXT"),
     ],
+    "task_comments": [
+        ("parent_comment_id", "INTEGER"),
+    ],
 }
 
 

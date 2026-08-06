@@ -95,6 +95,7 @@ export interface TaskComment {
   id: number
   task_id: number
   user_id: number
+  parent_comment_id: number | null
   content: string
   created_at: string
   updated_at: string
