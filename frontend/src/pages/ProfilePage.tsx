@@ -40,20 +40,25 @@ export default function ProfilePage() {
   const [avatarUrl, setAvatarUrl] = useState(user?.avatar_url || '')
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  /** Tracks unsaved name/email edits so avatar uploads don't clobber them. */
+  const profileDirtyRef = useRef(false)
 
+  // Sync form fields when the logged-in user switches (login as another user),
+  // but never overwrite unsaved edits triggered by e.g. an avatar reload.
+  const userId = user?.id
   useEffect(() => {
-    if (!user) return
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing form fields when the user object changes
+    if (!user || profileDirtyRef.current) return
     setDisplayName(user.display_name || '')
     setEmail(user.email || '')
     setAvatarUrl(user.avatar_url || '')
-  }, [user])
+  }, [userId, user])
 
   const handleSaveProfile = async () => {
     if (!displayName.trim()) return
     setSavingProfile(true)
     try {
       await api.put('/auth/profile', { display_name: displayName.trim(), email: email.trim(), avatar_url: avatarUrl.trim() || null })
+      profileDirtyRef.current = false
       await loadUser()
       toast.success('资料已更新')
     } catch (err: any) {
@@ -176,7 +181,7 @@ export default function ProfilePage() {
               <label className="text-sm font-medium">昵称</label>
               <Input
                 value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
+                onChange={(e) => { profileDirtyRef.current = true; setDisplayName(e.target.value) }}
                 placeholder="输入昵称"
               />
             </div>
@@ -187,7 +192,7 @@ export default function ProfilePage() {
               <Input
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => { profileDirtyRef.current = true; setEmail(e.target.value) }}
                 placeholder="输入邮箱"
               />
             </div>
