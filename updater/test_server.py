@@ -360,6 +360,116 @@ class HealthCheckTests(unittest.TestCase):
         self.assertIn("http.lowSpeedLimit=100", fetch)
         self.assertIn("http.lowSpeedTime=30", fetch)
 
+    def test_pull_falls_back_to_image_registry_mirror(self) -> None:
+        state = {"logs": []}
+        with (
+            patch.object(server, "image_registry_mirrors", return_value=("mirror.example",)),
+            patch.object(
+                server,
+                "configured_service_image",
+                return_value="ghcr.io/lxfight/flowmind-backend:1.2.0",
+            ),
+            # 3 failed compose pulls (retries) then docker pull + docker tag via mirror.
+            patch.object(
+                server, "command", side_effect=[RuntimeError, RuntimeError, RuntimeError, "", ""]
+            ) as run,
+            patch.object(server.time, "sleep"),
+            patch.object(server, "add_log"),
+        ):
+            server.pull_images_with_retry(state, ("backend",))
+
+        # compose pull failed thrice (retries), then docker pull + tag from mirror.
+        calls = [c.args[1] for c in run.call_args_list]
+        self.assertTrue(any(c[0:3] == ["docker", "compose", "-p"] for c in calls))
+        self.assertTrue(
+            any("mirror.example/lxfight/flowmind-backend:1.2.0" in c for c in calls)
+        )
+        self.assertTrue(
+            any(
+                c
+                == [
+                    "docker",
+                    "tag",
+                    "mirror.example/lxfight/flowmind-backend:1.2.0",
+                    "ghcr.io/lxfight/flowmind-backend:1.2.0",
+                ]
+                for c in calls
+            )
+        )
+
+    def test_pull_reports_failure_when_mirror_also_unavailable(self) -> None:
+        state = {"logs": []}
+        with (
+            patch.object(server, "image_registry_mirrors", return_value=("mirror.example",)),
+            patch.object(
+                server,
+                "configured_service_image",
+                return_value="ghcr.io/lxfight/flowmind-backend:1.2.0",
+            ),
+            patch.object(server, "command", side_effect=RuntimeError("all down")),
+            patch.object(server, "add_log"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "多次失败"):
+                server.pull_images_with_retry(state, ("backend",))
+
+    def test_preflight_stashes_tracked_changes_when_allowed(self) -> None:
+        state = {"logs": []}
+        with (
+            patch.object(server, "PROJECT_DIR", Path("/srv/flowmind")),
+            # docker info, compose version, git status (dirty), stash push,
+            # rev-parse HEAD, git fetch, rev-parse --verify, cat-file.
+            patch.object(server, "command", side_effect=["", "", " M docker-compose.yml", "", "abc123", "", "", ""]) as run,
+            patch.object(server, "add_log"),
+            patch.object(server, "atomic_json"),
+            patch.object(server, "read_json", return_value={}),
+            patch.object(server, "git_fetch_sources", return_value=(("GitHub", "origin"),)),
+            patch.dict(server.os.environ, {"FLOWMIND_ALLOW_DIRTY_UPDATE": "1"}, clear=False),
+        ):
+            with patch.object(Path, "is_file", return_value=True):
+                with patch.object(server.shutil, "disk_usage", return_value=MagicMock(free=10**12)):
+                    server.preflight(state, "1.2.0")
+
+        calls = [c.args[1] for c in run.call_args_list]
+        self.assertTrue(any("stash" in c and "push" in c for c in calls))
+        self.assertTrue(state.get("dirty_stashed"))
+
+    def test_preflight_rejects_dirty_tree_by_default(self) -> None:
+        state = {"logs": []}
+        project = Path("/srv/flowmind")
+        with (
+            patch.object(server, "PROJECT_DIR", project),
+            patch.object(Path, "is_file", return_value=True),
+            patch.object(server.shutil, "disk_usage", return_value=MagicMock(free=10**12)),
+            patch.object(server, "command", return_value=" M docker-compose.yml"),
+            patch.object(server, "add_log"),
+            patch.object(server, "atomic_json"),
+            patch.object(server, "read_json", return_value={}),
+            patch.object(server, "git_fetch_sources", return_value=()),
+            patch.dict(server.os.environ, {}, clear=False),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "working tree has tracked changes"):
+                server.preflight(state, "1.2.0")
+        self.assertFalse(state.get("dirty_stashed"))
+
+    def test_restore_stashed_changes_pops_stash(self) -> None:
+        state = {"logs": [], "dirty_stashed": True}
+        with (
+            patch.object(server, "command", return_value="") as run,
+            patch.object(server, "add_log"),
+        ):
+            server.restore_stashed_changes(state)
+        self.assertTrue(any("stash" in c.args[1] and "pop" in c.args[1] for c in run.call_args_list))
+        self.assertFalse(state.get("dirty_stashed"))
+
+    def test_restore_stashed_changes_keeps_stash_on_conflict(self) -> None:
+        state = {"logs": [], "dirty_stashed": True}
+        with (
+            patch.object(server, "command", side_effect=RuntimeError("conflict")),
+            patch.object(server, "add_log"),
+        ):
+            server.restore_stashed_changes(state)
+        self.assertTrue(state.get("dirty_stashed"))
+
 
 if __name__ == "__main__":
     unittest.main()

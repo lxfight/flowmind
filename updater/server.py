@@ -162,10 +162,46 @@ def compose_args(*args: str) -> list[str]:
     return ["docker", "compose", "-p", COMPOSE_PROJECT, *args]
 
 
+def image_registry_mirrors(value: str | None = None) -> tuple[str, ...]:
+    """Configured image-registry mirrors, used as a fallback when the primary
+    registry (ghcr.io by default) is unreachable on a flaky network."""
+    configured = os.getenv("FLOWMIND_IMAGE_REGISTRY_MIRRORS", "") if value is None else value
+    configured = configured.strip()
+    if configured.lower() in {"off", "none", "false", "0"}:
+        return ()
+    result: list[str] = []
+    for candidate in configured.split(","):
+        base = candidate.strip().rstrip("/")
+        if base and base not in result:
+            result.append(base)
+    return tuple(result)
+
+
+def pull_image_via_mirror(state: dict[str, Any], image: str) -> bool:
+    """Try to obtain ``image`` (e.g. ghcr.io/lxfight/flowmind-backend:1.2.3) from
+    the configured registry mirrors. Returns True on success after re-tagging
+    the image back to the primary name so compose resolves it unchanged."""
+    if ":" not in image:
+        image = f"{image}:{current_version()}"
+    for mirror in image_registry_mirrors():
+        source = f"{mirror}/{image.split('/', 1)[-1]}"
+        add_log(state, f"尝试从镜像仓库 {mirror} 拉取 {source}")
+        try:
+            command(state, ["docker", "pull", source], timeout=1200)
+            command(state, ["docker", "tag", source, image], timeout=60)
+            add_log(state, f"已通过镜像仓库 {mirror} 获取 {image}")
+            return True
+        except (RuntimeError, subprocess.TimeoutExpired) as exc:
+            add_log(state, f"镜像仓库 {mirror} 拉取失败: {str(exc)[-300:]}")
+    return False
+
+
 def pull_images_with_retry(state: dict[str, Any], services: tuple[str, ...]) -> None:
     """Pull the target images, retrying a few times on transient network
     failures so a slow or flaky registry connection doesn't abort the whole
-    update. Docker pull resumes partial layers, so a retry is cheap."""
+    update. Docker pull resumes partial layers, so a retry is cheap. If the
+    primary registry stays unreachable, configured image-registry mirrors are
+    tried and the result re-tagged to the primary name."""
     attempts = int(os.getenv("FLOWMIND_PULL_RETRIES", "3"))
     attempts = max(1, min(attempts, 6))
     base_delay = float(os.getenv("FLOWMIND_PULL_RETRY_DELAY", "3"))
@@ -181,6 +217,17 @@ def pull_images_with_retry(state: dict[str, Any], services: tuple[str, ...]) -> 
             if attempt < attempts:
                 add_log(state, f"镜像拉取失败，{base_delay}s 后重试")
                 time.sleep(base_delay * attempt)
+    # Primary registry exhausted — fall back to configured mirrors per service.
+    if image_registry_mirrors():
+        add_log(state, "主镜像仓库拉取失败，改用镜像仓库尝试")
+        missing: list[str] = []
+        for service in services:
+            image = configured_service_image(state, service)
+            if not pull_image_via_mirror(state, image):
+                missing.append(image)
+        if not missing:
+            return
+        last_error = f"镜像仓库未能提供: {', '.join(missing)}"
     raise RuntimeError(f"镜像拉取多次失败: {last_error}")
 
 
@@ -334,11 +381,25 @@ def preflight(state: dict[str, Any], target: str) -> tuple[str, str]:
         timeout=30,
     )
     if dirty:
+        allow_dirty = os.getenv("FLOWMIND_ALLOW_DIRTY_UPDATE", "").strip().lower() in {
+            "1", "true", "yes", "on",
+        }
         changed = ", ".join(line[3:] for line in dirty.splitlines()[:10])
-        raise RuntimeError(
-            "working tree has tracked changes; move deployment settings to .env "
-            f"or commit/revert these files before updating: {changed}"
-        )
+        if allow_dirty:
+            # checkout --detach would overwrite tracked changes; stash them so
+            # the update can proceed and the edits survive for restoration.
+            add_log(state, f"检测到已修改文件，自动暂存后继续更新: {changed}")
+            command(
+                state,
+                git_args("stash", "push", "-m", "flowmind-update-before-checkout"),
+                timeout=60,
+            )
+            update_state(state, dirty_stashed=True)
+        else:
+            raise RuntimeError(
+                "working tree has tracked changes; move deployment settings to .env "
+                f"or commit/revert these files before updating: {changed}"
+            )
     previous_sha = command(state, git_args("rev-parse", "HEAD"), timeout=30).strip()
     target_ref = f"refs/tags/v{target}"
     fetch_tags(state)
@@ -514,6 +575,20 @@ def rollback_deployment(
         add_log(state, "rollback notifier 健康检查通过")
 
 
+def restore_stashed_changes(state: dict[str, Any]) -> None:
+    """Pop the stash made by preflight (FLOWMIND_ALLOW_DIRTY_UPDATE) back onto
+    the working tree after the checkout. Conflicts leave the stash intact and
+    are reported so nothing is silently lost."""
+    if not state.get("dirty_stashed"):
+        return
+    try:
+        command(state, git_args("stash", "pop"), timeout=60)
+        add_log(state, "已恢复更新前暂存的本地修改")
+        state["dirty_stashed"] = False
+    except RuntimeError as exc:
+        add_log(state, f"暂存修改恢复时冲突，已保留在 stash: {str(exc)[-500:]}")
+
+
 def schedule_updater_recreate(state: dict[str, Any]) -> None:
     helper_name = f"flowmind-updater-reloader-{str(state['request_id'])[:8]}"
     project = str(PROJECT_DIR)
@@ -612,6 +687,7 @@ def run_operation(
             schedule_updater_recreate(state)
         except Exception as exc:
             add_log(state, f"updater 延迟重建未启动: {exc}")
+        restore_stashed_changes(state)
     except Exception as exc:
         error = str(exc)[:4000]
         add_log(state, error)
@@ -623,6 +699,7 @@ def run_operation(
             except Exception as rollback_exc:
                 error = f"{error}; rollback failed: {rollback_exc}"[:4000]
                 add_log(state, str(rollback_exc))
+        restore_stashed_changes(state)
         update_state(
             state,
             status="rolled_back" if rolled_back else "failed",
