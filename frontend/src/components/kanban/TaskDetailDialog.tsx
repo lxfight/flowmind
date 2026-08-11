@@ -323,7 +323,8 @@ export function TaskDetailDialog({
       document.body.appendChild(link)
       link.click()
       link.remove()
-      URL.revokeObjectURL(url)
+      // Revoke later so Firefox isn't interrupted mid-download.
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
     } catch {
       toast.error('附件下载失败')
     }

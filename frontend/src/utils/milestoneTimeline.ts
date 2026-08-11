@@ -118,9 +118,10 @@ export function buildMilestoneTimelineLayout(
     return { milestone, x, y, cardLeft, lane }
   })
 
-  const lastX = items.at(-1)?.x ?? todayX
+  const lastItem = items[items.length - 1]
+  const lastX = lastItem?.x ?? todayX
   const axisEnd = Math.max(todayX, lastX)
-  const lastMilestoneDate = items.at(-1)?.milestone.target_date
+  const lastMilestoneDate = lastItem?.milestone.target_date
   const curveEndDate = lastMilestoneDate && lastMilestoneDate > anchorDate
     ? lastMilestoneDate
     : anchorDate

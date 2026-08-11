@@ -9,5 +9,5 @@ export function registerModalLayer(layer: symbol) {
 }
 
 export function isTopModalLayer(layer: symbol) {
-  return modalLayers.at(-1) === layer
+  return modalLayers[modalLayers.length - 1] === layer
 }

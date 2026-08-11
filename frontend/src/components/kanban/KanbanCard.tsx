@@ -82,7 +82,7 @@ export function KanbanCard({ task, members, milestones, isDragOverlay, readOnly 
           aria-label="拖动排序"
           aria-roledescription=" draggable"
           onClick={(e) => e.stopPropagation()}
-          className="absolute -left-1.5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md transition-opacity"
+          className="absolute -left-1.5 top-1/2 -translate-y-1/2 opacity-70 sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100 p-1.5 sm:p-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md transition-opacity"
         >
           <GripVertical className="h-4 w-4" />
         </button>

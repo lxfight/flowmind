@@ -71,6 +71,11 @@ const healthConfig: Record<
   cancelled: { label: '已取消', className: 'is-cancelled', icon: XCircle },
 }
 
+/** Resolve a milestone health config with a safe fallback for unknown values. */
+function healthConfigFor(health: string | undefined) {
+  return healthConfig[(health as MilestoneHealth) in healthConfig ? health as MilestoneHealth : 'on_track']
+}
+
 function targetCopy(targetDate: string, health: MilestoneHealth) {
   if (health === 'completed') return '已完成'
   if (health === 'cancelled') return '已取消'
@@ -565,7 +570,7 @@ export default function MilestonesPage() {
                   <i />
                 </span>
               {timelineLayout.items.map(({ milestone, x, y, cardLeft, lane }, index) => {
-                const health = healthConfig[milestone.health]
+                const health = healthConfigFor(milestone.health)
                 const HealthIcon = health.icon
                 const isSelected = selected?.id === milestone.id
                 const nodeStyle = {
@@ -635,12 +640,12 @@ export default function MilestonesPage() {
                 <div className="milestone-detail-main">
                   <div className="milestone-detail-heading">
                     <div>
-                      <span className={cn('milestone-health-label', healthConfig[selected.health].className)}>
+                      <span className={cn('milestone-health-label', healthConfigFor(selected.health).className)}>
                         {(() => {
-                          const Icon = healthConfig[selected.health].icon
+                          const Icon = healthConfigFor(selected.health).icon
                           return <Icon className="h-4 w-4" />
                         })()}
-                        {healthConfig[selected.health].label}
+                        {healthConfigFor(selected.health).label}
                       </span>
                       <h2>{selected.title}</h2>
                     </div>
