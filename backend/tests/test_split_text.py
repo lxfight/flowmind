@@ -14,8 +14,9 @@ def _paragraphs(n: int, width: int) -> str:
 
 def test_empty_and_blank_text():
     assert svc._split_text("", chunk_size=100, chunk_overlap=10) == []
-    # Fallback keeps the raw text when no non-empty paragraph exists
-    assert svc._split_text("   ", chunk_size=100, chunk_overlap=10) == ["   "]
+    # Whitespace-only content must not produce a chunk (embedding providers
+    # would 400 on it), so it splits to nothing.
+    assert svc._split_text("   ", chunk_size=100, chunk_overlap=10) == []
 
 
 def test_short_text_single_chunk():

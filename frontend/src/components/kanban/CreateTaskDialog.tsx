@@ -76,7 +76,7 @@ export function CreateTaskDialog({ statuses, defaultStatusId, projectId, milesto
         status_id: statusId,
         priority,
         assignee_ids: assigneeIds,
-        due_date: dueDate ? new Date(`${dueDate}T23:59:59`).toISOString() : null,
+        due_date: dueDate ? new Date(`${dueDate}T23:59:59.999`).toISOString() : null,
         milestone_ids: milestoneIds,
       })
       toast.success('任务已创建')

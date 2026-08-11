@@ -76,6 +76,18 @@ const priorityOptions = [
 /** Consistent section header style across description/subtasks/attachments/comments */
 const SECTION_TITLE = 'text-xs font-semibold uppercase tracking-wider text-muted-foreground'
 
+/** Format an ISO datetime as a yyyy-MM-dd string in the LOCAL timezone, so a
+ *  due date rendered in a date input matches the day the user expects (not
+ *  the UTC day, which can differ near midnight in +08). */
+function toLocalDateInput(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 export function TaskDetailDialog({
   taskId,
   projectId,
@@ -235,7 +247,7 @@ export function TaskDetailDialog({
     setEditDescription(t.description || '')
     setEditPriority(t.priority)
     setEditStatusId(t.status_id)
-    setEditDueDate(t.due_date ? t.due_date.slice(0, 10) : '')
+    setEditDueDate(t.due_date ? toLocalDateInput(t.due_date) : '')
     setEditMilestoneIds(t.milestone_ids)
   }, [])
 
@@ -599,7 +611,11 @@ export function TaskDetailDialog({
         milestone_ids: editMilestoneIds,
       }
       if (editDueDate) {
-        payload.due_date = new Date(editDueDate).toISOString()
+        // Treat the picked date as "due at the end of that local day"
+        // (23:59:59.999) so it matches CreateTaskDialog and overdue flips
+        // right after local midnight rather than at the UTC boundary (which
+        // would be 08:00 in UTC+8 when parsed as a UTC midnight).
+        payload.due_date = new Date(`${editDueDate}T23:59:59.999`).toISOString()
       } else {
         payload.due_date = null
       }

@@ -8,11 +8,13 @@ wrapper; callers own the transaction.
 import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config import get_settings
 from app.core.notify import create_notification
 from app.models.task import Task
 
@@ -27,6 +29,16 @@ def _as_utc(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=UTC)
     return dt
+
+
+def _format_due_local(due: datetime) -> str:
+    """Format a due datetime in the configured app timezone for notification
+    copy (users see local wall-clock time, not the UTC value)."""
+    tz_name = get_settings().app_timezone
+    try:
+        return due.astimezone(ZoneInfo(tz_name)).strftime("%Y-%m-%d %H:%M")
+    except (ZoneInfoNotFoundError, OSError):
+        return due.strftime("%Y-%m-%d %H:%M")
 
 
 async def scan_due_tasks(db: AsyncSession, now: datetime | None = None) -> dict:
@@ -75,7 +87,7 @@ async def scan_due_tasks(db: AsyncSession, now: datetime | None = None) -> dict:
                     user_id=assignee.id,
                     type="due_soon",
                     title="任务即将到期",
-                    body=f"任务「{task.title}」将在 24 小时内到期（{due.strftime('%Y-%m-%d %H:%M')} UTC）。",
+                    body=f"任务「{task.title}」将在 24 小时内到期（{_format_due_local(due)}）。",
                     link=link,
                 )
             task.due_notified_at = now
