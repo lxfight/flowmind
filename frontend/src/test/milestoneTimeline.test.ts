@@ -4,6 +4,7 @@ import type { Milestone } from '../types'
 import {
   buildMilestoneTimelineLayout,
   milestoneCurveY,
+  TIMELINE_CANVAS_HEIGHT,
   TIMELINE_DAY_WIDTH,
   TIMELINE_ORIGIN_PADDING,
 } from '../utils/milestoneTimeline'
@@ -92,5 +93,32 @@ describe('milestone timeline layout', () => {
 
     expect(segmentCount).toBeGreaterThan(20)
     expect(new Set(sampledHeights).size).toBeGreaterThan(3)
+  })
+
+  it('grows the curve amplitude as the timeline span widens', () => {
+    const targetDate = '2027-01-24'
+    const offsetFromCenter = (anchorDate: string) => {
+      const y = milestoneCurveY(targetDate, anchorDate)
+      return Math.abs(y - 208)
+    }
+    const near = offsetFromCenter('2027-01-24')
+    const medium = offsetFromCenter('2026-07-28')
+    const far = offsetFromCenter('2026-01-24')
+
+    expect(medium).toBeGreaterThan(near * 1.4)
+    expect(far).toBeGreaterThan(medium * 1.2)
+  })
+
+  it('stays bounded within the canvas for very wide timelines', () => {
+    const anchorDate = '2026-07-28'
+    const ys = [0, 180, 360, 540, 720].map((days) => {
+      const date = new Date(`${anchorDate}T00:00:00Z`)
+      date.setUTCDate(date.getUTCDate() + days)
+      return milestoneCurveY(date.toISOString().slice(0, 10), anchorDate)
+    })
+    ys.forEach((y) => {
+      expect(y).toBeGreaterThan(0)
+      expect(y).toBeLessThan(TIMELINE_CANVAS_HEIGHT)
+    })
   })
 })

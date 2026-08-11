@@ -8,10 +8,17 @@ export const TIMELINE_END_PADDING = 216
 export const TIMELINE_CARD_WIDTH = 192
 export const TIMELINE_CURVE_CENTER_Y = 208
 export const TIMELINE_CURVE_AMPLITUDE = 48
+export const TIMELINE_CURVE_MAX_AMPLITUDE = 132
 export const TIMELINE_CANVAS_HEIGHT = 436
 const TIMELINE_CURVE_SAMPLE_DAYS = 6
 const TIMELINE_MAX_CURVE_SEGMENTS = 240
 const NOISE_PERIOD_DAYS = 18
+/** Span (days) at which the base amplitude applies; wider timelines grow bendier. */
+const TIMELINE_CURVE_AMPLITUDE_REFERENCE_DAYS = 60
+/** Logarithmic growth factor that keeps long timelines visibly curved. */
+const TIMELINE_CURVE_AMPLITUDE_GROWTH = 0.55
+/** Randomised wobble of the amplitude itself so bends feel organic. */
+const TIMELINE_CURVE_AMPLITUDE_WOBBLE = 0.14
 
 export interface MilestoneTimelineLayoutItem {
   milestone: Milestone
@@ -45,13 +52,24 @@ function smoothNoise(position: number) {
   return noiseValue(start) + (noiseValue(start + 1) - noiseValue(start)) * eased
 }
 
-export function milestoneCurveY(targetDate: string, _anchorDate: string) {
+function curveAmplitude(spanDays: number, targetDate: string) {
+  if (spanDays <= TIMELINE_CURVE_AMPLITUDE_REFERENCE_DAYS) return TIMELINE_CURVE_AMPLITUDE
+  const [year, month, day] = targetDate.split('-').map(Number)
+  const absoluteDay = Math.floor(Date.UTC(year, month - 1, day) / 86_400_000)
+  const wobble = smoothNoise(absoluteDay / NOISE_PERIOD_DAYS + 97.3)
+  const growth = 1 + Math.log2(spanDays / TIMELINE_CURVE_AMPLITUDE_REFERENCE_DAYS) * TIMELINE_CURVE_AMPLITUDE_GROWTH
+  const amplitude = TIMELINE_CURVE_AMPLITUDE * growth * (1 + wobble * TIMELINE_CURVE_AMPLITUDE_WOBBLE)
+  return Math.min(TIMELINE_CURVE_MAX_AMPLITUDE, amplitude)
+}
+
+export function milestoneCurveY(targetDate: string, anchorDate: string) {
   const [year, month, day] = targetDate.split('-').map(Number)
   const absoluteDay = Math.floor(Date.UTC(year, month - 1, day) / 86_400_000)
   const primary = smoothNoise(absoluteDay / NOISE_PERIOD_DAYS)
   const detail = smoothNoise(absoluteDay / (NOISE_PERIOD_DAYS / 2) + 31.7)
   const noise = Math.max(-1, Math.min(1, primary * 0.76 + detail * 0.24))
-  return TIMELINE_CURVE_CENTER_Y + noise * TIMELINE_CURVE_AMPLITUDE
+  const spanDays = Math.abs(differenceInCalendarDays(parseISO(targetDate), parseISO(anchorDate)))
+  return TIMELINE_CURVE_CENTER_Y + noise * curveAmplitude(spanDays, targetDate)
 }
 
 function buildCurvePath(points: Array<{ x: number; y: number }>) {
