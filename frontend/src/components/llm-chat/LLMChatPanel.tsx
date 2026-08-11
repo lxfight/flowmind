@@ -109,8 +109,13 @@ export function LLMChatPanel({ projectId, open, onClose, onActions, members }: P
   }, [projectId, open, loadSessions, clearError])
 
   useEffect(() => {
+    // Re-fetch history only when switching to a different session; remounting
+    // the panel (page change) keeps the cached messages, so a pending-question
+    // card doesn't flash in and out.
     if (currentSessionId) {
-      void loadMessages(currentSessionId)
+      const state = useLLMChatStore.getState()
+      const alreadyLoaded = !state.loading && state.messages.length > 0
+      if (!alreadyLoaded) void loadMessages(currentSessionId)
     }
   }, [currentSessionId, loadMessages])
 
