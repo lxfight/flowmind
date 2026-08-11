@@ -218,3 +218,87 @@ async def test_task_list_search_escapes_like_wildcards(client):
         params={"search": "\\"},
     )
     assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_cascade_subtask_status_keeps_completion_consistent(client):
+    headers = admin_login(client)
+    project_id, statuses = create_project(client, headers)
+    done_status = next((s for s in statuses if s["is_done"]), None)
+    open_status = next((s for s in statuses if not s["is_done"]), None)
+    assert done_status and open_status
+
+    parent = create_task(client, headers, project_id, open_status["id"], "级联父任务")
+    response = client.post(
+        f"/api/projects/{project_id}/tasks",
+        headers=headers,
+        json={
+            "title": "级联子任务",
+            "status_id": open_status["id"],
+            "parent_task_id": parent["id"],
+        },
+    )
+    sub_id = response.json()["id"]
+    assert response.json()["is_completed"] is False
+
+    # Move the parent into the "done" column — the subtask must follow fully.
+    response = client.patch(
+        f"/api/projects/{project_id}/tasks/{parent['id']}/move",
+        headers=headers,
+        json={"status_id": done_status["id"], "order": 0},
+    )
+    assert response.status_code == 200, response.text
+
+    sub = client.get(
+        f"/api/projects/{project_id}/tasks/{sub_id}", headers=headers
+    ).json()
+    assert sub["status_id"] == done_status["id"]
+    assert sub["is_completed"] is True
+    assert sub["completed_at"] is not None
+
+    # Move back to an open column — subtask un-completes too.
+    response = client.patch(
+        f"/api/projects/{project_id}/tasks/{parent['id']}/move",
+        headers=headers,
+        json={"status_id": open_status["id"], "order": 0},
+    )
+    assert response.status_code == 200, response.text
+    sub = client.get(
+        f"/api/projects/{project_id}/tasks/{sub_id}", headers=headers
+    ).json()
+    assert sub["status_id"] == open_status["id"]
+    assert sub["is_completed"] is False
+    assert sub["completed_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_cascade_subtask_status_on_parent_put(client):
+    headers = admin_login(client)
+    project_id, statuses = create_project(client, headers)
+    done_status = next((s for s in statuses if s["is_done"]), None)
+    open_status = next((s for s in statuses if not s["is_done"]), None)
+
+    parent = create_task(client, headers, project_id, open_status["id"], "PUT 父任务")
+    response = client.post(
+        f"/api/projects/{project_id}/tasks",
+        headers=headers,
+        json={
+            "title": "PUT 子任务",
+            "status_id": open_status["id"],
+            "parent_task_id": parent["id"],
+        },
+    )
+    sub_id = response.json()["id"]
+
+    response = client.put(
+        f"/api/projects/{project_id}/tasks/{parent['id']}",
+        headers=headers,
+        json={"status_id": done_status["id"]},
+    )
+    assert response.status_code == 200, response.text
+
+    sub = client.get(
+        f"/api/projects/{project_id}/tasks/{sub_id}", headers=headers
+    ).json()
+    assert sub["status_id"] == done_status["id"]
+    assert sub["is_completed"] is True

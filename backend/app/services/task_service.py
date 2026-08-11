@@ -154,6 +154,23 @@ async def _subtask_status_map(db: AsyncSession, task_id: int) -> dict[str, int]:
     return {str(s.id): s.status_id for s in result.scalars().all()}
 
 
+async def _cascade_subtask_status(
+    db: AsyncSession,
+    task_id: int,
+    status_id: int,
+    is_done: bool,
+) -> None:
+    """Move all subtasks to the same column, keeping is_completed/completed_at
+    consistent with the target status so completion stats and reminders stay
+    correct."""
+    result = await db.execute(select(Task).where(Task.parent_task_id == task_id))
+    completed_at = datetime.now(UTC) if is_done else None
+    for subtask in result.scalars().all():
+        subtask.status_id = status_id
+        subtask.is_completed = is_done
+        subtask.completed_at = completed_at
+
+
 # ---------------------------------------------------------------------------
 # Helper: build TaskOut with counts
 # ---------------------------------------------------------------------------
@@ -504,11 +521,7 @@ async def update_task(
     if target_status is not None:
         task.is_completed = target_status.is_done
         if task.parent_task_id is None:
-            result = await db.execute(
-                select(Task).where(Task.parent_task_id == task.id)
-            )
-            for subtask in result.scalars().all():
-                subtask.status_id = target_status.id
+            await _cascade_subtask_status(db, task.id, target_status.id, target_status.is_done)
     elif "is_completed" in payload and task.parent_task_id is None:
         result = await db.execute(
             select(TaskStatus)
@@ -523,9 +536,7 @@ async def update_task(
         if not matching_status:
             raise HTTPException(status_code=409, detail="项目缺少对应的完成或未完成状态列")
         task.status_id = matching_status.id
-        result = await db.execute(select(Task).where(Task.parent_task_id == task.id))
-        for subtask in result.scalars().all():
-            subtask.status_id = matching_status.id
+        await _cascade_subtask_status(db, task.id, matching_status.id, matching_status.is_done)
 
     if "is_completed" in payload or target_status is not None:
         task.completed_at = datetime.now(UTC) if task.is_completed else None
@@ -622,9 +633,7 @@ async def move_task(
     task.is_completed = status.is_done
     task.completed_at = datetime.now(UTC) if status.is_done else None
     if task.parent_task_id is None:
-        result = await db.execute(select(Task).where(Task.parent_task_id == task.id))
-        for subtask in result.scalars().all():
-            subtask.status_id = status.id
+        await _cascade_subtask_status(db, task.id, status.id, status.is_done)
 
     result = await db.execute(
         select(Task)
