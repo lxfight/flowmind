@@ -166,3 +166,62 @@ async def test_release_list_reuses_etag_cache(monkeypatch):
     assert first["items"][0]["version"] == "0.2.0"
     assert second["items"] == first["items"]
     assert requests[1].headers["If-None-Match"] == '"release-etag"'
+
+
+@pytest.mark.asyncio
+async def test_release_request_retries_transient_errors(monkeypatch):
+    """A 500 / timeout should be retried with backoff before giving up."""
+    calls = {"count": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["count"] += 1
+        if calls["count"] < 3:
+            raise httpx.ConnectError("boom")
+        return httpx.Response(
+            200,
+            json=[{"tag_name": "v1.0.0", "name": "R", "prerelease": False, "draft": False}],
+        )
+
+    transport = httpx.MockTransport(handler)
+
+    class MockAsyncClient(httpx.AsyncClient):
+        def __init__(self, *args, **kwargs):
+            super().__init__(transport=transport)
+
+    monkeypatch.setattr(httpx, "AsyncClient", MockAsyncClient)
+    service = ReleaseService()
+
+    result = await service.list_releases(force=True)
+
+    assert calls["count"] == 3
+    assert result["items"][0]["version"] == "1.0.0"
+    assert result["error"] is None
+
+
+@pytest.mark.asyncio
+async def test_release_failure_does_not_cache_so_next_call_retries(monkeypatch):
+    """A failed check must not start the TTL, so a later call retries."""
+    calls = {"count": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["count"] += 1
+        return httpx.Response(500, text="server error")
+
+    transport = httpx.MockTransport(handler)
+
+    class MockAsyncClient(httpx.AsyncClient):
+        def __init__(self, *args, **kwargs):
+            super().__init__(transport=transport)
+
+    monkeypatch.setattr(httpx, "AsyncClient", MockAsyncClient)
+    monkeypatch.setattr(ReleaseService, "_fallback_releases", AsyncMock(side_effect=httpx.HTTPError("no feed")))
+    service = ReleaseService()
+
+    first = await service.list_releases(force=True)
+    assert first["error"] is not None
+
+    # Force is false now; if the failure had been cached this would short-circuit.
+    second = await service.list_releases()
+    assert second["error"] is not None
+    # Two retry attempts (3 tries each) means the server saw 6 requests.
+    assert calls["count"] == 6

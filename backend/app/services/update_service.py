@@ -117,6 +117,52 @@ class ReleaseService:
             "prerelease": False,
         }
 
+    @staticmethod
+    async def _request_with_retry(
+        method: str,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        params: dict[str, Any] | None = None,
+        attempts: int = 3,
+        base_delay: float = 1.5,
+        timeout: float = 12.0,
+    ) -> httpx.Response:
+        """GET/HEAD with exponential backoff for transient network failures.
+
+        Retries on connect errors, timeouts, 5xx and 429 (rate limit / GitHub
+        busy). Client errors (4xx) are not retried — a bad repository or
+        missing token won't get better by trying again.
+        """
+        last_exc: Exception | None = None
+        for attempt in range(attempts):
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    response = await client.request(method, url, headers=headers, params=params)
+                if response.status_code in (429,) or response.status_code >= 500:
+                    last_exc = httpx.HTTPStatusError(
+                        f"{response.status_code} from {url}", request=response.request, response=response
+                    )
+                    if attempt + 1 < attempts:
+                        await asyncio.sleep(base_delay * (2**attempt))
+                        continue
+                    raise last_exc
+                return response
+            except (httpx.HTTPError, OSError) as exc:
+                last_exc = exc
+                if attempt + 1 < attempts:
+                    await asyncio.sleep(base_delay * (2**attempt))
+        raise last_exc if last_exc is not None else RuntimeError(f"request failed: {url}")
+
+    @staticmethod
+    async def _get_with_retry(
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> httpx.Response:
+        return await ReleaseService._request_with_retry("GET", url, headers=headers, params=params)
+
     async def list_releases(
         self, *, force: bool = False, limit: int = 20
     ) -> dict[str, Any]:
@@ -141,22 +187,20 @@ class ReleaseService:
 
             checked_at = datetime.now(UTC).isoformat()
             url = f"https://api.github.com/repos/{settings.release_repository}/releases"
+            succeeded = False
             try:
-                async with httpx.AsyncClient(timeout=12.0) as client:
-                    headers = {
-                        "Accept": "application/vnd.github+json",
-                        "User-Agent": f"FlowMind/{APP_VERSION}",
-                        "X-GitHub-Api-Version": "2022-11-28",
-                    }
-                    if settings.github_token:
-                        headers["Authorization"] = f"Bearer {settings.github_token}"
-                    if self._etag:
-                        headers["If-None-Match"] = self._etag
-                    response = await client.get(
-                        url,
-                        headers=headers,
-                        params={"per_page": 50},
-                    )
+                headers = {
+                    "Accept": "application/vnd.github+json",
+                    "User-Agent": f"FlowMind/{APP_VERSION}",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                }
+                if settings.github_token:
+                    headers["Authorization"] = f"Bearer {settings.github_token}"
+                if self._etag:
+                    headers["If-None-Match"] = self._etag
+                response = await self._get_with_retry(
+                    url, headers=headers, params={"per_page": 50}
+                )
                 if response.status_code == 304:
                     self._error = None
                 elif response.status_code == 404:
@@ -176,6 +220,7 @@ class ReleaseService:
                     ]
                     self._etag = response.headers.get("ETag")
                     self._error = None
+                succeeded = True
             except (httpx.HTTPError, ValueError, TypeError, json.JSONDecodeError) as exc:
                 self._error = f"检查更新失败: {str(exc)[:300]}"
                 if not self._releases:
@@ -183,11 +228,16 @@ class ReleaseService:
                         fallback = await self._fallback_releases(settings.release_repository)
                         self._releases = fallback
                         self._error = None
+                        succeeded = True
                     except (httpx.HTTPError, ValueError, ElementTree.ParseError) as fallback_exc:
                         self._error = f"检查更新失败: {str(fallback_exc)[:300]}"
 
             self._checked_at = checked_at
-            self._cached_at = now
+            if succeeded:
+                # Only cache a successful check; a failed one leaves the TTL
+                # expired so the next visit (or page refresh) retries instead
+                # of waiting out the full window.
+                self._cached_at = now
             return self._result(limit)
 
     async def check(self, *, force: bool = False) -> dict[str, Any]:
@@ -201,11 +251,10 @@ class ReleaseService:
 
     async def _fallback_releases(self, repository: str) -> list[dict[str, Any]]:
         feed_url = f"https://github.com/{repository}/releases.atom"
-        async with httpx.AsyncClient(timeout=12.0) as client:
-            response = await client.get(
-                feed_url,
-                headers={"User-Agent": f"FlowMind/{APP_VERSION}"},
-            )
+        response = await self._get_with_retry(
+            feed_url,
+            headers={"User-Agent": f"FlowMind/{APP_VERSION}"},
+        )
         if response.status_code == 404:
             return []
         response.raise_for_status()
