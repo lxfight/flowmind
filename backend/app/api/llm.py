@@ -41,7 +41,6 @@ from app.services.llm_service import (
     LLMReportUnavailableError,
     llm_service,
 )
-from app.services.mention_service import board_link, notify_mentions
 from app.services.rag_service import rag_service
 from app.services.report_service import (
     ACTIVITY_MAX_LINES,
@@ -876,18 +875,6 @@ async def agent_chat(
     history = await _load_history(session, db)
     llm_message = await _consume_pending_answer_context(session, db, request.message)
 
-    # Notify project members @-mentioned in the user's message (plain text
-    # stays as-is for the LLM; unknown names are ignored).
-    await notify_mentions(
-        db,
-        project_id=request.project_id,
-        actor=current_user,
-        text=request.message,
-        title=f"{current_user.display_name or current_user.username} 在 LLM 对话中提到了你",
-        body=request.message.strip().replace("\n", " ")[:100],
-        link=board_link(request.project_id),
-    )
-
     result = await run_agent(
         db=db,
         user=current_user,
@@ -944,17 +931,6 @@ async def agent_chat_stream(
         raise HTTPException(status_code=500, detail=str(e)) from e
     history = await _load_history(session, db)
     llm_message = await _consume_pending_answer_context(session, db, request.message)
-
-    # Same mention fan-out as the buffered endpoint, fired before streaming.
-    await notify_mentions(
-        db,
-        project_id=request.project_id,
-        actor=current_user,
-        text=request.message,
-        title=f"{current_user.display_name or current_user.username} 在 LLM 对话中提到了你",
-        body=request.message.strip().replace("\n", " ")[:100],
-        link=board_link(request.project_id),
-    )
 
     async def event_source():
         import asyncio
