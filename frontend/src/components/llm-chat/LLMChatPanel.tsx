@@ -61,6 +61,7 @@ export function LLMChatPanel({ projectId, open, onClose, onActions, members }: P
   const [showSessions, setShowSessions] = useState(false)
   const [visible, setVisible] = useState(open)
   const [entered, setEntered] = useState(open)
+  const [sendBlocked, setSendBlocked] = useState(false)
   const compactViewport = typeof window !== 'undefined' && window.innerWidth <= 640
   const rectRef = useRef(rect)
   useEffect(() => {
@@ -105,12 +106,24 @@ export function LLMChatPanel({ projectId, open, onClose, onActions, members }: P
     }
   }, [currentSessionId, loadMessages])
 
+  // Clear the "waiting for generation" hint once the stream finishes.
+  useEffect(() => {
+    if (!streaming) setSendBlocked(false)
+  }, [streaming])
+
   const handleSend = async (content: string) => {
     clearError()
-    const { actions } = await sendMessage(projectId, currentSessionId, content)
+    const { actions, blocked } = await sendMessage(projectId, currentSessionId, content)
+    if (blocked) {
+      // Keep the user's draft and tell them why the message didn't go out.
+      setSendBlocked(true)
+      return false
+    }
+    setSendBlocked(false)
     if (actions.length > 0 && onActions) {
       onActions(actions)
     }
+    return true
   }
 
   const handleCreateSession = () => {
@@ -343,6 +356,7 @@ export function LLMChatPanel({ projectId, open, onClose, onActions, members }: P
           streaming={streaming}
           sessionTitle={currentSessionId ? currentTitle : undefined}
           members={members}
+          blockedHint={sendBlocked}
         />
       </div>
 

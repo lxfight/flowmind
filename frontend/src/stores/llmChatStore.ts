@@ -62,7 +62,7 @@ interface LLMChatState {
     projectId: number | null,
     sessionId: number | null,
     content: string
-  ) => Promise<{ message: string; actions: ActionSummary[] }>
+  ) => Promise<{ message: string; actions: ActionSummary[]; blocked?: boolean }>
   stopStreaming: () => void
   /** Undo the given agent action batch; returns null when the request failed */
   undoBatch: (sessionId: number, batchId: string) => Promise<UndoResult | null>
@@ -206,7 +206,12 @@ export const useLLMChatStore = create<LLMChatState>((set, get) => ({
 
   sendMessage: async (projectId, sessionId, content) => {
     const trimmed = content.trim()
-    if (!trimmed || get().streaming) return { message: '', actions: [] }
+    if (!trimmed) return { message: '', actions: [] }
+    if (get().streaming) {
+      // Never silently drop a send while a stream is in flight; the caller
+      // keeps the draft so nothing the user typed disappears.
+      return { message: '', actions: [], blocked: true }
+    }
 
     const now = new Date().toISOString()
     const userMsg: ChatMessage = { role: 'user', content: trimmed, created_at: now }

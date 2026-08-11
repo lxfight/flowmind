@@ -7,7 +7,8 @@ import { Avatar } from '../ui/Avatar'
 import type { MemberOption } from '../../types'
 
 interface Props {
-  onSend: (content: string) => void
+  /** Resolves to true when the message was actually sent (draft may be cleared). */
+  onSend: (content: string) => void | Promise<boolean | void>
   onStop: () => void
   streaming?: boolean
   disabled?: boolean
@@ -16,6 +17,8 @@ interface Props {
   sessionTitle?: string
   /** 项目成员，用于 @ 补全；缺省则不启用补全 */
   members?: MemberOption[]
+  /** True right after a send was blocked while streaming — shown as a hint */
+  blockedHint?: boolean
 }
 
 export function LLMChatInput({
@@ -27,6 +30,7 @@ export function LLMChatInput({
   placeholder = '给 FlowMind 助手发消息',
   sessionTitle,
   members,
+  blockedHint = false,
 }: Props) {
   const { draft, setDraft } = useLLMChatStore()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -37,10 +41,13 @@ export function LLMChatInput({
     members && mentionQuery !== null ? filterMentionCandidates(members, mentionQuery) : []
   const mentionOpen = mentionCandidates.length > 0
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const trimmed = draft.trim()
     if (!trimmed || streaming || disabled) return
-    onSend(trimmed)
+    const sent = await onSend(trimmed)
+    // Only clear the draft when the message actually went out; on failure or
+    // a blocked send the user keeps their text.
+    if (sent === false) return
     setDraft('')
     setMentionQuery(null)
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
@@ -149,7 +156,9 @@ export function LLMChatInput({
         />
         <div className="flex items-center justify-between gap-2 px-2.5 pb-2 pt-1">
           <div className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
-            {disabledHint || (sessionTitle ? sessionTitle : '助手可能会出错，请核对重要信息')}
+            {blockedHint
+              ? '上一条消息正在生成中，可点击停止后继续发送'
+              : disabledHint || (sessionTitle ? sessionTitle : '助手可能会出错，请核对重要信息')}
           </div>
           {streaming ? (
             <button
