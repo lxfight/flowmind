@@ -344,7 +344,25 @@ async def test_knowledge_query_empty_project_without_llm(client):
 async def test_retrieve_context_similarity_threshold(monkeypatch):
     """Hybrid path: a below-threshold vector score filters the chunk only
     when it also has zero keyword evidence."""
+    from unittest.mock import AsyncMock
+
     from app.services import rag_service as rag_module
+    from app.services.config_service import config_service
+
+    monkeypatch.setattr(
+        config_service,
+        "get",
+        AsyncMock(
+            side_effect=lambda key: (
+                5
+                if key == "top_k_retrieval"
+                else rag_module.settings.similarity_threshold
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        config_service, "get_embedding_credentials", AsyncMock(return_value=("fake-key", "", "model"))
+    )
 
     class FakeResult:
         def __init__(self, rows):
@@ -380,8 +398,8 @@ async def test_retrieve_context_similarity_threshold(monkeypatch):
     # Keyword scan finds nothing (query absent from all chunks), so the
     # threshold alone decides: 0.9 kept, 0.1 filtered.
     db = FakeDB(
-        keyword_rows=[("高相关", "文档A", 1), ("低相关", "文档A", 1)],
-        vector_rows=[("高相关", "文档A", 1, 0.9), ("低相关", "文档A", 1, 0.1)],
+        keyword_rows=[(10, "高相关", "文档A", 1), (11, "低相关", "文档A", 1)],
+        vector_rows=[(10, "高相关", "文档A", 1, 0.9), (11, "低相关", "文档A", 1, 0.1)],
     )
     results = await rag_service.retrieve_context("查询", 1, db)
     assert len(results) == 1
@@ -392,8 +410,8 @@ async def test_retrieve_context_similarity_threshold(monkeypatch):
     # Everything below threshold → empty list ("no relevant knowledge").
     monkeypatch.setattr(rag_module.settings, "similarity_threshold", 0.95)
     db = FakeDB(
-        keyword_rows=[("高相关", "文档A", 1), ("低相关", "文档A", 1)],
-        vector_rows=[("高相关", "文档A", 1, 0.9), ("低相关", "文档A", 1, 0.1)],
+        keyword_rows=[(10, "高相关", "文档A", 1), (11, "低相关", "文档A", 1)],
+        vector_rows=[(10, "高相关", "文档A", 1, 0.9), (11, "低相关", "文档A", 1, 0.1)],
     )
     results = await rag_service.retrieve_context("查询", 1, db)
     assert results == []
@@ -403,7 +421,17 @@ async def test_retrieve_context_similarity_threshold(monkeypatch):
 async def test_retrieve_context_keyword_hit_survives_low_vector_score(monkeypatch):
     """A strong keyword hit is kept even when its vector score is below
     the similarity threshold (core hybrid-retrieval semantics)."""
+    from unittest.mock import AsyncMock
+
     from app.services import rag_service as rag_module
+    from app.services.config_service import config_service
+
+    monkeypatch.setattr(
+        config_service, "get", AsyncMock(side_effect=lambda key: 5 if key == "top_k_retrieval" else 0.35)
+    )
+    monkeypatch.setattr(
+        config_service, "get_embedding_credentials", AsyncMock(return_value=("fake-key", "", "model"))
+    )
 
     class FakeResult:
         def __init__(self, rows):
@@ -423,9 +451,9 @@ async def test_retrieve_context_keyword_hit_survives_low_vector_score(monkeypatc
             self.calls += 1
             if self.calls == 1:
                 # Keyword scan: the chunk contains the query term.
-                return FakeResult([("看板拖拽操作指南", "产品FAQ", 1)])
+                return FakeResult([(1, "看板拖拽操作指南", "产品FAQ", 1)])
             # Vector scan: same chunk, but a below-threshold score.
-            return FakeResult([("看板拖拽操作指南", "产品FAQ", 1, 0.05)])
+            return FakeResult([(1, "看板拖拽操作指南", "产品FAQ", 1, 0.05)])
 
     async def fake_embed(text):
         return [0.0] * 1536
@@ -486,7 +514,7 @@ async def test_reindex_leaves_no_orphan_embeddings(client, monkeypatch):
     from conftest import async_session_factory
     from sqlalchemy import func, select
 
-    from app.models.knowledge import DocChunk, DocChunkEmbedding, KnowledgeDoc
+    from app.models.knowledge import DocChunk, DocChunkEmbedding
 
     headers = admin_login(client)
     project_id, _ = create_project(client, headers)

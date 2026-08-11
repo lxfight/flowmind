@@ -40,6 +40,20 @@ ALLOWED_UPLOAD_EXTENSIONS = {
 }
 
 
+async def _read_upload_limited(file: UploadFile, max_bytes: int) -> bytes:
+    """Read an upload in 1MB chunks, rejecting oversized files without
+    buffering the whole payload into memory first."""
+    chunks: list[bytes] = []
+    total = 0
+    while chunk := await file.read(1024 * 1024):
+        total += len(chunk)
+        if total > max_bytes:
+            max_mb = max_bytes // 1024 // 1024
+            raise HTTPException(status_code=413, detail=f"文件大小不能超过 {max_mb}MB")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 @router.get("", response_model=KnowledgeDocListOut)
 async def list_docs(
     project_id: int,
@@ -241,13 +255,11 @@ async def upload_file(
     if ext not in ALLOWED_UPLOAD_EXTENSIONS:
         raise HTTPException(status_code=400, detail="不支持的文件格式")
 
-    file_bytes = await file.read()
+    file_bytes = await _read_upload_limited(
+        file, await config_service.get("knowledge_max_bytes")
+    )
     if len(file_bytes) == 0:
         raise HTTPException(status_code=400, detail="文件为空")
-    max_bytes = await config_service.get("knowledge_max_bytes")
-    if len(file_bytes) > max_bytes:
-        max_mb = max_bytes // 1024 // 1024
-        raise HTTPException(status_code=413, detail=f"文件大小不能超过 {max_mb}MB")
 
     # Strip extension from filename for title
     title = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename

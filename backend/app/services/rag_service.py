@@ -100,11 +100,12 @@ def rrf_fuse(
 ) -> list[dict]:
     """Reciprocal Rank Fusion of two ranked hit lists.
 
-    Each hit is keyed by (project_id, chunk content) — identical chunk text
-    in both lists refers to the same chunk, and the same text in two
-    different projects stays distinct. The fused score for a chunk is
-    ``sum(1 / (k + rank))`` over the lists it appears in, which avoids
-    comparing raw vector similarities with keyword scores directly.
+    Each hit is keyed by its real chunk id (falling back to
+    (project_id, content) for callers that didn't resolve ids), so two
+    distinct chunks with identical text are never collapsed into one —
+    keeping doc attribution and fused scores correct. The fused score for a
+    chunk is ``sum(1 / (k + rank))`` over the lists it appears in, which
+    avoids comparing raw vector similarities with keyword scores directly.
 
     Returns a list sorted by fused score (desc), each item carrying
     ``content`` / ``doc_title`` / ``project_id`` / ``vector_score`` (None
@@ -114,7 +115,9 @@ def rrf_fuse(
     merged: dict[tuple, dict] = {}
 
     for rank, hit in enumerate(vector_hits):
-        entry = merged.setdefault((hit.get("project_id"), hit["content"]), {
+        key = (hit.get("project_id"), hit.get("chunk_id") or hit["content"])
+        entry = merged.setdefault(key, {
+            "chunk_id": hit.get("chunk_id"),
             "content": hit["content"],
             "doc_title": hit["doc_title"],
             "project_id": hit.get("project_id"),
@@ -126,7 +129,9 @@ def rrf_fuse(
         entry["fused_score"] += 1.0 / (k + rank + 1)
 
     for rank, hit in enumerate(keyword_hits):
-        entry = merged.setdefault((hit.get("project_id"), hit["content"]), {
+        key = (hit.get("project_id"), hit.get("chunk_id") or hit["content"])
+        entry = merged.setdefault(key, {
+            "chunk_id": hit.get("chunk_id"),
             "content": hit["content"],
             "doc_title": hit["doc_title"],
             "project_id": hit.get("project_id"),
@@ -269,7 +274,7 @@ class RAGService:
             else KnowledgeDoc.project_id == project_id
         )
         result = await db.execute(
-            select(DocChunk.content, KnowledgeDoc.title, KnowledgeDoc.project_id)
+            select(DocChunk.id, DocChunk.content, KnowledgeDoc.title, KnowledgeDoc.project_id)
             .join(KnowledgeDoc)
             .where(project_filter)
             .where(KnowledgeDoc.status == DOC_STATUS_INDEXED)
@@ -278,12 +283,13 @@ class RAGService:
 
         scored = [
             {
+                "chunk_id": chunk_id,
                 "content": content,
                 "doc_title": title,
                 "project_id": pid,
                 "keyword_score": keyword_score(query, content, title),
             }
-            for content, title, pid in rows
+            for chunk_id, content, title, pid in rows
         ]
         hits = [h for h in scored if h["keyword_score"] > 0]
         hits.sort(key=lambda h: h["keyword_score"], reverse=True)
@@ -316,6 +322,7 @@ class RAGService:
         result = await db.execute(
             text(f"""
                 SELECT
+                    dc.id as chunk_id,
                     dc.content,
                     kd.title as doc_title,
                     kd.project_id as project_id,
@@ -337,10 +344,11 @@ class RAGService:
         )
         return [
             {
-                "content": row[0],
-                "doc_title": row[1],
-                "project_id": row[2],
-                "vector_score": float(row[3]),
+                "chunk_id": row[0],
+                "content": row[1],
+                "doc_title": row[2],
+                "project_id": row[3],
+                "vector_score": float(row[4]),
             }
             for row in result.fetchall()
         ]
@@ -355,6 +363,7 @@ class RAGService:
         vector_score = item.get("vector_score")
         keyword_score = item.get("keyword_score", 0.0)
         return {
+            "chunk_id": item.get("chunk_id"),
             "content": item["content"],
             "doc_title": item["doc_title"],
             "project_id": item.get("project_id"),
