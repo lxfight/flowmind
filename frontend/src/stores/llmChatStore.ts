@@ -62,7 +62,7 @@ interface LLMChatState {
     projectId: number | null,
     sessionId: number | null,
     content: string
-  ) => Promise<{ message: string; actions: ActionSummary[]; blocked?: boolean }>
+  ) => Promise<{ message: string; actions: ActionSummary[]; blocked?: boolean; failed?: boolean }>
   stopStreaming: () => void
   /** Undo the given agent action batch; returns null when the request failed */
   undoBatch: (sessionId: number, batchId: string) => Promise<UndoResult | null>
@@ -448,7 +448,7 @@ export const useLLMChatStore = create<LLMChatState>((set, get) => ({
       }
       set({ streaming: false })
       streamSessionId = undefined
-      return { message: '', actions: [] }
+      return { message: '', actions: [], failed: true }
     } finally {
       if (abortController === controller) abortController = null
     }

@@ -113,10 +113,14 @@ export function LLMChatPanel({ projectId, open, onClose, onActions, members }: P
 
   const handleSend = async (content: string) => {
     clearError()
-    const { actions, blocked } = await sendMessage(projectId, currentSessionId, content)
+    const { actions, blocked, failed } = await sendMessage(projectId, currentSessionId, content)
     if (blocked) {
       // Keep the user's draft and tell them why the message didn't go out.
       setSendBlocked(true)
+      return false
+    }
+    if (failed) {
+      // Message didn't reach the model — keep the draft so nothing is lost.
       return false
     }
     setSendBlocked(false)
