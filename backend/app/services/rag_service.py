@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 
 from sqlalchemy import select, text
@@ -175,7 +176,13 @@ class RAGService:
             response = await client.embeddings.create(model=embedding_model, input=texts)
             return [item.embedding for item in response.data]
 
-        return await call_with_embedding_retry(call, max_retries, base_delay)
+        try:
+            return await call_with_embedding_retry(call, max_retries, base_delay)
+        finally:
+            # Close the underlying httpx client so repeated indexing/RAG calls
+            # don't leak connections and file descriptors.
+            with contextlib.suppress(Exception):
+                await client.close()
 
     async def embed_text(self, text: str) -> list[float]:
         """Generate an embedding vector for a single text."""
