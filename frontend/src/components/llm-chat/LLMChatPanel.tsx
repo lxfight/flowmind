@@ -96,10 +96,17 @@ export function LLMChatPanel({ projectId, open, onClose, onActions, members }: P
     return () => window.removeEventListener('resize', onResize)
   }, [])
 
+  const loadedScopeRef = useRef<number | 'all' | null>(null)
   useEffect(() => {
     clearError()
+    if (!open) return
+    const scopeKey: number | 'all' = projectId ?? 'all'
+    // Only (re)load when the panel opens for a different scope than the last
+    // load; simply opening the panel again reuses the cached session list.
+    if (loadedScopeRef.current === scopeKey) return
+    loadedScopeRef.current = scopeKey
     void loadSessions(projectId)
-  }, [projectId, loadSessions, clearError])
+  }, [projectId, open, loadSessions, clearError])
 
   useEffect(() => {
     if (currentSessionId) {
