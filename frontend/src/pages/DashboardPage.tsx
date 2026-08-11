@@ -33,16 +33,21 @@ export default function DashboardPage() {
   const navigate = useNavigate()
 
   useEffect(() => {
+    let cancelled = false
     // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount: loading flag before async fetch
     setStatsLoading(true)
     api.get('/projects/stats')
       .then((statsRes) => {
+        if (cancelled) return
         const map: Record<number, ProjectStat> = {}
         statsRes.data.projects.forEach((s: ProjectStat) => (map[s.project_id] = s))
         setStats(map)
       })
-      .catch(() => toast.error('加载失败'))
-      .finally(() => setStatsLoading(false))
+      .catch(() => { if (!cancelled) toast.error('加载失败') })
+      .finally(() => { if (!cancelled) setStatsLoading(false) })
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   const handleCreateProject = async (data: { name: string; description: string; color: string }) => {

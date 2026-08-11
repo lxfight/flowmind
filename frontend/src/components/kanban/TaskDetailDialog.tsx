@@ -92,6 +92,8 @@ export function TaskDetailDialog({
   const [newComment, setNewComment] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  /** Bumped per task load so a stale detail response can't overwrite a newer one. */
+  const taskLoadSeq = useRef(0)
   const [members, setMembers] = useState<MemberOption[]>([])
   const [milestones, setMilestones] = useState<Milestone[]>([])
   const [updatingAssignee, setUpdatingAssignee] = useState(false)
@@ -238,21 +240,25 @@ export function TaskDetailDialog({
   }, [])
 
   const refreshTask = useCallback(async () => {
+    const requestId = ++taskLoadSeq.current
     const res = await api.get(`/projects/${projectId}/tasks/${taskId}`)
     const data = res.data as TaskDetail
-    setTask(data)
-    if (isEditing) resetEditFields(data)
+    if (requestId === taskLoadSeq.current) {
+      setTask(data)
+      if (isEditing) resetEditFields(data)
+    }
     return data
   }, [projectId, taskId, isEditing, resetEditFields])
 
   const refreshReferences = useCallback(async () => {
+    const requestId = taskLoadSeq.current
     try {
       const data = await getTaskReferences(projectId, taskId)
-      setReferences(data)
+      if (requestId === taskLoadSeq.current) setReferences(data)
       return data
     } catch {
       const empty = { outgoing: [], incoming: [] }
-      setReferences(empty)
+      if (requestId === taskLoadSeq.current) setReferences(empty)
       return empty
     }
   }, [projectId, taskId])
@@ -272,11 +278,12 @@ export function TaskDetailDialog({
   }, [refreshReferences, refreshTask, resetEditFields])
 
   const loadAttachments = useCallback(async () => {
+    const requestId = taskLoadSeq.current
     try {
       const res = await api.get(`/projects/${projectId}/tasks/${taskId}/attachments`)
-      setAttachments(res.data)
+      if (requestId === taskLoadSeq.current) setAttachments(res.data)
     } catch {
-      setAttachments([])
+      if (requestId === taskLoadSeq.current) setAttachments([])
     }
   }, [projectId, taskId])
 

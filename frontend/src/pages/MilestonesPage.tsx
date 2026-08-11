@@ -151,18 +151,22 @@ export default function MilestonesPage() {
 
   const loadSupportData = useCallback(async (showLoading = true) => {
     if (!projectId) return
+    const request = ++timelineRequest.current
     if (showLoading) setSupportLoading(true)
     try {
       const [nextTasks, membersResponse] = await Promise.all([
         loadAllTasks(projectId),
         api.get(`/projects/${projectId}/members`),
       ])
+      if (request !== timelineRequest.current) return
       setTasks(nextTasks)
       setMembers(membersResponse.data)
     } catch (requestError) {
-      setError(errDetail(requestError, '里程碑工作台加载失败'))
+      if (request === timelineRequest.current) {
+        setError(errDetail(requestError, '里程碑工作台加载失败'))
+      }
     } finally {
-      if (showLoading) setSupportLoading(false)
+      if (showLoading && request === timelineRequest.current) setSupportLoading(false)
     }
   }, [projectId])
 

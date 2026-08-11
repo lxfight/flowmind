@@ -70,6 +70,7 @@ export default function ProjectMembersPage() {
   // 输入关键词后同一接口实时过滤（exclude_project_id 由后端排除成员）
   useEffect(() => {
     if (!showAdd || !projectId) return
+    let cancelled = false
     const fetchUsers = async () => {
       setSearching(true)
       try {
@@ -80,20 +81,27 @@ export default function ProjectMembersPage() {
             limit: 10,
           },
         })
+        if (cancelled) return
         setSearchResults(
           res.data.filter((u: UserInfo) => !members.find((m) => m.user_id === u.id))
         )
       } catch {
-        setSearchResults([])
+        if (!cancelled) setSearchResults([])
       }
-      setSearching(false)
+      if (!cancelled) setSearching(false)
     }
     if (!searchQuery.trim()) {
       fetchUsers()
-      return
+    } else {
+      const timer = setTimeout(fetchUsers, 300)
+      return () => {
+        cancelled = true
+        clearTimeout(timer)
+      }
     }
-    const timer = setTimeout(fetchUsers, 300)
-    return () => clearTimeout(timer)
+    return () => {
+      cancelled = true
+    }
   }, [searchQuery, members, showAdd, projectId])
 
   const handleAddMember = async (userId: number) => {

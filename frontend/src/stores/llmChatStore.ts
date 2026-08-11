@@ -73,6 +73,10 @@ interface LLMChatState {
 }
 
 let abortController: AbortController | null = null
+/** Monotonic request id guarding against stale list/message responses. */
+let llmRequestSeq = 0
+/** The session that the in-flight stream started on (null when not streaming). */
+let streamSessionId: number | null | undefined = undefined
 
 /** Parse SSE frames from a fetch Response body. */
 async function readSSE(
@@ -126,6 +130,7 @@ export const useLLMChatStore = create<LLMChatState>((set, get) => ({
     // or 'all' for the cross-project assistant (projectId null). When the
     // scope changes, drop the previous list and selection before loading.
     const scopeKey: number | 'all' = projectId ?? 'all'
+    const requestId = ++llmRequestSeq
     if (get().sessionsProjectId !== scopeKey) {
       set({ sessions: [], currentSessionId: null, messages: [], sessionsProjectId: scopeKey })
     }
@@ -134,6 +139,8 @@ export const useLLMChatStore = create<LLMChatState>((set, get) => ({
         params: projectId === null ? { scope: 'all_my_projects' } : { project_id: projectId },
       })
       const sessions = res.data as ChatSession[]
+      // Drop the response if the user switched scope while it was in flight.
+      if (requestId !== llmRequestSeq || get().sessionsProjectId !== scopeKey) return
       set((state) => ({
         sessions,
         // Drop a stale selection that is not part of this scope (anymore)
@@ -142,7 +149,7 @@ export const useLLMChatStore = create<LLMChatState>((set, get) => ({
           : null,
       }))
     } catch {
-      set({ error: '加载会话列表失败' })
+      if (requestId === llmRequestSeq) set({ error: '加载会话列表失败' })
     }
   },
 
@@ -184,13 +191,16 @@ export const useLLMChatStore = create<LLMChatState>((set, get) => ({
   },
 
   loadMessages: async (sessionId) => {
+    const requestId = ++llmRequestSeq
     set({ loading: true })
     try {
       const res = await api.get(`/llm/sessions/${sessionId}`)
       const session = res.data as { messages: ChatMessage[] }
+      // Drop the response if the user selected another session meanwhile.
+      if (requestId !== llmRequestSeq || get().currentSessionId !== sessionId) return
       set({ messages: session.messages, loading: false })
     } catch {
-      set({ loading: false, error: '加载聊天记录失败' })
+      if (requestId === llmRequestSeq) set({ loading: false, error: '加载聊天记录失败' })
     }
   },
 
@@ -200,6 +210,10 @@ export const useLLMChatStore = create<LLMChatState>((set, get) => ({
 
     const now = new Date().toISOString()
     const userMsg: ChatMessage = { role: 'user', content: trimmed, created_at: now }
+    // Remember which session this stream belongs to so its completion can't
+    // yank the UI back if the user navigated to another session meanwhile.
+    const streamForSessionId = sessionId ?? get().currentSessionId
+    streamSessionId = streamForSessionId
     set((state) => ({
       messages: [
         ...state.messages,
@@ -367,13 +381,21 @@ export const useLLMChatStore = create<LLMChatState>((set, get) => ({
       if (controller.signal.aborted) {
         patchAssistant({ streaming: false, toolStatus: null, stopped: true })
         set({ streaming: false })
+        streamSessionId = undefined
         return { message: '', actions: [] }
       }
 
+      const stillOnStreamSession =
+        streamSessionId === undefined || get().currentSessionId === streamForSessionId
+      // Only refresh the session list / selection when the user hasn't
+      // navigated away from this stream's session; otherwise a late stream
+      // would yank the current selection back and inject cross-scope entries.
       set((state) => ({
         streaming: false,
-        currentSessionId: finalSessionId ?? state.currentSessionId,
-        sessions: finalSessionId
+        currentSessionId: stillOnStreamSession
+          ? (finalSessionId ?? state.currentSessionId)
+          : state.currentSessionId,
+        sessions: stillOnStreamSession && finalSessionId
           ? state.sessions.some((s) => s.id === finalSessionId)
             ? state.sessions.map((s) =>
                 s.id === finalSessionId
@@ -397,6 +419,7 @@ export const useLLMChatStore = create<LLMChatState>((set, get) => ({
               ]
           : state.sessions,
       }))
+      streamSessionId = undefined
 
       if (!sawDone) {
         // Stream ended without a done frame and without an error frame
@@ -413,6 +436,7 @@ export const useLLMChatStore = create<LLMChatState>((set, get) => ({
         set({ error: text })
       }
       set({ streaming: false })
+      streamSessionId = undefined
       return { message: '', actions: [] }
     } finally {
       if (abortController === controller) abortController = null
@@ -447,6 +471,7 @@ export const useLLMChatStore = create<LLMChatState>((set, get) => ({
   reset: () => {
     abortController?.abort()
     abortController = null
+    streamSessionId = undefined
     set({
       sessions: [],
       currentSessionId: null,

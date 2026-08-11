@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   BookOpenText,
@@ -103,6 +103,8 @@ export default function SystemUpdatePage() {
   const [starting, setStarting] = useState(false)
   const [connectionLost, setConnectionLost] = useState(false)
   const [releaseError, setReleaseError] = useState<string | null>(null)
+  /** Bumped per release fetch so stale responses can't overwrite newer ones. */
+  const releaseRequestSeq = useRef(0)
 
   const active = Boolean(overview && ACTIVE_STATUSES.has(overview.updater.status))
 
@@ -115,8 +117,11 @@ export default function SystemUpdatePage() {
   }, [])
 
   const loadReleases = useCallback(async () => {
+    const requestId = ++releaseRequestSeq.current
+    setReleasesLoading(true)
     try {
       const data = await fetchReleases()
+      if (requestId !== releaseRequestSeq.current) return
       setReleases(data.items)
       setReleaseError(data.error)
       setExpandedTags((current) => {
@@ -124,9 +129,10 @@ export default function SystemUpdatePage() {
         return new Set([data.items[0].tag_name])
       })
     } catch (err) {
+      if (requestId !== releaseRequestSeq.current) return
       setReleaseError(errDetail(err, '更新日志加载失败'))
     } finally {
-      setReleasesLoading(false)
+      if (requestId === releaseRequestSeq.current) setReleasesLoading(false)
     }
   }, [])
 

@@ -94,6 +94,8 @@ export default function KanbanBoard() {
   const [members, setMembers] = useState<MemberOption[]>([])
   const wsRefreshRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const currentUserId = useAuthStore((s) => s.user?.id)
+  /** Bumped on every project/board reload; stale async responses are dropped. */
+  const boardRequestId = useRef(0)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -103,9 +105,11 @@ export default function KanbanBoard() {
 
   const fetchTasks = useCallback(async () => {
     if (!projectId) return
+    const requestId = boardRequestId.current
     const firstPage = await api.get(`/projects/${projectId}/tasks`, {
       params: { page: 1, page_size: 100 },
     })
+    if (requestId !== boardRequestId.current) return null
     const firstItems = firstPage.data.items as TaskSummary[]
     const pageCount = Math.ceil(Number(firstPage.data.total || firstItems.length) / 100)
     if (pageCount <= 1) return firstItems
@@ -117,6 +121,7 @@ export default function KanbanBoard() {
         })
       )
     )
+    if (requestId !== boardRequestId.current) return null
     return firstItems.concat(
       remainingPages.flatMap((response) => response.data.items as TaskSummary[])
     )
@@ -135,6 +140,7 @@ export default function KanbanBoard() {
 
   const loadBoard = useCallback(async () => {
     if (!projectId) return
+    const requestId = ++boardRequestId.current
     setBoardLoading(true)
     setBoardError(null)
     try {
@@ -143,14 +149,17 @@ export default function KanbanBoard() {
         fetchTasks(),
         listMilestones(Number(projectId)),
       ])
+      if (requestId !== boardRequestId.current) return
       setStatuses(statusesRes.data)
       setTasks(nextTasks || [])
       setMilestones(nextMilestones)
     } catch {
-      setBoardError('看板加载失败')
-      toast.error('加载看板失败')
+      if (requestId === boardRequestId.current) {
+        setBoardError('看板加载失败')
+        toast.error('加载看板失败')
+      }
     } finally {
-      setBoardLoading(false)
+      if (requestId === boardRequestId.current) setBoardLoading(false)
     }
   }, [projectId, fetchTasks])
 
@@ -164,9 +173,14 @@ export default function KanbanBoard() {
     setSortKey('manual')
     setSortDir('asc')
     loadBoard()
+    const membersRequestId = boardRequestId.current
     api.get(`/projects/${projectId}/members`)
-      .then((res) => setMembers(res.data))
-      .catch(() => toast.error('加载成员列表失败'))
+      .then((res) => {
+        if (membersRequestId === boardRequestId.current) setMembers(res.data)
+      })
+      .catch(() => {
+        if (membersRequestId === boardRequestId.current) toast.error('加载成员列表失败')
+      })
 
     return () => {
       if (wsRefreshRef.current) clearTimeout(wsRefreshRef.current)

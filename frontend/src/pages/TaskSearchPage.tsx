@@ -57,6 +57,8 @@ export default function TaskSearchPage() {
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
+  /** Bumped on every filter change so stale search responses are dropped. */
+  const searchRequestSeq = useRef(0)
 
   // Debounce keyword input
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null)
@@ -132,6 +134,7 @@ export default function TaskSearchPage() {
 
   const runSearch = useCallback(
     async (offset: number, append: boolean) => {
+      const requestId = ++searchRequestSeq.current
       if (append) setLoadingMore(true)
       else setLoading(true)
       try {
@@ -145,13 +148,19 @@ export default function TaskSearchPage() {
           limit: PAGE_SIZE,
           offset,
         })
+        // Drop the response if a newer search superseded it.
+        if (requestId !== searchRequestSeq.current) return
         setTasks((prev) => (append ? [...prev, ...data.tasks] : data.tasks))
         setTotal(data.total)
       } catch {
-        // ignore
+        if (requestId === searchRequestSeq.current) {
+          // ignore
+        }
       } finally {
-        setLoading(false)
-        setLoadingMore(false)
+        if (requestId === searchRequestSeq.current) {
+          setLoading(false)
+          setLoadingMore(false)
+        }
       }
     },
     [debouncedQ, projectId, assigneeId, priority, statusId, overdueOnly]
