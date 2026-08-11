@@ -1,9 +1,11 @@
+import asyncio
+import contextlib
 import contextvars
 import json
 from datetime import UTC, datetime
 
 from fastapi import HTTPException
-from sqlalchemy import func, inspect, select
+from sqlalchemy import func, inspect, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -16,10 +18,11 @@ from app.api.permissions import (
     ensure_task_in_project,
 )
 from app.core.notify import create_notification
+from app.core.paths import get_upload_dir
 from app.models.activity import ActivityLog
 from app.models.milestone import Milestone
 from app.models.project import Project, ProjectMember
-from app.models.task import Task, TaskComment, TaskStatus
+from app.models.task import Task, TaskAttachment, TaskComment, TaskStatus
 from app.models.user import User
 from app.schemas import (
     ProjectMemberOut,
@@ -678,6 +681,21 @@ async def delete_task(project_id: int, task_id: int, user: User, db: AsyncSessio
     task = await ensure_task_in_project(project_id, task_id, db)
     event_data = _task_event_data(task)
 
+    # Collect on-disk attachment files for the task (and its subtasks) before
+    # the DB cascade removes the rows, so orphaned files don't accumulate.
+    attachments_result = await db.execute(
+        select(TaskAttachment)
+        .where(
+            or_(
+                TaskAttachment.task_id == task_id,
+                TaskAttachment.task_id.in_(
+                    select(Task.id).where(Task.parent_task_id == task_id)
+                ),
+            )
+        )
+    )
+    orphaned_files = [row.stored_name for row in attachments_result.scalars().all()]
+
     snapshot = None
     if current_agent_batch():
         await db.refresh(task, ["assignees", "comments"])
@@ -740,6 +758,20 @@ async def delete_task(project_id: int, task_id: int, user: User, db: AsyncSessio
         data=event_data,
     )
     await db.delete(task)
+    # The DB cascade removes attachment rows; also remove their files so the
+    # task-attachments directory doesn't accumulate orphaned blobs.
+    await _remove_attachment_files(orphaned_files)
+
+
+async def _remove_attachment_files(stored_names: list[str]) -> None:
+    if not stored_names:
+        return
+    base = (get_upload_dir() / "task_attachments").resolve()
+    for name in stored_names:
+        path = (base / name).resolve()
+        if base in path.parents and path.exists():
+            with contextlib.suppress(OSError):
+                await asyncio.to_thread(path.unlink)
 
 
 async def add_comment(

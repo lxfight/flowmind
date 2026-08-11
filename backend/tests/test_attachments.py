@@ -137,6 +137,20 @@ async def test_viewer_cannot_upload(client, upload_tmp):
 
 
 @pytest.mark.asyncio
+async def test_task_deletion_removes_attachment_files(client, upload_tmp):
+    headers, project_id, task_id = _setup(client)
+    _upload(client, headers, project_id, task_id, "notes.txt", b"delete me", "text/plain")
+    stored_dir = upload_tmp / "task_attachments"
+    assert len(list(stored_dir.iterdir())) == 1
+
+    response = client.delete(f"/api/projects/{project_id}/tasks/{task_id}", headers=headers)
+    assert response.status_code == 200, response.text
+
+    # DB cascade removed the row; the on-disk file must be gone too.
+    assert list(stored_dir.iterdir()) == []
+
+
+@pytest.mark.asyncio
 async def test_upload_rejects_active_content_extensions(client, upload_tmp):
     headers, project_id, task_id = _setup(client)
     for dangerous in (".html", ".svg", ".js", ".sh", ".bin", ".exe"):
