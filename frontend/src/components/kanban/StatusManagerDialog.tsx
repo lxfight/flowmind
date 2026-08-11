@@ -185,6 +185,10 @@ export function StatusManagerDialog({ projectId, onClose, onUpdated }: Props) {
                       const trimmed = e.target.value.trim()
                       if (trimmed && trimmed !== status.name) {
                         handleUpdate(status, { name: trimmed })
+                      } else if (!trimmed) {
+                        // Empty name is invalid — restore the stored one instead
+                        // of leaving a blank input that disagrees with the server.
+                        setEditingNames((prev) => ({ ...prev, [status.id]: status.name }))
                       }
                     }}
                     onKeyDown={(e) => {

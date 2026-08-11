@@ -62,7 +62,7 @@ export default function KnowledgePage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const loadDocs = useCallback(async (page: number, silent = false) => {
-    if (!projectId) return
+    if (!projectId) return 0
     if (!silent) {
       setDocsLoading(true)
       setDocsError(null)
@@ -74,11 +74,13 @@ export default function KnowledgePage() {
       setDocs(res.data.items)
       setDocsTotal(res.data.total)
       setDocsPage(res.data.page)
+      return (res.data.items as unknown[]).length
     } catch (err: any) {
       if (!silent) {
         setDocsError('知识库加载失败')
         toast.error(errDetail(err, '加载知识库失败'))
       }
+      return 0
     } finally {
       if (!silent) setDocsLoading(false)
     }
@@ -136,7 +138,12 @@ export default function KnowledgePage() {
     try {
       await api.delete(`/projects/${projectId}/knowledge/${doc.id}`)
       toast.success('文档已删除')
-      await loadDocs(docsPage)
+      // If we just removed the only item on the last page, step back one page
+      // so the view doesn't strand on an empty page while page 1 still has data.
+      const remaining = await loadDocs(docsPage, true)
+      if (remaining === 0 && docsPage > 1) {
+        await loadDocs(docsPage - 1, true)
+      }
     } catch (err: any) {
       toast.error(errDetail(err, '删除失败'))
     } finally {

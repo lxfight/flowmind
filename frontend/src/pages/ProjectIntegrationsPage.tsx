@@ -261,6 +261,8 @@ export default function ProjectIntegrationsPage() {
       setCatalog(nextCatalog)
       setDeliveries(nextDeliveries.items)
       setDeliveryTotal(nextDeliveries.total)
+      // listExternalDeliveries defaults to page 1; keep the pager in sync.
+      setDeliveryPage(nextDeliveries.page ?? 1)
     } catch (error) {
       toast.error(errDetail(error, '外部集成加载失败'))
     } finally {
