@@ -312,6 +312,10 @@ export default function KanbanBoard() {
       newStatusId = overTask.status_id
       newOrder = getNewOrder(newStatusId, overTask.id)[1]
     }
+    // In sorted views (created_at / priority / due_date) the visible order
+    // comes from the sort key, not `order`, so a same-column reorder would
+    // visually snap back. Only allow cross-column moves in that mode.
+    if (sortKey !== 'manual' && task.status_id === newStatusId) return
     if (task.status_id === newStatusId && task.order === newOrder) return
     const previousTasks = tasks
     setTasks((prev) =>
