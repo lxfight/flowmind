@@ -236,7 +236,12 @@ export const useLLMChatStore = create<LLMChatState>((set, get) => ({
     const controller = new AbortController()
     abortController = controller
 
+    /** True while the user is still looking at this stream's session. */
+    const onStreamSession = () =>
+      streamSessionId === undefined || get().currentSessionId === streamForSessionId
+
     const patchAssistant = (patch: Partial<ChatMessage>) => {
+      if (!onStreamSession()) return
       set((state) => {
         const messages = [...state.messages]
         for (let i = messages.length - 1; i >= 0; i--) {
@@ -251,6 +256,7 @@ export const useLLMChatStore = create<LLMChatState>((set, get) => ({
 
     /** Mutate the live steps[] of the streaming assistant message. */
     const patchSteps = (fn: (steps: ProcessStep[]) => ProcessStep[]) => {
+      if (!onStreamSession()) return
       set((state) => {
         const messages = [...state.messages]
         for (let i = messages.length - 1; i >= 0; i--) {
