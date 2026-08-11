@@ -51,6 +51,11 @@ import { useTaskReferenceAutocomplete } from '../../hooks/useTaskReferenceAutoco
 import { TaskReferenceMenu } from './TaskReferenceMenu'
 import type { MemberOption, Milestone, StatusOption, TaskAttachment, TaskComment, TaskDetail, TaskReferences } from '../../types'
 
+interface CommentNode {
+  comment: TaskComment
+  replies: CommentNode[]
+}
+
 interface Props {
   taskId: number
   projectId: number
@@ -184,30 +189,25 @@ export function TaskDetailDialog({
   const commentThreads = useMemo(() => {
     const comments = task?.comments || []
     const byId = new Map(comments.map((comment) => [comment.id, comment]))
-    const roots: TaskComment[] = []
-    const repliesByRoot = new Map<number, TaskComment[]>()
+    const childrenById = new Map<number, TaskComment[]>()
 
     comments.forEach((comment) => {
-      let root = comment
-      const visited = new Set([comment.id])
-      while (root.parent_comment_id != null) {
-        const parent = byId.get(root.parent_comment_id)
-        if (!parent || visited.has(parent.id)) break
-        visited.add(parent.id)
-        root = parent
-      }
-      if (root.id === comment.id) {
-        roots.push(comment)
-      } else {
-        const replies = repliesByRoot.get(root.id) || []
-        replies.push(comment)
-        repliesByRoot.set(root.id, replies)
-      }
+      if (comment.parent_comment_id == null) return
+      const siblings = childrenById.get(comment.parent_comment_id) || []
+      siblings.push(comment)
+      childrenById.set(comment.parent_comment_id, siblings)
+    })
+
+    const buildThread = (comment: TaskComment): CommentNode => ({
+      comment,
+      replies: (childrenById.get(comment.id) || []).map(buildThread),
     })
 
     return {
       byId,
-      threads: roots.map((root) => ({ root, replies: repliesByRoot.get(root.id) || [] })),
+      threads: comments
+        .filter((comment) => comment.parent_comment_id == null || !byId.has(comment.parent_comment_id))
+        .map(buildThread),
     }
   }, [task?.comments])
   const replyingToComment = replyingToCommentId == null
@@ -835,6 +835,20 @@ export function TaskDetailDialog({
     )
   }
 
+  const renderCommentThread = (node: CommentNode, isReply = false) => {
+    const { comment, replies } = node
+    return (
+      <div key={comment.id}>
+        {renderComment(comment, isReply)}
+        {replies.length > 0 && (
+          <div className="ml-3.5 space-y-0.5 border-l border-border/70 pl-3.5">
+            {replies.map((reply) => renderCommentThread(reply, true))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <Dialog open onClose={onClose} className="max-h-[calc(100dvh-2rem)] max-w-4xl overflow-hidden">
       <div className="flex max-h-[calc(100dvh-2rem)] flex-col">
@@ -1336,16 +1350,7 @@ export function TaskDetailDialog({
               {(task.comments || []).length === 0 ? (
                 <p className="py-4 text-center text-sm text-muted-foreground">暂无评论</p>
               ) : (
-                commentThreads.threads.map(({ root, replies }) => (
-                  <div key={root.id}>
-                    {renderComment(root)}
-                    {replies.length > 0 && (
-                      <div className="ml-3.5 space-y-0.5 border-l border-border/70 pl-3.5">
-                        {replies.map((reply) => renderComment(reply, true))}
-                      </div>
-                    )}
-                  </div>
-                ))
+                commentThreads.threads.map((node) => renderCommentThread(node))
               )}
             </div>
             {!isViewer && (
