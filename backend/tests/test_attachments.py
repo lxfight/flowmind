@@ -75,18 +75,18 @@ async def test_upload_list_download_delete_roundtrip(client, upload_tmp):
 async def test_upload_rejects_oversize(client, upload_tmp):
     headers, project_id, task_id = _setup(client)
     big = b"x" * (20 * 1024 * 1024 + 1)
-    response = _upload(client, headers, project_id, task_id, "big.bin", big)
+    response = _upload(client, headers, project_id, task_id, "big.txt", big)
     assert response.status_code == 400
 
 
 @pytest.mark.asyncio
 async def test_path_traversal_filename_is_sanitized(client, upload_tmp):
     headers, project_id, task_id = _setup(client)
-    response = _upload(client, headers, project_id, task_id, "../../evil.sh", b"echo pwned")
+    response = _upload(client, headers, project_id, task_id, "../../evil.txt", b"echo pwned")
     assert response.status_code == 201, response.text
     attachment = response.json()
     # Only the basename is kept; nothing escapes the attachments directory
-    assert attachment["filename"] == "evil.sh"
+    assert attachment["filename"] == "evil.txt"
     stored_files = list((upload_tmp / "task_attachments").iterdir())
     assert len(stored_files) == 1
     stored = stored_files[0]
@@ -134,3 +134,58 @@ async def test_viewer_cannot_upload(client, upload_tmp):
     add_member(client, headers, project_id, viewer_id, role="viewer")
     response = _upload(client, viewer_headers, project_id, task_id, "v.txt", b"v")
     assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_upload_rejects_active_content_extensions(client, upload_tmp):
+    headers, project_id, task_id = _setup(client)
+    for dangerous in (".html", ".svg", ".js", ".sh", ".bin", ".exe"):
+        response = _upload(
+            client, headers, project_id, task_id, f"evil{dangerous}", b"<script>alert(1)</script>"
+        )
+        assert response.status_code == 400, f"{dangerous} should be rejected"
+
+
+@pytest.mark.asyncio
+async def test_download_is_forced_inert_and_nosniff(client, upload_tmp):
+    headers, project_id, task_id = _setup(client)
+    attachment = _upload(
+        client, headers, project_id, task_id, "notes.txt", b"hello", "text/plain"
+    ).json()
+    response = client.get(
+        f"/api/projects/{project_id}/tasks/{task_id}/attachments/{attachment['id']}/download",
+        headers=headers,
+    )
+    assert response.status_code == 200
+    # Never inline-render: disposition is attachment and content-type is inert
+    assert "attachment" in response.headers.get("content-disposition", "")
+    assert response.headers.get("x-content-type-options") == "nosniff"
+    assert response.headers.get("content-type", "").startswith("text/plain")
+    assert response.content == b"hello"
+
+
+@pytest.mark.asyncio
+async def test_task_attachments_not_served_by_static_mount(client, upload_tmp, monkeypatch):
+    """Static mount exposes only avatars; task attachments are not reachable."""
+    headers, project_id, task_id = _setup(client)
+    _upload(client, headers, project_id, task_id, "notes.txt", b"hello", "text/plain")
+    # The stored file is a uuid hex + ".txt" — try a plausible guess and a directory probe.
+    stored_dir = upload_tmp / "task_attachments"
+    assert stored_dir.exists()
+    stored_name = next(stored_dir.iterdir()).name
+    # Directly accessing the file through /api/uploads must not leak it.
+    response = client.get(f"/api/uploads/task_attachments/{stored_name}")
+    assert response.status_code == 404
+    # The old whole-uploads mount is gone, so even the avatars path is the only mount.
+    response = client.get(f"/api/uploads/{stored_name}")
+    assert response.status_code == 404
+    # The authenticated download endpoint still works.
+    attachment = client.get(
+        f"/api/projects/{project_id}/tasks/{task_id}/attachments", headers=headers
+    ).json()[0]
+    response = client.get(
+        f"/api/projects/{project_id}/tasks/{task_id}/attachments/{attachment['id']}/download",
+        headers=headers,
+    )
+    assert response.status_code == 200
+    assert response.content == b"hello"

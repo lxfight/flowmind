@@ -212,12 +212,17 @@ app.include_router(task_search.router)
 app.include_router(attachments.router)
 app.include_router(ws.router)
 
-# Serve uploaded files (avatars, etc.)
-from app.core.paths import get_upload_dir
+# Serve uploaded avatar images (only). Task attachments are never served
+# from the static mount — they go through the authenticated download endpoint
+# so project membership is always enforced and active content stays inert.
+from app.core.paths import get_avatars_dir
 
-upload_dir_path = get_upload_dir()
-(upload_dir_path / "avatars").mkdir(parents=True, exist_ok=True)
-app.mount("/api/uploads", StaticFiles(directory=str(upload_dir_path)), name="uploads")
+get_avatars_dir()
+app.mount(
+    "/api/uploads/avatars",
+    StaticFiles(directory=str(get_avatars_dir())),
+    name="avatars",
+)
 
 
 @app.get("/api/health")

@@ -31,12 +31,47 @@ router = APIRouter(
 
 MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024  # 20 MB
 
+# Allowed attachment extensions. Storing untrusted file types under a static
+# mount would allow stored XSS; keep the surface minimal and inert.
+ALLOWED_ATTACHMENT_EXTENSIONS = {
+    ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp",
+    ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+    ".txt", ".md", ".csv", ".zip", ".gz", ".7z",
+}
+
+# Map a few well-known text-like extensions to their binary MIME type so
+# browsers never inline-render uploaded content even if requested directly.
+EXTENSION_MEDIA_TYPE = {
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+    ".csv": "text/csv",
+    ".svg": "application/octet-stream",
+    ".html": "application/octet-stream",
+    ".htm": "application/octet-stream",
+    ".xml": "application/octet-stream",
+    ".json": "application/octet-stream",
+    ".js": "application/octet-stream",
+    ".css": "application/octet-stream",
+}
+
 
 def get_attachments_dir() -> Path:
     """Return the task-attachments directory, creating it if necessary."""
     attachments_dir = get_upload_dir() / "task_attachments"
     attachments_dir.mkdir(parents=True, exist_ok=True)
     return attachments_dir
+
+
+async def _read_upload_limited(file: UploadFile, max_bytes: int) -> bytes:
+    """Read an upload in chunks, rejecting oversized files without buffering it whole."""
+    chunks: list[bytes] = []
+    total = 0
+    while chunk := await file.read(1024 * 1024):
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(status_code=400, detail="附件大小不能超过 20MB")
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 async def _get_attachment_or_404(task_id: int, attachment_id: int, db: AsyncSession) -> TaskAttachment:
@@ -96,23 +131,28 @@ async def upload_attachment(
     await ensure_project_editor(project_id, current_user, db)
     await ensure_task_in_project(project_id, task_id, db)
 
-    contents = await file.read()
-    if len(contents) > MAX_ATTACHMENT_BYTES:
-        raise HTTPException(status_code=400, detail="附件大小不能超过 20MB")
-
     # Strip any client-supplied path components; keep only the base name.
     original_name = os.path.basename(file.filename or "attachment") or "attachment"
-    ext = Path(original_name).suffix[:20]
+    ext = Path(original_name).suffix.lower()[:20]
+    if ext not in ALLOWED_ATTACHMENT_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="不支持的附件类型")
+    contents = await _read_upload_limited(file, MAX_ATTACHMENT_BYTES)
+
     stored_name = f"{uuid.uuid4().hex}{ext}"
     file_path = get_attachments_dir() / stored_name
     await asyncio.to_thread(file_path.write_bytes, contents)
+
+    content_type = file.content_type or "application/octet-stream"
+    if content_type in EXTENSION_MEDIA_TYPE or EXTENSION_MEDIA_TYPE.get(ext) == "application/octet-stream":
+        # Never let uploads render inline as active content.
+        content_type = EXTENSION_MEDIA_TYPE.get(ext, "application/octet-stream")
 
     attachment = TaskAttachment(
         task_id=task_id,
         uploader_id=current_user.id,
         filename=original_name,
         stored_name=stored_name,
-        content_type=file.content_type or "application/octet-stream",
+        content_type=content_type,
         size=len(contents),
     )
     db.add(attachment)
@@ -157,11 +197,13 @@ async def download_attachment(
     file_path = _attachment_path(attachment)
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="附件文件已丢失")
-    # FileResponse sets Content-Disposition: attachment with the original name.
+    # Force download (never inline render) and keep uploaded content inert even
+    # if a browser ignores the disposition.
     return FileResponse(
         path=str(file_path),
         filename=attachment.filename,
         media_type=attachment.content_type or "application/octet-stream",
+        headers={"X-Content-Type-Options": "nosniff"},
     )
 
 
