@@ -146,6 +146,12 @@ export default function MilestonesPage() {
   const [saving, setSaving] = useState(false)
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const timelineRequest = useRef(0)
+  /** Independent request sequence for the tasks/members support data, so its
+   *  in-flight load can't be invalidated by timeline reloads (which share a
+   *  different counter). Without this, a concurrent timeline refresh would
+   *  skip the support loader's setSupportLoading(false) and leave the page
+   *  stuck on the "正在校准交付轨道..." splash forever. */
+  const supportRequest = useRef(0)
   const loadingFutureRef = useRef(false)
   const loadingPastRef = useRef(false)
   const dialogMilestonesLoading = useRef(false)
@@ -156,22 +162,24 @@ export default function MilestonesPage() {
 
   const loadSupportData = useCallback(async (showLoading = true) => {
     if (!projectId) return
-    const request = ++timelineRequest.current
+    const request = ++supportRequest.current
     if (showLoading) setSupportLoading(true)
     try {
       const [nextTasks, membersResponse] = await Promise.all([
         loadAllTasks(projectId),
         api.get(`/projects/${projectId}/members`),
       ])
-      if (request !== timelineRequest.current) return
+      if (request !== supportRequest.current) return
       setTasks(nextTasks)
       setMembers(membersResponse.data)
     } catch (requestError) {
-      if (request === timelineRequest.current) {
+      if (request === supportRequest.current) {
         setError(errDetail(requestError, '里程碑工作台加载失败'))
       }
     } finally {
-      if (showLoading && request === timelineRequest.current) setSupportLoading(false)
+      // End the splash regardless of request staleness: a concurrent reload
+      // (WS event) must not strand the page on the loading screen.
+      if (showLoading) setSupportLoading(false)
     }
   }, [projectId])
 
@@ -209,7 +217,9 @@ export default function MilestonesPage() {
         setError(errDetail(requestError, '里程碑时间线加载失败'))
       }
     } finally {
-      if (showLoading && request === timelineRequest.current) setTimelineLoading(false)
+      // End the splash regardless of staleness so a WS-triggered reload that
+      // bumps the counter can't leave the page stuck on the loading screen.
+      if (showLoading) setTimelineLoading(false)
     }
   }, [anchorDate, projectId])
 
