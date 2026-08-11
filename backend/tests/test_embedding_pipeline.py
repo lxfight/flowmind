@@ -6,6 +6,7 @@ types; pipeline tests run on SQLite (conftest engine) with the embedding
 HTTP layer stubbed out.
 """
 import asyncio
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -128,13 +129,22 @@ async def test_embed_texts_uses_runtime_config_and_batches(monkeypatch):
         "embedding_timeout": 30.0,
         "embedding_max_retries": 0,
         "embedding_retry_base_delay": 1.0,
+        "embedding_concurrency": 2,
     }
 
     async def fake_get(key):
         return config_values[key]
 
     monkeypatch.setattr(config_service, "get", fake_get)
-    monkeypatch.setattr("openai.AsyncOpenAI", FakeClient)
+    monkeypatch.setattr(
+        config_service,
+        "get_embedding_credentials",
+        AsyncMock(return_value=("sk-test", "http://llm.example/v1", "emb-model-x")),
+    )
+    monkeypatch.setattr(rag_module, "AsyncOpenAI", FakeClient)
+    # The module-level client is cached; force a fresh one for this test.
+    rag_service._client = None
+    rag_service._client_key = None
 
     vectors = await rag_service.embed_texts(["第一段文本", "第二段文本"])
     assert vectors == [[0.1, 0.2], [0.1, 0.2]]
@@ -159,19 +169,49 @@ async def test_chunk_document_bounded_concurrency(client, monkeypatch):
     monkeypatch.setattr(rag_module.settings, "chunk_size", 40)
     monkeypatch.setattr(rag_module.settings, "chunk_overlap", 0)
 
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(
+        config_service,
+        "get",
+        AsyncMock(
+            side_effect=lambda key: {
+                "embedding_concurrency": 2,
+                "embedding_batch_size": 1,
+                "embedding_timeout": 30.0,
+                "embedding_max_retries": 0,
+                "embedding_retry_base_delay": 0.01,
+            }.get(key, getattr(rag_module.settings, key, None))
+        ),
+    )
+    monkeypatch.setattr(
+        config_service,
+        "get_embedding_credentials",
+        AsyncMock(return_value=("fake-key", "", "emb-model")),
+    )
+    # A previous test may have cached a real client; force a fresh fake one.
+    rag_service._client = None
+    rag_service._client_key = None
+
     current = 0
     peak = 0
 
-    async def fake_embed_texts(texts):
-        nonlocal current, peak
-        current += 1
-        peak = max(peak, current)
-        await asyncio.sleep(0.02)
-        current -= 1
-        # Dimension must match the pgvector column (settings.llm_embedding_dim).
-        return [[0.1] * 1536 for _ in texts]
+    class FakeEmbeddings:
+        async def create(self, model, input):
+            nonlocal current, peak
+            current += 1
+            peak = max(peak, current)
+            await asyncio.sleep(0.02)
+            current -= 1
+            return type("Resp", (), {
+                "data": [type("Item", (), {"embedding": [0.1] * 1536})() for _ in input],
+            })()
 
-    monkeypatch.setattr(rag_service, "embed_texts", fake_embed_texts)
+    class FakeClient:
+        def __init__(self, **kwargs):
+            self.embeddings = FakeEmbeddings()
+
+    monkeypatch.setattr(rag_module, "AsyncOpenAI", FakeClient)
 
     content = "\n\n".join(f"第{i}段内容，包含足够多的文字以构成分块。" for i in range(6))
     async with async_session_factory() as session:

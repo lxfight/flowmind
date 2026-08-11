@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import logging
 
+from openai import AsyncOpenAI
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -148,50 +149,96 @@ def rrf_fuse(
 class RAGService:
     """Retrieval-Augmented Generation service using pgvector."""
 
-    async def embed_texts(self, texts: list[str]) -> list[list[float]]:
-        """Generate embedding vectors for a batch of texts.
+    def __init__(self) -> None:
+        # Module-level bounds shared across every embedding call so concurrent
+        # document indexing and chat retrieval can't blow past the configured
+        # concurrency and trigger a 429 storm.
+        self._global_embed_semaphore: asyncio.Semaphore | None = None
+        self._global_embed_concurrency = 0
+        # Reusable client + the config it was built from; rebuilt when config
+        # changes so runtime edits take effect without a restart.
+        self._client: AsyncOpenAI | None = None
+        self._client_key: tuple | None = None
 
-        Effective config is read per call so runtime changes take effect
-        without a restart. Each request has a hard timeout (no more
-        indefinitely hanging indexing tasks), and 429/5xx/network errors
-        are retried with exponential backoff (tenacity). After retry
-        exhaustion the exception propagates so the indexing pipeline can
-        mark the document as failed.
-        """
-        from openai import AsyncOpenAI
+    async def _ensure_global_semaphore(self) -> asyncio.Semaphore:
+        concurrency = max(1, await config_service.get("embedding_concurrency"))
+        if self._global_embed_semaphore is None or self._global_embed_concurrency != concurrency:
+            self._global_embed_semaphore = asyncio.Semaphore(concurrency)
+            self._global_embed_concurrency = concurrency
+        return self._global_embed_semaphore
 
-        # Embedding credentials are independent from chat: they fall back
-        # to llm_api_key / llm_base_url when not configured separately.
-        api_key, base_url, embedding_model = await config_service.get_embedding_credentials()
-        timeout = await config_service.get("embedding_timeout")
-        max_retries = await config_service.get("embedding_max_retries")
-        base_delay = await config_service.get("embedding_retry_base_delay")
-
-        # SDK built-in retries disabled (max_retries=0): the retry policy
-        # lives in call_with_embedding_retry so 429 backoff is explicit
-        # and configurable.
-        client = AsyncOpenAI(
+    async def _get_client(self, api_key: str, base_url: str, timeout: float) -> AsyncOpenAI:
+        """Return a reusable AsyncOpenAI client, rebuilding only when the
+        effective config (key / base URL / timeout) changes."""
+        key = (api_key, base_url, timeout)
+        if self._client is not None and self._client_key == key:
+            return self._client
+        if self._client is not None:
+            with contextlib.suppress(Exception):
+                await self._client.close()
+        self._client = AsyncOpenAI(
             api_key=api_key,
             base_url=base_url or None,
             timeout=timeout,
             max_retries=0,
         )
+        self._client_key = key
+        return self._client
+
+    async def _embed(self, texts: list[str], *, timeout: float, max_retries: int) -> list[list[float]]:
+        """One embedding call honoring the global concurrency bound, per-attempt
+        timeout, and retry policy. ``timeout``/``max_retries`` differ between
+        the interactive query path (short, minimal retries) and the background
+        indexing path (long, generous retries)."""
+        if not texts:
+            return []
+        api_key, base_url, embedding_model = await config_service.get_embedding_credentials()
+        # Guard both the key and the model so a misconfigured/blank value fails
+        # fast instead of 400-ing every chunk and sinking the whole document.
+        if not api_key or not embedding_model:
+            raise ValueError("embedding 未配置或模型名为空")
+
+        client = await self._get_client(api_key, base_url, timeout)
+        semaphore = await self._ensure_global_semaphore()
+        base_delay = await config_service.get("embedding_retry_base_delay")
+
+        # Guard against provider token limits: a single input that's far over
+        # the model's max would 400 (non-retryable) and sink the whole batch.
+        # 8000 chars ≈ safely under text-embedding-3's 8191-token cap for
+        # dense CJK text (~2-3 tokens/char) and most other models.
+        max_input_chars = 8000
+        bounded_texts = [t if len(t) <= max_input_chars else t[:max_input_chars] for t in texts]
 
         async def call() -> list[list[float]]:
-            response = await client.embeddings.create(model=embedding_model, input=texts)
-            return [item.embedding for item in response.data]
+            async with semaphore:
+                response = await client.embeddings.create(model=embedding_model, input=bounded_texts)
+                return [item.embedding for item in response.data]
 
-        try:
-            return await call_with_embedding_retry(call, max_retries, base_delay)
-        finally:
-            # Close the underlying httpx client so repeated indexing/RAG calls
-            # don't leak connections and file descriptors.
-            with contextlib.suppress(Exception):
-                await client.close()
+        return await call_with_embedding_retry(call, max_retries, base_delay)
+
+    async def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        """Generate embedding vectors for a batch of texts (indexing path).
+
+        Effective config is read per call so runtime changes take effect
+        without a restart. Each attempt has the configured hard timeout, and
+        429/5xx/network errors are retried with exponential backoff. After
+        retry exhaustion the exception propagates so the indexing pipeline can
+        mark the document as failed.
+        """
+        timeout = await config_service.get("embedding_timeout")
+        max_retries = await config_service.get("embedding_max_retries")
+        return await self._embed(texts, timeout=timeout, max_retries=max_retries)
 
     async def embed_text(self, text: str) -> list[float]:
-        """Generate an embedding vector for a single text."""
-        return (await self.embed_texts([text]))[0]
+        """Generate an embedding vector for a single text (interactive path).
+
+        Uses a short per-attempt timeout and at most one retry so a hanging or
+        flaky embedding endpoint can't stall a user-facing query for minutes —
+        the caller (retrieve_context) degrades to keyword ranking quickly.
+        """
+        query_timeout = max(5.0, min(float(await config_service.get("embedding_timeout")), 15.0))
+        vectors = await self._embed([text], timeout=query_timeout, max_retries=1)
+        return vectors[0]
 
     async def split_and_store_chunks(
         self, title: str, content: str, doc_id: int, db: AsyncSession
@@ -215,33 +262,51 @@ class RAGService:
     async def embed_chunks(self, stored_chunks: list[DocChunk], db: AsyncSession) -> None:
         """Embed stored chunks in batches with bounded concurrency.
 
-        Faster than strictly serial calls while keeping request pressure
-        low enough to avoid 429s. Batch-level failures (after retry
-        exhaustion) propagate so the indexing pipeline can mark the
-        document as failed.
+        The concurrency bound is the module-level semaphore shared with the
+        interactive query path, so many simultaneous documents can't exceed
+        the configured embedding_concurrency. A failed batch (after retry
+        exhaustion) is skipped and reported rather than sinking the entire
+        document: chunks whose embedding failed stay keyword-searchable, and
+        the caller can decide whether to mark the doc failed.
         """
         batch_size = max(1, await config_service.get("embedding_batch_size"))
-        concurrency = max(1, await config_service.get("embedding_concurrency"))
-        semaphore = asyncio.Semaphore(concurrency)
         batches = [
             stored_chunks[i:i + batch_size]
             for i in range(0, len(stored_chunks), batch_size)
         ]
+        if not batches:
+            return
 
-        async def embed_batch(batch: list[DocChunk]) -> list[list[float]]:
-            async with semaphore:
-                return await self.embed_texts([c.content for c in batch])
+        # No embedding configured: keep plain chunks keyword-searchable and
+        # skip embedding entirely (the interactive path has its own guard).
+        embedding_api_key, _, embedding_model = await config_service.get_embedding_credentials()
+        if not embedding_api_key or not embedding_model:
+            return
 
-        all_embeddings = await asyncio.gather(*(embed_batch(b) for b in batches))
+        async def embed_batch(batch: list[DocChunk]):
+            vectors = await self.embed_texts([c.content for c in batch])
+            return list(zip(batch, vectors, strict=True))
 
-        for batch, embeddings in zip(batches, all_embeddings, strict=True):
-            for doc_chunk, embedding in zip(batch, embeddings, strict=True):
+        results = await asyncio.gather(
+            *(embed_batch(b) for b in batches),
+            return_exceptions=True,
+        )
+
+        failed = 0
+        for result in results:
+            if isinstance(result, BaseException):
+                failed += 1
+                logger.warning("A chunk batch failed to embed and was skipped: %s", result)
+                continue
+            for doc_chunk, embedding in result:
                 # pgvector's Vector type binds list[float] on both
                 # PostgreSQL (native vector) and SQLite (serialized).
                 db.add(DocChunkEmbedding(
                     chunk_id=doc_chunk.id,
                     embedding=embedding,
                 ))
+        if failed:
+            logger.warning("%d/%d embedding batches failed; keeping plain chunks", failed, len(batches))
 
     async def chunk_document(self, title: str, content: str, doc_id: int, db: AsyncSession):
         """Split document into chunks and store with embeddings."""
@@ -309,6 +374,8 @@ class RAGService:
         filtering happens after fusion so keyword-strong chunks survive.
         Raises on embedding/DB errors; the caller degrades gracefully.
         """
+        if not query.strip():
+            return []
         query_embedding = await self.embed_text(query)
         query_embedding_str = str(query_embedding)
         if isinstance(project_id, list):
@@ -521,7 +588,9 @@ class RAGService:
 
         paragraphs = [p.strip() for p in re.split(r'\n\s*\n', text) if p.strip()]
         if not paragraphs:
-            return [text] if text else []
+            # Blank/whitespace-only content must not produce a chunk that an
+            # embedding provider would 400 on; return nothing instead.
+            return [text] if text.strip() else []
 
         # Normalize to segments no longer than `size`: hard-split long
         # paragraphs by characters, carrying `overlap` characters between
