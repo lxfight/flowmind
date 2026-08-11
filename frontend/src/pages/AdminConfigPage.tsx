@@ -1,33 +1,27 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import {
   AlertTriangle,
-  CheckCircle2,
   ChevronDown,
   ChevronRight,
   Pencil,
-  Plug,
   RefreshCw,
   RotateCcw,
-  Save,
   ShieldAlert,
-  XCircle,
 } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import {
   deleteConfig,
   errDetail,
   fetchConfigs,
-  testConnection,
   updateConfig,
   type ConfigItem,
-  type ConfigTestProbe,
 } from '../api/adminConfig'
 import { PageHeader } from '../components/layout/PageHeader'
 import { Button } from '../components/ui/Button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card'
+import { Card, CardContent } from '../components/ui/Card'
 import { Badge } from '../components/ui/Badge'
 import { Input } from '../components/ui/Input'
 import { confirmAction } from '../components/ui/confirmAction'
@@ -129,10 +123,6 @@ function formatTime(iso: string | null): string | null {
   }
 }
 
-function endpointText(baseUrl: string): string {
-  return baseUrl || '（默认 OpenAI）'
-}
-
 function NoPermission() {
   return (
     <div className="flex h-full items-center justify-center p-6">
@@ -149,277 +139,6 @@ function NoPermission() {
         </CardContent>
       </Card>
     </div>
-  )
-}
-
-function ProbeResult({ probe }: { probe: ConfigTestProbe | null }) {
-  if (!probe) return null
-  return (
-    <div
-      className={cn(
-        'rounded-lg border p-3',
-        probe.ok ? 'border-success/40 bg-success/5' : 'border-danger/40 bg-danger/5'
-      )}
-    >
-      <div className="flex flex-wrap items-center gap-2">
-        {probe.ok ? (
-          <CheckCircle2 className="h-4 w-4 text-success" />
-        ) : (
-          <XCircle className="h-4 w-4 text-danger" />
-        )}
-        <Badge variant={probe.ok ? 'success' : 'danger'}>{probe.ok ? '成功' : '失败'}</Badge>
-        {probe.latency_ms !== null && (
-          <span className="text-xs text-muted-foreground">{probe.latency_ms} ms</span>
-        )}
-      </div>
-      <p className="mt-1.5 break-all text-[11px] text-muted-foreground">
-        端点：{endpointText(probe.base_url)}{probe.model ? ` · 模型：${probe.model}` : ''}
-      </p>
-      {!probe.ok && probe.error && (
-        <p className="mt-2 break-all rounded-md bg-danger/10 px-3 py-2 text-xs font-mono text-danger">
-          {probe.error}
-        </p>
-      )}
-    </div>
-  )
-}
-
-interface SectionDraft {
-  apiKey: string
-  baseUrl: string
-  model: string
-}
-
-function TestSection({
-  title,
-  summary,
-  draft,
-  onDraft,
-  apiKeyPlaceholder,
-  baseUrlPlaceholder,
-  modelPlaceholder,
-  testing,
-  onTest,
-  probe,
-}: {
-  title: string
-  summary: string
-  draft: SectionDraft
-  onDraft: (d: SectionDraft) => void
-  apiKeyPlaceholder: string
-  baseUrlPlaceholder: string
-  modelPlaceholder: string
-  testing: boolean
-  onTest: () => void
-  probe: ConfigTestProbe | null
-}) {
-  return (
-    <section className="min-w-0 p-4">
-      <h4 className="text-sm font-semibold">{title}</h4>
-      <p className="mt-1 break-all text-[11px] text-muted-foreground">{summary}</p>
-      <div className="mt-3 space-y-2.5">
-        <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">API Key（留空用当前值）</label>
-          <Input
-            type="password"
-            placeholder={apiKeyPlaceholder}
-            value={draft.apiKey}
-            onChange={(e) => onDraft({ ...draft, apiKey: e.target.value })}
-            autoComplete="off"
-          />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">Base URL</label>
-          <Input
-            placeholder={baseUrlPlaceholder}
-            value={draft.baseUrl}
-            onChange={(e) => onDraft({ ...draft, baseUrl: e.target.value })}
-          />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">模型</label>
-          <Input
-            placeholder={modelPlaceholder}
-            value={draft.model}
-            onChange={(e) => onDraft({ ...draft, model: e.target.value })}
-          />
-        </div>
-      </div>
-      <div className="mt-3">
-        <Button size="sm" variant="outline" onClick={onTest} loading={testing} className="gap-1.5">
-          <Plug className="h-3.5 w-3.5" />
-          测试{title}
-        </Button>
-      </div>
-      {probe && (
-        <div className="mt-3">
-          <ProbeResult probe={probe} />
-        </div>
-      )}
-    </section>
-  )
-}
-
-function ConnectivityCard({ items, onSaved }: { items: ConfigItem[]; onSaved: () => void }) {
-  const byKey = useMemo(() => new Map(items.map((i) => [i.key, i])), [items])
-
-  const [llm, setLlm] = useState<SectionDraft>({ apiKey: '', baseUrl: '', model: '' })
-  const [emb, setEmb] = useState<SectionDraft>({ apiKey: '', baseUrl: '', model: '' })
-  const [llmTesting, setLlmTesting] = useState(false)
-  const [embTesting, setEmbTesting] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [llmProbe, setLlmProbe] = useState<ConfigTestProbe | null>(null)
-  const [embProbe, setEmbProbe] = useState<ConfigTestProbe | null>(null)
-
-  const hasDraft = !!(llm.apiKey || llm.baseUrl || llm.model || emb.apiKey || emb.baseUrl || emb.model)
-
-  const buildOverrides = (): Record<string, string> => {
-    const overrides: Record<string, string> = {}
-    if (llm.apiKey) overrides.llm_api_key = llm.apiKey
-    if (llm.baseUrl) overrides.llm_base_url = llm.baseUrl
-    if (llm.model) overrides.chat_model = llm.model
-    if (emb.apiKey) overrides.embedding_api_key = emb.apiKey
-    if (emb.baseUrl) overrides.embedding_base_url = emb.baseUrl
-    if (emb.model) overrides.embedding_model = emb.model
-    return overrides
-  }
-
-  /** Test one probe at a time; each section shows its own pending/result state. */
-  const runProbe = async (
-    which: 'chat' | 'embedding',
-    setTesting: (v: boolean) => void,
-    setProbe: (p: ConfigTestProbe | null) => void,
-  ) => {
-    setTesting(true)
-    setProbe(null)
-    try {
-      const res = await testConnection(buildOverrides())
-      setProbe(which === 'chat' ? res.chat : res.embedding)
-    } catch (err) {
-      toast.error(errDetail(err, '连通性测试请求失败'))
-    }
-    setTesting(false)
-  }
-
-  const handleTestLlm = () => runProbe('chat', setLlmTesting, setLlmProbe)
-  const handleTestEmb = () => runProbe('embedding', setEmbTesting, setEmbProbe)
-  const handleTestAll = () => {
-    void handleTestLlm()
-    void handleTestEmb()
-  }
-
-  const handleSaveDrafts = async () => {
-    const targets: { key: string; label: string; value: string }[] = []
-    if (llm.apiKey) targets.push({ key: 'llm_api_key', label: 'LLM API Key', value: llm.apiKey })
-    if (llm.baseUrl) targets.push({ key: 'llm_base_url', label: 'LLM Base URL', value: llm.baseUrl })
-    if (llm.model) targets.push({ key: 'llm_model', label: 'Chat 模型', value: llm.model })
-    if (emb.apiKey) targets.push({ key: 'embedding_api_key', label: 'Embedding API Key', value: emb.apiKey })
-    if (emb.baseUrl) targets.push({ key: 'embedding_base_url', label: 'Embedding Base URL', value: emb.baseUrl })
-    if (emb.model) targets.push({ key: 'llm_embedding_model', label: 'Embedding 模型', value: emb.model })
-    if (targets.length === 0) return
-    if (!(await confirmAction({
-      title: `保存 ${targets.length} 项连接参数`,
-      description: `${targets.map((target) => target.label).join('、')} 将写入系统配置并立即生效。`,
-      confirmLabel: '保存并生效',
-      tone: 'warning',
-      icon: 'warning',
-    }))) return
-    setSaving(true)
-    const failed: string[] = []
-    for (const t of targets) {
-      try {
-        await updateConfig(t.key, t.value)
-      } catch (err) {
-        failed.push(`${t.label}: ${errDetail(err, '保存失败')}`)
-      }
-    }
-    setSaving(false)
-    if (failed.length > 0) {
-      toast.error(`部分保存失败：${failed.join('；')}`, { duration: 8000 })
-    } else {
-      toast.success('测试参数已保存并生效')
-      setLlm({ apiKey: '', baseUrl: '', model: '' })
-      setEmb({ apiKey: '', baseUrl: '', model: '' })
-    }
-    onSaved()
-  }
-
-  const llmKey = byKey.get('llm_api_key')
-  const llmUrl = byKey.get('llm_base_url')
-  const chatModel = byKey.get('llm_model')
-  const embKey = byKey.get('embedding_api_key')
-  const embUrl = byKey.get('embedding_base_url')
-  const embModel = byKey.get('llm_embedding_model')
-
-  const llmSummary = `当前：${endpointText(String(llmUrl?.value ?? ''))} · ${String(chatModel?.value ?? '') || '模型未设置'} · Key ${llmKey?.is_set ? '已设置' : '未设置'}`
-  const embSummary = `当前：${
-    embUrl?.is_set
-      ? endpointText(String(embUrl.value))
-      : `${endpointText(String(llmUrl?.value ?? ''))}（回退 LLM）`
-  } · ${String(embModel?.value ?? '') || '模型未设置'} · Key ${
-    embKey?.is_set ? '已设置' : `回退 LLM（${llmKey?.is_set ? '已设置' : '未设置'}）`
-  }`
-
-  return (
-    <Card className="mb-8">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Plug className="h-4 w-4 text-primary" />
-          API 连通性测试
-        </CardTitle>
-        <CardDescription>
-          可临时填入新参数直接测试（不会保存）；测试通过后再一键保存为配置。探测结果会显示实际命中的端点与模型，便于排障。
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="grid grid-cols-1 divide-y divide-border border-y border-border lg:grid-cols-2 lg:divide-x lg:divide-y-0">
-          <TestSection
-            title="LLM 对话"
-            summary={llmSummary}
-            draft={llm}
-            onDraft={setLlm}
-            apiKeyPlaceholder={llmKey?.is_set ? '******' : '未设置'}
-            baseUrlPlaceholder={endpointText(String(llmUrl?.value ?? ''))}
-            modelPlaceholder={String(chatModel?.value ?? '') || '未设置'}
-            testing={llmTesting}
-            onTest={handleTestLlm}
-            probe={llmProbe}
-          />
-          <TestSection
-            title="Embedding"
-            summary={embSummary}
-            draft={emb}
-            onDraft={setEmb}
-            apiKeyPlaceholder={embKey?.is_set ? '******' : '未单独设置（回退 LLM Key）'}
-            baseUrlPlaceholder={
-              embUrl?.is_set ? String(embUrl.value) : '未单独设置（回退 LLM Base URL）'
-            }
-            modelPlaceholder={String(embModel?.value ?? '') || '未设置'}
-            testing={embTesting}
-            onTest={handleTestEmb}
-            probe={embProbe}
-          />
-        </div>
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <Button size="sm" onClick={handleTestAll} loading={llmTesting || embTesting} className="gap-1.5">
-            <Plug className="h-3.5 w-3.5" />
-            测试全部
-          </Button>
-          {hasDraft && (
-            <Button size="sm" variant="outline" onClick={handleSaveDrafts} loading={saving} className="gap-1.5">
-              <Save className="h-3.5 w-3.5" />
-              保存测试参数为配置
-            </Button>
-          )}
-          {(llmTesting || embTesting) && (
-            <span className="text-xs text-muted-foreground">
-              {llmTesting && embTesting ? '正在探测 LLM 与 Embedding…' : llmTesting ? '正在探测 LLM…' : '正在探测 Embedding…'}
-              <span className="ml-1 text-[10px]">（最长约 40 秒）</span>
-            </span>
-          )}
-        </div>
-      </CardContent>
-    </Card>
   )
 }
 
@@ -657,8 +376,6 @@ export default function AdminConfigPage() {
           </Button>
         }
       />
-
-      <ConnectivityCard items={items} onSaved={load} />
 
       {/* Quick-jump navigation */}
       <nav aria-label="配置分组导航" className="mb-6 flex flex-wrap items-center gap-2">

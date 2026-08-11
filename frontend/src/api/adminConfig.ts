@@ -18,30 +18,6 @@ export interface ConfigItem {
   updated_at: string | null
 }
 
-export interface ConfigTestProbe {
-  ok: boolean
-  latency_ms: number | null
-  error: string | null
-  /** 探测实际使用的端点（空串表示默认 OpenAI） */
-  base_url: string
-  /** 探测实际使用的模型 */
-  model: string
-}
-
-export interface ConfigTestResult {
-  embedding: ConfigTestProbe
-  chat: ConfigTestProbe
-}
-
-export interface ConfigTestOverrides {
-  llm_api_key?: string
-  llm_base_url?: string
-  chat_model?: string
-  embedding_api_key?: string
-  embedding_base_url?: string
-  embedding_model?: string
-}
-
 export async function fetchConfigs(): Promise<ConfigItem[]> {
   const res = await api.get('/admin/config')
   return res.data.items
@@ -53,9 +29,4 @@ export async function updateConfig(key: string, value: string | number): Promise
 
 export async function deleteConfig(key: string): Promise<void> {
   await api.delete(`/admin/config/${key}`)
-}
-
-export async function testConnection(overrides: ConfigTestOverrides): Promise<ConfigTestResult> {
-  const res = await api.post('/admin/config/test', overrides)
-  return res.data
 }

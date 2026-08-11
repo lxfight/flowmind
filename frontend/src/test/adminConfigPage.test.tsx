@@ -4,14 +4,13 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import AdminConfigPage from '../pages/AdminConfigPage'
-import { fetchConfigs, testConnection } from '../api/adminConfig'
+import { fetchConfigs } from '../api/adminConfig'
 import { useAuthStore } from '../stores/authStore'
 
 vi.mock('../api/adminConfig', () => ({
   fetchConfigs: vi.fn(),
   updateConfig: vi.fn(),
   deleteConfig: vi.fn(),
-  testConnection: vi.fn(),
 }))
 
 vi.mock('react-hot-toast', () => ({
@@ -42,7 +41,6 @@ const baseItems = [
   { key: 'llm_report_retry_base_delay', label: '报告重试基础延迟(秒)', kind: 'float', secret: false, description: '', value: 1, is_set: true, source: 'env', fallback_key: null, effective_source: null, updated_at: null },
 ]
 
-const probeOk = { ok: true, latency_ms: 120, error: null, base_url: 'https://api.openai.com/v1', model: 'gpt-4o-mini' }
 
 describe('AdminConfigPage', () => {
   beforeEach(() => {
@@ -67,30 +65,9 @@ describe('AdminConfigPage', () => {
     expect(screen.getByText('Embedding 重试次数')).toBeInTheDocument()
     expect(screen.getByText('Embedding 并发数')).toBeInTheDocument()
     expect(screen.getByText('对话请求超时(秒)')).toBeInTheDocument()
-  })
 
-  it('tests LLM and Embedding probes independently with per-section results', async () => {
-    vi.mocked(fetchConfigs).mockResolvedValue(baseItems as any)
-    vi.mocked(testConnection).mockResolvedValue({ chat: probeOk, embedding: { ...probeOk, model: 'text-embedding-3-small' } } as any)
-
-    render(
-      <MemoryRouter>
-        <AdminConfigPage />
-      </MemoryRouter>,
-    )
-    await screen.findAllByText('报告生成')
-
-    // Click the section-level test button for Embedding only.
-    const embTestButton = screen.getAllByRole('button', { name: /测试Embedding/ })[0]
-    await userEvent.click(embTestButton)
-
-    await waitFor(() => {
-      expect(testConnection).toHaveBeenCalledTimes(1)
-    })
-    // Only the embedding section shows a success probe.
-    await waitFor(() => {
-      expect(screen.getAllByText('成功').length).toBeGreaterThan(0)
-    })
+    // The API connectivity test card has been removed.
+    expect(screen.queryByText('API 连通性测试')).not.toBeInTheDocument()
   })
 
   it('collapses a group and hides its config rows', async () => {
