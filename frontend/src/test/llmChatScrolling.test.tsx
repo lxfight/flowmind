@@ -1,8 +1,15 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { LLMChatMessageList } from '../components/llm-chat/LLMChatMessageList'
 import type { ChatMessage } from '../types'
+
+/** Flush the single rAF the scroll-follow effect schedules. */
+async function flushAnimationFrame() {
+  await act(async () => {
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)))
+  })
+}
 
 describe('LLMChatMessageList scrolling', () => {
   const scrollIntoView = vi.fn()
@@ -19,7 +26,7 @@ describe('LLMChatMessageList scrolling', () => {
     delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView
   })
 
-  it('stops following streamed output after the user scrolls away from the bottom', () => {
+  it('stops following streamed output after the user scrolls away from the bottom', async () => {
     const initialMessages: ChatMessage[] = [
       { id: 1, role: 'user', content: '请生成较长的回答' },
       { id: 2, role: 'assistant', content: '第一段', streaming: true },
@@ -45,6 +52,7 @@ describe('LLMChatMessageList scrolling', () => {
         streaming
       />,
     )
+    await flushAnimationFrame()
     expect(scrollIntoView).toHaveBeenCalledTimes(callsBeforeUpdate)
 
     scrollTop = 750
@@ -57,6 +65,7 @@ describe('LLMChatMessageList scrolling', () => {
         streaming
       />,
     )
+    await flushAnimationFrame()
     expect(scrollIntoView).toHaveBeenCalledTimes(callsBeforeUpdate + 1)
   })
 })

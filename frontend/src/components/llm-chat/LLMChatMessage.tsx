@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -372,7 +372,13 @@ function UndoBatchControl({
   )
 }
 
-export function LLMChatMessage({ message, questionActive = false, members, onAnswerQuestion, onUndoBatch }: Props) {
+export const LLMChatMessage = memo(function LLMChatMessage({
+  message,
+  questionActive = false,
+  members,
+  onAnswerQuestion,
+  onUndoBatch,
+}: Props) {
   const isUser = message.role === 'user'
   const isTool = message.role === 'tool'
 
@@ -517,4 +523,4 @@ export function LLMChatMessage({ message, questionActive = false, members, onAns
       {!message.streaming && <Timestamp value={message.created_at} />}
     </div>
   )
-}
+})

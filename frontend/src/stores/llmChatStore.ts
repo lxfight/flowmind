@@ -238,7 +238,9 @@ export const useLLMChatStore = create<LLMChatState>((set, get) => ({
 
     /** True while the user is still looking at this stream's session. */
     const onStreamSession = () =>
-      streamSessionId === undefined || get().currentSessionId === streamForSessionId
+      streamSessionId === undefined
+      || get().currentSessionId === streamForSessionId
+      || get().currentSessionId === null
 
     const patchAssistant = (patch: Partial<ChatMessage>) => {
       if (!onStreamSession()) return
@@ -396,8 +398,7 @@ export const useLLMChatStore = create<LLMChatState>((set, get) => ({
         return { message: '', actions: [] }
       }
 
-      const stillOnStreamSession =
-        streamSessionId === undefined || get().currentSessionId === streamForSessionId
+      const stillOnStreamSession = onStreamSession()
       // Only refresh the session list / selection when the user hasn't
       // navigated away from this stream's session; otherwise a late stream
       // would yank the current selection back and inject cross-scope entries.

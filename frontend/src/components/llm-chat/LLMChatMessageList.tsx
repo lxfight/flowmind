@@ -52,9 +52,21 @@ export function LLMChatMessageList({ messages, streaming, loading, members, cros
     return true
   })
 
+  // Scroll-follow is throttled to one rAF per batch of token updates so a
+  // fast stream doesn't trigger a scrollIntoView on every chunk.
+  const rafRef = useRef<number | null>(null)
   useEffect(() => {
-    if (shouldFollowOutputRef.current) {
+    if (!shouldFollowOutputRef.current) return
+    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null
       bottomRef.current?.scrollIntoView({ behavior: streaming ? 'auto' : 'smooth', block: 'end' })
+    })
+    return () => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current)
+        rafRef.current = null
+      }
     }
   }, [messages, streaming])
 

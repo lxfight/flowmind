@@ -109,6 +109,7 @@ export function LLMChatPanel({ projectId, open, onClose, onActions, members }: P
 
   // Clear the "waiting for generation" hint once the stream finishes.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- clears transient hint after the stream ends
     if (!streaming) setSendBlocked(false)
   }, [streaming])
 
