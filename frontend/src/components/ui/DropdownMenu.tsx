@@ -2,6 +2,7 @@ import {
   useState,
   useRef,
   useEffect,
+  useCallback,
   isValidElement,
   cloneElement,
   type ReactNode,
@@ -9,6 +10,7 @@ import {
   type Ref,
   type ReactElement,
 } from 'react'
+import { createPortal } from 'react-dom'
 import { cn } from '../../utils/cn'
 import { DropdownMenuContext, useDropdownMenu } from './dropdownMenuContext'
 
@@ -18,20 +20,76 @@ export interface DropdownMenuProps {
   align?: 'start' | 'end'
 }
 
+interface MenuPosition {
+  top: number
+  left: number
+  maxHeight: number
+}
+
+/** Space between the menu and the viewport edge. */
+const MENU_VIEWPORT_GAP = 8
+const MENU_MAX_HEIGHT = 320
+
+/**
+ * A dropdown that is rendered into the body via a portal so it can never be
+ * clipped by an ancestor's overflow (e.g. a scrollable kanban column). The
+ * menu flips upward when there isn't enough room below the trigger and is
+ * clamped to the viewport.
+ */
 export function DropdownMenu({ trigger, children, align = 'start' }: DropdownMenuProps) {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
+  const [position, setPosition] = useState<MenuPosition | null>(null)
   const triggerRef = useRef<HTMLElement | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
+  const close = () => {
+    setOpen(false)
+    triggerRef.current?.focus()
+  }
+
+  // Position the menu relative to the trigger, flipping upward when the space
+  // below is too small. Runs on open and when the viewport resizes.
+  const measure = useCallback(() => {
+    const trigger = triggerRef.current
+    if (!trigger) return
+    const triggerRect = trigger.getBoundingClientRect()
+    const viewportHeight = window.innerHeight
+    const viewportWidth = window.innerWidth
+    const menuWidth = Math.max(160, Math.min(triggerRect.width + 24, 320))
+    const spaceBelow = viewportHeight - triggerRect.bottom - MENU_VIEWPORT_GAP
+    const spaceAbove = triggerRect.top - MENU_VIEWPORT_GAP
+    const openUp = spaceBelow < MENU_MAX_HEIGHT && spaceAbove > spaceBelow
+    const maxHeight = openUp ? Math.max(64, spaceAbove) : Math.max(64, spaceBelow)
+    const top = openUp ? triggerRect.top - MENU_VIEWPORT_GAP - maxHeight : triggerRect.bottom + MENU_VIEWPORT_GAP
+    let left = align === 'end'
+      ? triggerRect.right - menuWidth
+      : triggerRect.left
+    left = Math.max(MENU_VIEWPORT_GAP, Math.min(left, viewportWidth - menuWidth - MENU_VIEWPORT_GAP))
+    setPosition({ top, left, maxHeight: Math.min(maxHeight, MENU_MAX_HEIGHT) })
+  }, [align])
+
+  useEffect(() => {
+    if (!open) return
+    measure()
+    const onResize = () => measure()
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [open, measure])
+
   useEffect(() => {
     const handleClickOutside = (e: globalThis.MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false)
-      }
+      const target = e.target as Node
+      const inTrigger = triggerRef.current?.contains(target)
+      const inMenu = menuRef.current?.contains(target)
+      if (!inTrigger && !inMenu) setOpen(false)
     }
+    const handleScroll = () => setOpen(false)
     document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+    window.addEventListener('scroll', handleScroll, true)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      window.removeEventListener('scroll', handleScroll, true)
+    }
   }, [])
 
   useEffect(() => {
@@ -40,11 +98,6 @@ export function DropdownMenu({ trigger, children, align = 'start' }: DropdownMen
       first?.focus()
     }
   }, [open])
-
-  const close = () => {
-    setOpen(false)
-    triggerRef.current?.focus()
-  }
 
   const handleTriggerClick = (e: React.MouseEvent<HTMLElement>) => {
     e.stopPropagation()
@@ -124,23 +177,25 @@ export function DropdownMenu({ trigger, children, align = 'start' }: DropdownMen
 
   return (
     <DropdownMenuContext.Provider value={{ close }}>
-      <div ref={ref} className="relative inline-block">
-        {triggerNode}
-        {open && (
-          <div
-            ref={menuRef}
-            role="menu"
-            aria-orientation="vertical"
-            onKeyDown={handleMenuKeyDown}
-            className={cn(
-              'absolute z-50 mt-1 min-w-[160px] rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md',
-              align === 'start' ? 'left-0' : 'right-0'
-            )}
-          >
-            {children}
-          </div>
-        )}
-      </div>
+      <div className="inline-block">{triggerNode}</div>
+      {open && typeof document !== 'undefined'
+        ? createPortal(
+            <div
+              ref={menuRef}
+              role="menu"
+              aria-orientation="vertical"
+              onKeyDown={handleMenuKeyDown}
+              style={position ? { top: position.top, left: position.left, maxHeight: position.maxHeight } : undefined}
+              className={cn(
+                'fixed z-[60] w-max max-w-[calc(100vw-16px)] min-w-[160px] overflow-y-auto scrollbar-thin rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md',
+                !position && 'invisible'
+              )}
+            >
+              {children}
+            </div>,
+            document.body
+          )
+        : null}
     </DropdownMenuContext.Provider>
   )
 }
