@@ -22,7 +22,6 @@ import {
   updateConfig,
   type ConfigItem,
   type ConfigTestProbe,
-  type ConfigTestResult,
 } from '../api/adminConfig'
 import { PageHeader } from '../components/layout/PageHeader'
 import { Button } from '../components/ui/Button'
@@ -33,22 +32,54 @@ import { confirmAction } from '../components/ui/confirmAction'
 import { cn } from '../utils/cn'
 
 const GROUPS: { title: string; keys: string[] }[] = [
-  { title: 'LLM 对话', keys: ['llm_api_key', 'llm_base_url', 'llm_model'] },
+  {
+    title: 'LLM 对话',
+    keys: ['llm_api_key', 'llm_base_url', 'llm_model', 'llm_timeout'],
+  },
   {
     title: 'Embedding',
-    keys: ['embedding_api_key', 'embedding_base_url', 'llm_embedding_model', 'llm_embedding_dim'],
+    keys: [
+      'embedding_api_key',
+      'embedding_base_url',
+      'llm_embedding_model',
+      'llm_embedding_dim',
+      'embedding_timeout',
+      'embedding_max_retries',
+      'embedding_retry_base_delay',
+      'embedding_concurrency',
+      'embedding_batch_size',
+    ],
   },
-  { title: 'RAG 检索', keys: ['chunk_size', 'chunk_overlap', 'top_k_retrieval', 'similarity_threshold'] },
-  { title: '知识库', keys: ['knowledge_max_bytes'] },
+  {
+    title: 'RAG 检索',
+    keys: ['chunk_size', 'chunk_overlap', 'top_k_retrieval', 'similarity_threshold'],
+  },
+  {
+    title: '知识库',
+    keys: ['knowledge_max_bytes'],
+  },
+  {
+    title: '报告生成',
+    keys: ['llm_report_timeout', 'llm_report_max_retries', 'llm_report_retry_base_delay'],
+  },
 ]
 
 const RANGES: Record<string, { min?: number; max?: number }> = {
+  llm_timeout: { min: 5, max: 600 },
   llm_embedding_dim: { min: 64, max: 8192 },
+  embedding_timeout: { min: 5, max: 180 },
+  embedding_max_retries: { min: 0, max: 10 },
+  embedding_retry_base_delay: { min: 0.5, max: 60 },
+  embedding_concurrency: { min: 1, max: 10 },
+  embedding_batch_size: { min: 1, max: 64 },
   chunk_size: { min: 64, max: 8192 },
   chunk_overlap: { min: 0, max: 2048 },
   top_k_retrieval: { min: 1, max: 50 },
   similarity_threshold: { min: 0, max: 1 },
   knowledge_max_bytes: { min: 1024, max: 512 * 1024 * 1024 },
+  llm_report_timeout: { min: 30, max: 300 },
+  llm_report_max_retries: { min: 0, max: 5 },
+  llm_report_retry_base_delay: { min: 0.1, max: 10 },
 }
 
 function rangeHint(key: string): string | null {
@@ -232,29 +263,47 @@ function ConnectivityCard({ items, onSaved }: { items: ConfigItem[]; onSaved: ()
 
   const [llm, setLlm] = useState<SectionDraft>({ apiKey: '', baseUrl: '', model: '' })
   const [emb, setEmb] = useState<SectionDraft>({ apiKey: '', baseUrl: '', model: '' })
-  const [testing, setTesting] = useState(false)
+  const [llmTesting, setLlmTesting] = useState(false)
+  const [embTesting, setEmbTesting] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [result, setResult] = useState<ConfigTestResult | null>(null)
+  const [llmProbe, setLlmProbe] = useState<ConfigTestProbe | null>(null)
+  const [embProbe, setEmbProbe] = useState<ConfigTestProbe | null>(null)
 
   const hasDraft = !!(llm.apiKey || llm.baseUrl || llm.model || emb.apiKey || emb.baseUrl || emb.model)
 
-  const handleTest = async () => {
+  const buildOverrides = (): Record<string, string> => {
+    const overrides: Record<string, string> = {}
+    if (llm.apiKey) overrides.llm_api_key = llm.apiKey
+    if (llm.baseUrl) overrides.llm_base_url = llm.baseUrl
+    if (llm.model) overrides.chat_model = llm.model
+    if (emb.apiKey) overrides.embedding_api_key = emb.apiKey
+    if (emb.baseUrl) overrides.embedding_base_url = emb.baseUrl
+    if (emb.model) overrides.embedding_model = emb.model
+    return overrides
+  }
+
+  /** Test one probe at a time; each section shows its own pending/result state. */
+  const runProbe = async (
+    which: 'chat' | 'embedding',
+    setTesting: (v: boolean) => void,
+    setProbe: (p: ConfigTestProbe | null) => void,
+  ) => {
     setTesting(true)
-    setResult(null)
+    setProbe(null)
     try {
-      const overrides: Record<string, string> = {}
-      if (llm.apiKey) overrides.llm_api_key = llm.apiKey
-      if (llm.baseUrl) overrides.llm_base_url = llm.baseUrl
-      if (llm.model) overrides.chat_model = llm.model
-      if (emb.apiKey) overrides.embedding_api_key = emb.apiKey
-      if (emb.baseUrl) overrides.embedding_base_url = emb.baseUrl
-      if (emb.model) overrides.embedding_model = emb.model
-      const res = await testConnection(overrides)
-      setResult(res)
+      const res = await testConnection(buildOverrides())
+      setProbe(which === 'chat' ? res.chat : res.embedding)
     } catch (err) {
       toast.error(errDetail(err, '连通性测试请求失败'))
     }
     setTesting(false)
+  }
+
+  const handleTestLlm = () => runProbe('chat', setLlmTesting, setLlmProbe)
+  const handleTestEmb = () => runProbe('embedding', setEmbTesting, setEmbProbe)
+  const handleTestAll = () => {
+    void handleTestLlm()
+    void handleTestEmb()
   }
 
   const handleSaveDrafts = async () => {
@@ -330,9 +379,9 @@ function ConnectivityCard({ items, onSaved }: { items: ConfigItem[]; onSaved: ()
             apiKeyPlaceholder={llmKey?.is_set ? '******' : '未设置'}
             baseUrlPlaceholder={endpointText(String(llmUrl?.value ?? ''))}
             modelPlaceholder={String(chatModel?.value ?? '') || '未设置'}
-            testing={testing}
-            onTest={handleTest}
-            probe={result?.chat ?? null}
+            testing={llmTesting}
+            onTest={handleTestLlm}
+            probe={llmProbe}
           />
           <TestSection
             title="Embedding"
@@ -344,13 +393,13 @@ function ConnectivityCard({ items, onSaved }: { items: ConfigItem[]; onSaved: ()
               embUrl?.is_set ? String(embUrl.value) : '未单独设置（回退 LLM Base URL）'
             }
             modelPlaceholder={String(embModel?.value ?? '') || '未设置'}
-            testing={testing}
-            onTest={handleTest}
-            probe={result?.embedding ?? null}
+            testing={embTesting}
+            onTest={handleTestEmb}
+            probe={embProbe}
           />
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          <Button size="sm" onClick={handleTest} loading={testing} className="gap-1.5">
+          <Button size="sm" onClick={handleTestAll} loading={llmTesting || embTesting} className="gap-1.5">
             <Plug className="h-3.5 w-3.5" />
             测试全部
           </Button>
@@ -360,7 +409,12 @@ function ConnectivityCard({ items, onSaved }: { items: ConfigItem[]; onSaved: ()
               保存测试参数为配置
             </Button>
           )}
-          {testing && <span className="text-xs text-muted-foreground">正在发起探测，最长约 40 秒…</span>}
+          {(llmTesting || embTesting) && (
+            <span className="text-xs text-muted-foreground">
+              {llmTesting && embTesting ? '正在探测 LLM 与 Embedding…' : llmTesting ? '正在探测 LLM…' : '正在探测 Embedding…'}
+              <span className="ml-1 text-[10px]">（最长约 40 秒）</span>
+            </span>
+          )}
         </div>
       </CardContent>
     </Card>
