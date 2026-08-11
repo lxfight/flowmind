@@ -597,3 +597,38 @@ async def test_undo_batch_atomically_claims_once(client):
             await s2.close()
     finally:
         await session.close()
+
+
+@pytest.mark.asyncio
+async def test_undo_status_flip_restores_completed_at(client):
+    """Flipping a column to done stamps completed_at; undo must clear it back."""
+    from app.schemas import TaskStatusUpdate
+
+    headers = admin_login(client)
+    project_id, statuses = create_project(client, headers, name="撤销完成列")
+    done_status = next(s for s in statuses if s["is_done"])
+    open_status = next(s for s in statuses if not s["is_done"])
+    task = create_task(client, headers, project_id, open_status["id"], "被完成的卡")
+
+    session, user = await _db_and_admin()
+    try:
+        await _agent_run(
+            "batch-flip-done",
+            task_service.update_status(
+                project_id, done_status["id"], TaskStatusUpdate(is_done=True), user, session
+            ),
+        )
+        await session.commit()
+        chat_id = await _make_undoable_session(project_id, user.id, "batch-flip-done")
+
+        resp = client.post(f"/api/llm/sessions/{chat_id}/undo", headers=headers)
+        assert resp.status_code == 200, resp.text
+
+        # The status column itself is not created here — it exists; undo only
+        # restores the task flags that the flip touched.
+        t = await session.execute(select(Task).where(Task.id == task["id"]))
+        restored = t.scalar_one()
+        assert restored.is_completed is False
+        assert restored.completed_at is None
+    finally:
+        await session.close()

@@ -1121,7 +1121,11 @@ async def update_status(
             # is_done flips cascade to task completion flags — capture for undo
             tasks_result = await db.execute(select(Task).where(Task.status_id == status_id))
             snapshot["task_completions"] = {
-                str(t.id): t.is_completed for t in tasks_result.scalars().all()
+                str(t.id): {
+                    "is_completed": t.is_completed,
+                    "completed_at": _iso(t.completed_at),
+                }
+                for t in tasks_result.scalars().all()
             }
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(status, field, value)

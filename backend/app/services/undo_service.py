@@ -217,10 +217,17 @@ async def _compensate(
         for field in ("name", "color", "is_done", "order"):
             if field in snapshot:
                 setattr(status, field, snapshot[field])
-        for task_id, is_completed in (snapshot.get("task_completions") or {}).items():
+        for task_id, completion in (snapshot.get("task_completions") or {}).items():
             t = await _get_task(db, int(task_id))
-            if t is not None:
-                t.is_completed = is_completed
+            if t is None:
+                continue
+            # Newer snapshots store {is_completed, completed_at}; older ones
+            # stored a bare boolean — fall back gracefully.
+            if isinstance(completion, dict):
+                t.is_completed = completion.get("is_completed", t.is_completed)
+                t.completed_at = _parse_dt(completion.get("completed_at"))
+            else:
+                t.is_completed = completion
         await db.flush()
         queue_ws_event(db, "status_updated", log.project_id, {"status_id": status.id}, actor_id=actor.id)
         return None
