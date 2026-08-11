@@ -325,6 +325,20 @@ async def undo_batch(
 
     Marks the message undone_at and returns {undone: [...], skipped: [...]}.
     """
+    # Atomically claim the batch first so two concurrent undo requests can't
+    # both compensate the same rows (a recreate task would collide on its id).
+    from sqlalchemy import update as sa_update
+
+    claim = await db.execute(
+        sa_update(LLMChatMessage)
+        .where(LLMChatMessage.id == message.id, LLMChatMessage.undone_at.is_(None))
+        .values(undone_at=datetime.now(UTC))
+    )
+    if claim.rowcount == 0:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=409, detail="该操作已被撤销")
+    await db.refresh(message)
+
     result = await db.execute(
         select(ActivityLog)
         .where(ActivityLog.action_batch_id == message.action_batch_id)
@@ -345,7 +359,6 @@ async def undo_batch(
         else:
             skipped.append({"summary": log.summary, "reason": reason})
 
-    message.undone_at = datetime.now(UTC)
     db.add(
         ActivityLog(
             project_id=logs[0].project_id,

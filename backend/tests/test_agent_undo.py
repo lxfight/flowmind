@@ -534,3 +534,66 @@ async def test_undo_delete_milestone_recreates_it(client):
         assert milestone.target_date == date(2026, 8, 15)
     finally:
         await session.close()
+
+
+@pytest.mark.asyncio
+async def test_undo_batch_atomically_claims_once(client):
+    """Two concurrent undo_batch calls on the same message: only one claims it."""
+    from app.services.undo_service import undo_batch
+
+    headers = admin_login(client)
+    project_id, statuses = create_project(client, headers, name="并发撤销")
+    session, user = await _db_and_admin()
+    try:
+        created = await _agent_run(
+            "batch-race",
+            task_service.create_task(
+                project_id,
+                TaskCreate(title="并发撤销目标", status_id=statuses[0]["id"]),
+                user,
+                session,
+            ),
+        )
+        await session.commit()
+        chat_id = await _make_undoable_session(project_id, user.id, "batch-race")
+
+        # Fetch the same target message through two sessions and claim in both.
+        s1 = async_session_factory()
+        s2 = async_session_factory()
+        try:
+            result1 = await s1.execute(
+                select(LLMChatMessage).where(LLMChatMessage.session_id == chat_id, LLMChatMessage.role == "assistant")
+            )
+            m1 = result1.scalars().first()
+            result2 = await s2.execute(
+                select(LLMChatMessage).where(LLMChatMessage.session_id == chat_id, LLMChatMessage.role == "assistant")
+            )
+            m2 = result2.scalars().first()
+            assert m1 is not None and m2 is not None
+
+            from fastapi import HTTPException
+
+            claimed = None
+            try:
+                await undo_batch(s1, m1, user)
+                await s1.commit()
+                claimed = "s1"
+            except HTTPException as exc:
+                assert exc.status_code == 409
+
+            # Second claim must be refused (undone_at now set).
+            try:
+                await undo_batch(s2, m2, user)
+                await s2.commit()
+                assert claimed == "s2"
+            except HTTPException as exc:
+                assert exc.status_code == 409
+
+            # The task was deleted exactly once.
+            task = await session.execute(select(Task).where(Task.id == created.id))
+            assert task.scalar_one_or_none() is None
+        finally:
+            await s1.close()
+            await s2.close()
+    finally:
+        await session.close()
