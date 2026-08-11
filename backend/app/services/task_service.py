@@ -68,6 +68,11 @@ def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value else None
 
 
+def _escape_like(term: str) -> str:
+    """Escape LIKE wildcards so user input is matched literally."""
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _task_event_data(task: Task | TaskOut) -> dict:
     return {
         "id": task.id,
@@ -291,8 +296,9 @@ async def list_tasks(
     if assignee_id is not None:
         filters.append(Task.assignees.any(User.id == assignee_id))
     if search:
+        pattern = f"%{_escape_like(search)}%"
         filters.append(
-            Task.title.ilike(f"%{search}%") | Task.description.ilike(f"%{search}%")
+            Task.title.ilike(pattern, escape="\\") | Task.description.ilike(pattern, escape="\\")
         )
 
     count_result = await db.execute(

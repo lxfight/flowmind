@@ -179,3 +179,42 @@ async def test_project_member_can_edit_and_delete_scoped_subtasks(client):
     )
     assert detail.status_code == 200
     assert detail.json()["subtasks"] == []
+
+
+@pytest.mark.asyncio
+async def test_task_list_search_escapes_like_wildcards(client):
+    headers = admin_login(client)
+    project_id, statuses = create_project(client, headers, name="通配符搜索")
+    base = statuses[0]["id"]
+
+    create_task(client, headers, project_id, base, "100% 完成")
+    create_task(client, headers, project_id, base, "a_b 特殊命名")
+    create_task(client, headers, project_id, base, "普通任务")
+
+    # '%' is a LIKE wildcard; searching for it must match only the literal task
+    response = client.get(
+        f"/api/projects/{project_id}/tasks",
+        headers=headers,
+        params={"search": "100%"},
+    )
+    assert response.status_code == 200
+    titles = [item["title"] for item in response.json()["items"]]
+    assert titles == ["100% 完成"]
+
+    # '_' must match literally, not "any single character"
+    response = client.get(
+        f"/api/projects/{project_id}/tasks",
+        headers=headers,
+        params={"search": "a_b"},
+    )
+    assert response.status_code == 200
+    titles = [item["title"] for item in response.json()["items"]]
+    assert titles == ["a_b 特殊命名"]
+
+    # Backslash is preserved so it cannot escape the LIKE pattern
+    response = client.get(
+        f"/api/projects/{project_id}/tasks",
+        headers=headers,
+        params={"search": "\\"},
+    )
+    assert response.status_code == 200
