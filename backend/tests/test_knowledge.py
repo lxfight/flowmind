@@ -477,3 +477,73 @@ async def test_doc_lock_is_cached_and_reused():
     # only when no one holds it — here we simply assert stability after use.
     # The retained-lock design means a pop is never performed by the pipeline.
     assert third is not None
+
+
+@pytest.mark.asyncio
+async def test_reindex_leaves_no_orphan_embeddings(client, monkeypatch):
+    """Re-indexing a doc must not leave orphaned embedding rows behind —
+    either via ON DELETE CASCADE (SQLite FK now on) or the explicit cleanup."""
+    from conftest import async_session_factory
+    from sqlalchemy import func, select
+
+    from app.models.knowledge import DocChunk, DocChunkEmbedding, KnowledgeDoc
+
+    headers = admin_login(client)
+    project_id, _ = create_project(client, headers)
+    doc = _create_doc(client, headers, project_id)
+    doc_id = doc["id"]
+
+    async def count_rows():
+        async with async_session_factory() as session:
+            chunks = await session.execute(
+                select(func.count(DocChunk.id)).where(DocChunk.doc_id == doc_id)
+            )
+            embeddings = await session.execute(
+                select(func.count(DocChunkEmbedding.id))
+                .join(DocChunk, DocChunkEmbedding.chunk_id == DocChunk.id)
+                .where(DocChunk.doc_id == doc_id)
+            )
+            return chunks.scalar() or 0, embeddings.scalar() or 0
+
+    # First index (no embeddings configured in tests, so chunks only).
+    client.portal.call(index_document, doc_id)
+    first_chunks, first_embeddings = await count_rows()
+    assert first_chunks > 0
+
+    # Edit the content (updates status to indexing) and re-index.
+    response = client.put(
+        f"/api/projects/{project_id}/knowledge/{doc_id}",
+        headers=headers,
+        json={"content": "完全不同的新内容，更长一些，用于重新切分。"},
+    )
+    assert response.status_code == 200, response.text
+    client.portal.call(index_document, doc_id)
+
+    second_chunks, second_embeddings = await count_rows()
+    # Chunks were replaced, so the counts are identical — no orphan leftovers.
+    assert second_chunks == first_chunks
+    assert second_embeddings == first_embeddings
+
+
+@pytest.mark.asyncio
+async def test_delete_doc_waits_for_per_doc_lock(client):
+    """Deleting a doc must hold the same per-doc lock the indexer uses, so a
+    background re-index can't commit chunks for a doc that just got deleted."""
+    from app.services.knowledge_indexing import _doc_locks, _lock_for
+
+    headers = admin_login(client)
+    project_id, _ = create_project(client, headers)
+    doc = _create_doc(client, headers, project_id)
+    doc_id = doc["id"]
+
+    lock = _lock_for(doc_id)
+    assert _doc_locks[doc_id] is lock
+
+    response = client.delete(
+        f"/api/projects/{project_id}/knowledge/{doc_id}", headers=headers
+    )
+    assert response.status_code == 200, response.text
+
+    # Doc is gone and its chunks were cascade-deleted.
+    response = client.get(f"/api/projects/{project_id}/knowledge/{doc_id}", headers=headers)
+    assert response.status_code == 404

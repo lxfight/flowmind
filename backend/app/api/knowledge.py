@@ -24,7 +24,11 @@ from app.schemas import (
     KnowledgeQuery,
 )
 from app.services.config_service import config_service
-from app.services.knowledge_indexing import index_document, index_uploaded_document
+from app.services.knowledge_indexing import (
+    acquire_doc_lock,
+    index_document,
+    index_uploaded_document,
+)
 from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
 
@@ -212,7 +216,11 @@ async def delete_doc(
         target_id=doc.id,
         summary=f"删除知识文档: {doc.title}",
     ))
-    await db.delete(doc)
+    # Hold the per-doc lock so a background re-index that is mid-way through
+    # replacing this doc's chunks can't commit orphaned chunks after the doc
+    # row is gone.
+    async with await acquire_doc_lock(doc.id):
+        await db.delete(doc)
     return {"message": "文档已删除"}
 
 

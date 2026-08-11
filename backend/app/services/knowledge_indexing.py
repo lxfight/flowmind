@@ -12,7 +12,7 @@ indexes the newest content.
 import asyncio
 import logging
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.core import database
 from app.models.knowledge import (
@@ -20,6 +20,7 @@ from app.models.knowledge import (
     DOC_STATUS_INDEXED,
     DOC_STATUS_INDEXING,
     DocChunk,
+    DocChunkEmbedding,
     KnowledgeDoc,
 )
 from app.services.config_service import config_service
@@ -44,6 +45,16 @@ def _lock_for(doc_id: int) -> asyncio.Lock:
     return lock
 
 
+async def acquire_doc_lock(doc_id: int) -> asyncio.Lock:
+    """Context-manager-friendly handle to the per-doc lock.
+
+    Callers that mutate a document outside the indexing pipeline (e.g. the
+    delete endpoint) must hold this lock so they never race a background
+    re-index that is mid-way through replacing that doc's chunks.
+    """
+    return _lock_for(doc_id)
+
+
 async def _mark_failed(doc_id: int, message: str) -> None:
     async with database.async_session_factory() as session:
         doc = await session.get(KnowledgeDoc, doc_id)
@@ -61,6 +72,13 @@ async def _run_index(doc_id: int) -> None:
             if doc is None:
                 return  # deleted while indexing was pending
             # Latest edit wins: read content now, under the lock.
+            # Delete embeddings explicitly before their chunks (not only via
+            # ON DELETE CASCADE) so SQLite — where FK cascades can be skipped —
+            # never leaves orphan embedding rows across reindexes.
+            chunk_ids = select(DocChunk.id).where(DocChunk.doc_id == doc.id)
+            await session.execute(
+                delete(DocChunkEmbedding).where(DocChunkEmbedding.chunk_id.in_(chunk_ids))
+            )
             await session.execute(delete(DocChunk).where(DocChunk.doc_id == doc.id))
             stored = await rag_service.split_and_store_chunks(
                 doc.title, doc.content, doc.id, session
