@@ -69,6 +69,7 @@ async def test_agent_run_passes_authenticated_user_to_prompt(monkeypatch):
             "llm_api_key": "test-key",
             "llm_base_url": "",
             "llm_model": "test-model",
+            "llm_timeout": 60,
         }[key]),
     )
     monkeypatch.setattr(

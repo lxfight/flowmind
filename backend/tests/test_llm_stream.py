@@ -1,7 +1,7 @@
 """Tests for POST /api/llm/agent-chat/stream (SSE streaming agent chat)."""
 
 import json
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from helpers import admin_login, create_project
@@ -172,7 +172,13 @@ async def test_run_agent_stream_yields_status_first():
     async def fake_build(*args, **kwargs):
         return built
 
-    with patch.object(agent_service, "_build_agent_run", side_effect=fake_build):
+    with (
+        patch.object(agent_service, "_build_agent_run", side_effect=fake_build),
+        patch.object(
+            agent_service.config_service, "get",
+            AsyncMock(side_effect=lambda key: 60 if key == "llm_timeout" else None),
+        ),
+    ):
         events = [
             evt
             async for evt in agent_service.run_agent_stream(
@@ -238,7 +244,13 @@ async def test_run_agent_stream_ignores_inner_chain_end():
     async def fake_build(*args, **kwargs):
         return built
 
-    with patch.object(agent_service, "_build_agent_run", side_effect=fake_build):
+    with (
+        patch.object(agent_service, "_build_agent_run", side_effect=fake_build),
+        patch.object(
+            agent_service.config_service, "get",
+            AsyncMock(side_effect=lambda key: 60 if key == "llm_timeout" else None),
+        ),
+    ):
         events = [
             evt
             async for evt in agent_service.run_agent_stream(
@@ -278,7 +290,13 @@ async def test_run_agent_stream_emits_thinking_events():
     async def fake_build(*args, **kwargs):
         return built
 
-    with patch.object(agent_service, "_build_agent_run", side_effect=fake_build):
+    with (
+        patch.object(agent_service, "_build_agent_run", side_effect=fake_build),
+        patch.object(
+            agent_service.config_service, "get",
+            AsyncMock(side_effect=lambda key: 60 if key == "llm_timeout" else None),
+        ),
+    ):
         events = [
             evt
             async for evt in agent_service.run_agent_stream(
@@ -311,7 +329,13 @@ async def test_buffered_agent_records_final_reasoning():
     async def fake_build(*args, **kwargs):
         return built
 
-    with patch.object(agent_service, "_build_agent_run", side_effect=fake_build):
+    with (
+        patch.object(agent_service, "_build_agent_run", side_effect=fake_build),
+        patch.object(
+            agent_service.config_service, "get",
+            AsyncMock(side_effect=lambda key: 60 if key == "llm_timeout" else None),
+        ),
+    ):
         result = await agent_service.run_agent(
             db=None, user=None, project_id=1, user_message="hi"
         )

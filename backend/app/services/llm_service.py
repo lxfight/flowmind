@@ -66,9 +66,10 @@ class LLMService:
         api_key = await config_service.get("llm_api_key")
         base_url = await config_service.get("llm_base_url")
         model = await config_service.get("llm_model")
+        timeout = await config_service.get("llm_timeout")
         if not api_key:
             return None, model
-        client_kwargs = {"api_key": api_key}
+        client_kwargs = {"api_key": api_key, "timeout": timeout, "max_retries": 0}
         if base_url:
             client_kwargs["base_url"] = base_url
         return AsyncOpenAI(**client_kwargs), model
@@ -79,18 +80,22 @@ class LLMService:
         if client is None:
             return "LLM 未配置，请在管理页面或环境变量中设置 LLM_API_KEY"
 
-        full_messages = []
-        if system_prompt:
-            full_messages.append({"role": "system", "content": system_prompt})
-        full_messages.extend(messages)
+        try:
+            full_messages = []
+            if system_prompt:
+                full_messages.append({"role": "system", "content": system_prompt})
+            full_messages.extend(messages)
 
-        response = await client.chat.completions.create(
-            model=model,
-            messages=full_messages,
-            temperature=0.7,
-            max_tokens=4096,
-        )
-        return response.choices[0].message.content or ""
+            response = await client.chat.completions.create(
+                model=model,
+                messages=full_messages,
+                temperature=0.7,
+                max_tokens=4096,
+            )
+            return response.choices[0].message.content or ""
+        finally:
+            with contextlib.suppress(Exception):
+                await client.close()
 
     async def generate_tasks(self, instruction: str, project_context: str) -> list[dict]:
         """Generate structured tasks from natural language instruction."""

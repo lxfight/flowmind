@@ -82,6 +82,10 @@ CONFIG_REGISTRY: dict[str, ConfigMeta] = {
         ),
         ConfigMeta("llm_model", "Chat 模型", description="对话/Agent 使用的模型名"),
         ConfigMeta(
+            "llm_timeout", "对话请求超时(秒)", kind="float", minimum=5, maximum=600,
+            description="单次对话/建议状态等 Chat 请求的超时，避免接口无响应导致请求永久挂起",
+        ),
+        ConfigMeta(
             "llm_report_timeout", "报告生成总超时(秒)", kind="float", minimum=30, maximum=300,
             description="报告生成（含重试）的总时限，超时后返回明确错误而非无限等待",
         ),

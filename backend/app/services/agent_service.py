@@ -1738,6 +1738,7 @@ async def _build_agent_run(db, user: User, project_id: int | None, user_message:
         model=await config_service.get("llm_model"),
         temperature=0.2,
         max_tokens=4096,
+        timeout=await config_service.get("llm_timeout"),
         streaming=True,
     )
 
@@ -1827,7 +1828,20 @@ async def run_agent(
 
     token = task_service.set_agent_batch(action_batch_id)
     try:
-        result = await agent.ainvoke({"messages": input_messages}, config=config)
+        try:
+            timeout = await config_service.get("llm_timeout")
+            # The agent may take several LLM round-trips; cap the whole run
+            # so a stuck upstream can never pin a request forever.
+            async with asyncio.timeout(max(timeout, 30)):
+                result = await agent.ainvoke({"messages": input_messages}, config=config)
+        except TimeoutError:
+            return _run_failure_result(
+                "本轮处理超时，我已停止继续执行。已完成的操作仍可在此消息中撤销。",
+                input_messages,
+                actions,
+                pending_question,
+                action_batch_id,
+            )
     except GraphRecursionError:
         return _run_failure_result(
             "本轮处理已达到执行步数上限。我已停止继续调用工具；已完成的操作仍可在此消息中撤销。",
@@ -1893,72 +1907,86 @@ async def run_agent_stream(
     process_steps: list[dict] = []
     batch_token = task_service.set_agent_batch(action_batch_id)
     try:
-        async for event in agent.astream_events(
-            {"messages": input_messages}, config=config, version="v2"
-        ):
-            kind = event.get("event")
-            if kind == "on_chat_model_stream":
-                chunk = event.get("data", {}).get("chunk")
-                if chunk is not None:
-                    # Surface the model's reasoning/thinking stream separately
-                    # when the provider exposes it (reasoning_content on the
-                    # chunk, or content blocks of type "thinking"/"reasoning").
-                    reasoning = _extract_reasoning(chunk)
-                    if reasoning:
-                        if process_steps and process_steps[-1].get("kind") == "thinking":
-                            process_steps[-1]["text"] = process_steps[-1].get("text", "") + reasoning
-                        else:
-                            process_steps.append({"kind": "thinking", "text": reasoning})
-                        yield {"type": "thinking", "text": reasoning}
-                    text = _content_to_text(getattr(chunk, "content", ""))
-                    if text:
-                        yield {"type": "token", "text": text}
-            elif kind == "on_tool_start":
-                name = event.get("name", "")
-                args = event.get("data", {}).get("input")
-                step = {
-                    "kind": "tool",
-                    "id": event.get("run_id", ""),
-                    "tool": name,
-                    "args": args if isinstance(args, dict) else {},
-                    "status": "running",
-                }
-                process_steps.append(step)
-                yield {
-                    "type": "tool_start",
-                    # run_id pairs this start with its tool_end on the client.
-                    "id": event.get("run_id", ""),
-                    "name": name,
-                    "args": args if isinstance(args, dict) else {},
-                }
-            elif kind == "on_tool_end":
-                run_id = event.get("run_id", "")
-                output_text = _tool_output_text(event.get("data", {}).get("output"))
-                for step in reversed(process_steps):
-                    if step.get("kind") == "tool" and step.get("id") == run_id:
-                        step["status"] = "done"
-                        step["output"] = output_text
-                        break
-                yield {
-                    "type": "tool_end",
-                    "id": run_id,
-                    "name": event.get("name", ""),
-                    "output": output_text,
-                }
-            elif kind == "on_chain_end":
-                # Every internal node fires on_chain_end and they overwrite each
-                # other; only the top-level LangGraph output carries the full
-                # message list (intermediate nodes drop the tool messages).
-                if event.get("name") != "LangGraph":
-                    continue
-                output = event.get("data", {}).get("output")
-                if isinstance(output, dict) and "messages" in output:
-                    final_messages = output["messages"]
+        async with asyncio.timeout(max(await config_service.get("llm_timeout"), 30)):
+            async for event in agent.astream_events(
+                {"messages": input_messages}, config=config, version="v2"
+            ):
+                kind = event.get("event")
+                if kind == "on_chat_model_stream":
+                    chunk = event.get("data", {}).get("chunk")
+                    if chunk is not None:
+                        # Surface the model's reasoning/thinking stream separately
+                        # when the provider exposes it (reasoning_content on the
+                        # chunk, or content blocks of type "thinking"/"reasoning").
+                        reasoning = _extract_reasoning(chunk)
+                        if reasoning:
+                            if process_steps and process_steps[-1].get("kind") == "thinking":
+                                process_steps[-1]["text"] = process_steps[-1].get("text", "") + reasoning
+                            else:
+                                process_steps.append({"kind": "thinking", "text": reasoning})
+                            yield {"type": "thinking", "text": reasoning}
+                        text = _content_to_text(getattr(chunk, "content", ""))
+                        if text:
+                            yield {"type": "token", "text": text}
+                elif kind == "on_tool_start":
+                    name = event.get("name", "")
+                    args = event.get("data", {}).get("input")
+                    step = {
+                        "kind": "tool",
+                        "id": event.get("run_id", ""),
+                        "tool": name,
+                        "args": args if isinstance(args, dict) else {},
+                        "status": "running",
+                    }
+                    process_steps.append(step)
+                    yield {
+                        "type": "tool_start",
+                        # run_id pairs this start with its tool_end on the client.
+                        "id": event.get("run_id", ""),
+                        "name": name,
+                        "args": args if isinstance(args, dict) else {},
+                    }
+                elif kind == "on_tool_end":
+                    run_id = event.get("run_id", "")
+                    output_text = _tool_output_text(event.get("data", {}).get("output"))
+                    for step in reversed(process_steps):
+                        if step.get("kind") == "tool" and step.get("id") == run_id:
+                            step["status"] = "done"
+                            step["output"] = output_text
+                            break
+                    yield {
+                        "type": "tool_end",
+                        "id": run_id,
+                        "name": event.get("name", ""),
+                        "output": output_text,
+                    }
+                elif kind == "on_chain_end":
+                    # Every internal node fires on_chain_end and they overwrite each
+                    # other; only the top-level LangGraph output carries the full
+                    # message list (intermediate nodes drop the tool messages).
+                    if event.get("name") != "LangGraph":
+                        continue
+                    output = event.get("data", {}).get("output")
+                    if isinstance(output, dict) and "messages" in output:
+                        final_messages = output["messages"]
     except GraphRecursionError:
         yield {
             "type": "result",
             "result": _run_failure_result(
                 "本轮处理已达到执行步数上限。我已停止继续调用工具；已完成的操作仍可在此消息中撤销。",
+                input_messages,
+                actions,
+                pending_question,
+                action_batch_id,
+                process_steps,
+            ),
+        }
+        return
+    except TimeoutError:
+        yield {
+            "type": "result",
+            "result": _run_failure_result(
+                "本轮处理超时，我已停止继续执行。已完成的操作仍可在此消息中撤销。",
                 input_messages,
                 actions,
                 pending_question,
