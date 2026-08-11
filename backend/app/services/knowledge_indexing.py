@@ -28,6 +28,11 @@ from app.services.rag_service import rag_service
 logger = logging.getLogger(__name__)
 
 # Per-document locks serialize concurrent re-index runs for the same doc.
+# Locks are cached for the process lifetime rather than removed after each
+# run: removing them opens a window where a new task creates a fresh lock and
+# runs in parallel with an old task that was already waiting on the released
+# one, corrupting the same doc's chunks. Doc counts are bounded (one per
+# knowledge doc), so the retained dict stays small.
 _doc_locks: dict[int, asyncio.Lock] = {}
 
 
@@ -50,37 +55,35 @@ async def _mark_failed(doc_id: int, message: str) -> None:
 
 async def _run_index(doc_id: int) -> None:
     """Chunk + embed the doc's current content; set final status."""
-    async with _lock_for(doc_id):
-        async with database.async_session_factory() as session:
+    async with _lock_for(doc_id), database.async_session_factory() as session:
+        try:
+            doc = await session.get(KnowledgeDoc, doc_id)
+            if doc is None:
+                return  # deleted while indexing was pending
+            # Latest edit wins: read content now, under the lock.
+            await session.execute(delete(DocChunk).where(DocChunk.doc_id == doc.id))
+            stored = await rag_service.split_and_store_chunks(
+                doc.title, doc.content, doc.id, session
+            )
+            # Commit plain chunks first: if embedding fails afterwards,
+            # the doc is marked failed but the chunks stay visible.
+            await session.commit()
             try:
-                doc = await session.get(KnowledgeDoc, doc_id)
-                if doc is None:
-                    return  # deleted while indexing was pending
-                # Latest edit wins: read content now, under the lock.
-                await session.execute(delete(DocChunk).where(DocChunk.doc_id == doc.id))
-                stored = await rag_service.split_and_store_chunks(
-                    doc.title, doc.content, doc.id, session
-                )
-                # Commit plain chunks first: if embedding fails afterwards,
-                # the doc is marked failed but the chunks stay visible.
-                await session.commit()
-                try:
-                    embedding_api_key, _, _ = await config_service.get_embedding_credentials()
-                    if embedding_api_key:
-                        await rag_service.embed_chunks(stored, session)
-                except Exception:
-                    # Roll back only the embeddings; chunks are safe.
-                    await session.rollback()
-                    raise
-                doc = await session.get(KnowledgeDoc, doc_id)
-                doc.status = DOC_STATUS_INDEXED
-                doc.error_message = None
-                await session.commit()
-            except Exception as exc:
+                embedding_api_key, _, _ = await config_service.get_embedding_credentials()
+                if embedding_api_key:
+                    await rag_service.embed_chunks(stored, session)
+            except Exception:
+                # Roll back only the embeddings; chunks are safe.
                 await session.rollback()
-                logger.warning("Indexing failed for doc %s: %s", doc_id, exc)
-                await _mark_failed(doc_id, f"文档索引失败: {exc}")
-        _doc_locks.pop(doc_id, None)
+                raise
+            doc = await session.get(KnowledgeDoc, doc_id)
+            doc.status = DOC_STATUS_INDEXED
+            doc.error_message = None
+            await session.commit()
+        except Exception as exc:
+            await session.rollback()
+            logger.warning("Indexing failed for doc %s: %s", doc_id, exc)
+            await _mark_failed(doc_id, f"文档索引失败: {exc}")
 
 
 async def index_document(doc_id: int) -> None:
