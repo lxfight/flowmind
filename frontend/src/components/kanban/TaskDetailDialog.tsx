@@ -243,12 +243,9 @@ export function TaskDetailDialog({
     const requestId = ++taskLoadSeq.current
     const res = await api.get(`/projects/${projectId}/tasks/${taskId}`)
     const data = res.data as TaskDetail
-    if (requestId === taskLoadSeq.current) {
-      setTask(data)
-      if (isEditing) resetEditFields(data)
-    }
+    if (requestId === taskLoadSeq.current) setTask(data)
     return data
-  }, [projectId, taskId, isEditing, resetEditFields])
+  }, [projectId, taskId])
 
   const refreshReferences = useCallback(async () => {
     const requestId = taskLoadSeq.current
