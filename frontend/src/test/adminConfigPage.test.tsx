@@ -59,7 +59,7 @@ describe('AdminConfigPage', () => {
     )
 
     await waitFor(() => {
-      expect(screen.getByText('报告生成')).toBeInTheDocument()
+      expect(screen.getAllByText('报告生成').length).toBeGreaterThan(0)
     })
 
     // Embedding stability params are now visible.
@@ -78,7 +78,7 @@ describe('AdminConfigPage', () => {
         <AdminConfigPage />
       </MemoryRouter>,
     )
-    await screen.findByText('报告生成')
+    await screen.findAllByText('报告生成')
 
     // Click the section-level test button for Embedding only.
     const embTestButton = screen.getAllByRole('button', { name: /测试Embedding/ })[0]
@@ -90,6 +90,28 @@ describe('AdminConfigPage', () => {
     // Only the embedding section shows a success probe.
     await waitFor(() => {
       expect(screen.getAllByText('成功').length).toBeGreaterThan(0)
+    })
+  })
+
+  it('collapses a group and hides its config rows', async () => {
+    vi.mocked(fetchConfigs).mockResolvedValue(baseItems as any)
+    render(
+      <MemoryRouter>
+        <AdminConfigPage />
+      </MemoryRouter>,
+    )
+    await screen.findAllByText('报告生成')
+
+    // Config rows in the group are visible initially.
+    expect(screen.getByText('报告生成总超时(秒)')).toBeInTheDocument()
+
+    // Click the collapsible group header (the nav pill is a different button
+    // without aria-expanded — target the header specifically).
+    const header = screen.getByRole('button', { name: /报告生成.*项/ })
+    await userEvent.click(header)
+
+    await waitFor(() => {
+      expect(screen.queryByText('报告生成总超时(秒)')).not.toBeInTheDocument()
     })
   })
 })

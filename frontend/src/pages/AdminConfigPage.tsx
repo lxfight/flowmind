@@ -5,6 +5,8 @@ import toast from 'react-hot-toast'
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Pencil,
   Plug,
   RefreshCw,
@@ -488,102 +490,103 @@ function ConfigRow({
   }
 
   return (
-    <Card className="rounded-none border-x-0 border-t-0 last:border-b-0">
-      <CardContent className="p-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="text-sm font-medium">{item.label}</p>
-              <code className="rounded bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground">{item.key}</code>
-              {item.source === 'db' ? (
-                <Badge variant="warning">已覆盖</Badge>
-              ) : (
-                <Badge variant="secondary">默认</Badge>
-              )}
-              {item.secret && (
-                item.is_set ? <Badge variant="success">已设置</Badge> : <Badge variant="danger">未设置</Badge>
-              )}
-            </div>
-            {item.description && (
-              <p className="mt-1 text-xs text-muted-foreground">{item.description}</p>
+    <div className="group px-4 py-3 transition-colors hover:bg-muted/20">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <p className="text-sm font-medium">{item.label}</p>
+            <code className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">{item.key}</code>
+            {item.source === 'db' ? (
+              <Badge variant="warning" className="h-4 px-1.5 text-[10px]">已覆盖</Badge>
+            ) : (
+              <Badge variant="secondary" className="h-4 px-1.5 text-[10px]">默认</Badge>
             )}
-            {!editing && (
-              <p className="mt-1.5 break-all text-sm">
-                {item.secret ? (
-                  <span className="font-mono text-muted-foreground">{item.is_set ? '******' : '—'}</span>
-                ) : (
-                  <span className="font-mono">{displayValue(item) || '—'}</span>
-                )}
-              </p>
-            )}
-            {showFallback && (
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                未设置，当前回退使用「{fallbackLabel ?? item.fallback_key}」
-              </p>
-            )}
-            {item.key === 'llm_embedding_dim' && (
-              <div className="mt-2 flex items-start gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
-                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                <span>
-                  修改仅影响新写入的向量，已有向量不受影响。更换维度需同时更换 Embedding 模型并重建索引，否则检索结果会异常。
-                </span>
-              </div>
-            )}
-            {updatedAt && (
-              <p className="mt-1 text-[11px] text-muted-foreground">最近修改：{updatedAt}</p>
+            {item.secret && (
+              item.is_set
+                ? <Badge variant="success" className="h-4 px-1.5 text-[10px]">已设置</Badge>
+                : <Badge variant="danger" className="h-4 px-1.5 text-[10px]">未设置</Badge>
             )}
           </div>
-
-          {!editing ? (
-            <div className="flex shrink-0 items-center gap-2">
-              <Button variant="outline" size="sm" onClick={startEdit} className="gap-1">
-                <Pencil className="h-3.5 w-3.5" />
-                编辑
-              </Button>
-              {item.source === 'db' && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleReset}
-                  loading={resetting}
-                  className="gap-1 text-danger hover:text-danger hover:bg-danger/10"
-                >
-                  <RotateCcw className="h-3.5 w-3.5" />
-                  恢复默认
-                </Button>
+          {!editing && (
+            <p className="mt-1 break-all text-sm">
+              {item.secret ? (
+                <span className="font-mono text-muted-foreground">{item.is_set ? '******' : '—'}</span>
+              ) : (
+                <span className="font-mono">{displayValue(item) || '—'}</span>
               )}
-            </div>
-          ) : (
-            <div className="w-full shrink-0 sm:w-72">
-              <Input
-                type={item.secret ? 'password' : item.kind === 'str' ? 'text' : 'number'}
-                step={item.kind === 'float' ? '0.01' : '1'}
-                min={RANGES[item.key]?.min}
-                max={RANGES[item.key]?.max}
-                placeholder={item.secret ? (item.is_set ? '留空表示不修改' : '请输入密钥') : ''}
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                autoComplete="off"
-                aria-label={`编辑 ${item.label}`}
-              />
-              <div className="mt-1 flex items-center justify-between gap-2">
-                <span className={cn('text-[11px]', draftError ? 'text-danger' : 'text-muted-foreground')}>
-                  {draftError ?? (item.secret ? '留空表示不修改' : hint ?? '')}
-                </span>
-                <div className="flex items-center gap-1.5">
-                  <Button size="sm" onClick={handleSave} loading={saving} disabled={!canSave}>
-                    保存
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}>
-                    取消
-                  </Button>
-                </div>
-              </div>
+            </p>
+          )}
+          {item.description && (
+            <p className="mt-1 text-xs text-muted-foreground">{item.description}</p>
+          )}
+          {showFallback && (
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              未设置，当前回退使用「{fallbackLabel ?? item.fallback_key}」
+            </p>
+          )}
+          {item.key === 'llm_embedding_dim' && (
+            <div className="mt-2 flex items-start gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                修改仅影响新写入的向量，已有向量不受影响。更换维度需同时更换 Embedding 模型并重建索引，否则检索结果会异常。
+              </span>
             </div>
           )}
+          {updatedAt && (
+            <p className="mt-1 text-[11px] text-muted-foreground">最近修改：{updatedAt}</p>
+          )}
         </div>
-      </CardContent>
-    </Card>
+
+        {!editing ? (
+          <div className="flex shrink-0 items-center gap-1.5 sm:ml-4">
+            <Button variant="ghost" size="sm" onClick={startEdit} className="gap-1 px-2">
+              <Pencil className="h-3.5 w-3.5" />
+              编辑
+            </Button>
+            {item.source === 'db' && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleReset}
+                loading={resetting}
+                className="gap-1 px-2 text-danger hover:text-danger hover:bg-danger/10"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                恢复默认
+              </Button>
+            )}
+          </div>
+        ) : (
+          <div className="w-full shrink-0 sm:w-72">
+            <Input
+              type={item.secret ? 'password' : item.kind === 'str' ? 'text' : 'number'}
+              step={item.kind === 'float' ? '0.01' : '1'}
+              min={RANGES[item.key]?.min}
+              max={RANGES[item.key]?.max}
+              placeholder={item.secret ? (item.is_set ? '留空表示不修改' : '请输入密钥') : ''}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              autoComplete="off"
+              aria-label={`编辑 ${item.label}`}
+              className="h-8 text-sm"
+            />
+            <div className="mt-1 flex items-center justify-between gap-2">
+              <span className={cn('text-[11px]', draftError ? 'text-danger' : 'text-muted-foreground')}>
+                {draftError ?? (item.secret ? '留空表示不修改' : hint ?? '')}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <Button size="sm" onClick={handleSave} loading={saving} disabled={!canSave}>
+                  保存
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}>
+                  取消
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -591,6 +594,24 @@ export default function AdminConfigPage() {
   const currentUser = useAuthStore((s) => s.user)
   const [items, setItems] = useState<ConfigItem[]>([])
   const [loading, setLoading] = useState(true)
+  /** Groups the user has collapsed (by title). Defaults to expanded. */
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+
+  const toggleGroup = (title: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(title)) next.delete(title)
+      else next.add(title)
+      return next
+    })
+  }
+
+  const scrollToGroup = (title: string) => {
+    document.getElementById(`config-group-${title}`)?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    })
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -620,6 +641,9 @@ export default function AdminConfigPage() {
   }
 
   const byKey = new Map(items.map((i) => [i.key, i]))
+  const visibleGroups = GROUPS.filter((group) =>
+    group.keys.some((k) => byKey.has(k))
+  )
 
   return (
     <div className="mx-auto h-full w-full max-w-[1600px] overflow-y-auto pb-8">
@@ -636,24 +660,61 @@ export default function AdminConfigPage() {
 
       <ConnectivityCard items={items} onSaved={load} />
 
-      {GROUPS.map((group) => {
+      {/* Quick-jump navigation */}
+      <nav aria-label="配置分组导航" className="mb-6 flex flex-wrap items-center gap-2">
+        {visibleGroups.map((group) => (
+          <button
+            key={group.title}
+            type="button"
+            onClick={() => scrollToGroup(group.title)}
+            className={cn(
+              'inline-flex h-7 items-center gap-1.5 rounded-full border px-3 text-xs transition-colors',
+              'border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-primary'
+            )}
+          >
+            {group.title}
+            <span className="tnum text-[10px] text-muted-foreground/70">
+              {group.keys.filter((k) => byKey.has(k)).length}
+            </span>
+          </button>
+        ))}
+      </nav>
+
+      {visibleGroups.map((group) => {
         const groupItems = group.keys
           .map((k) => byKey.get(k))
           .filter((i): i is ConfigItem => !!i)
-        if (groupItems.length === 0) return null
+        const collapsed = collapsedGroups.has(group.title)
+        const hasOverrides = groupItems.some((i) => i.source === 'db')
         return (
-          <div key={group.title} className="mb-8">
-            <h3 className="mb-3 text-sm font-semibold text-muted-foreground">{group.title}</h3>
-            <div className="border-y border-border">
-              {groupItems.map((item) => (
-                <ConfigRow
-                  key={item.key}
-                  item={item}
-                  fallbackLabel={item.fallback_key ? byKey.get(item.fallback_key)?.label ?? null : null}
-                  onChanged={load}
-                />
-              ))}
-            </div>
+          <div key={group.title} id={`config-group-${group.title}`} className="mb-4 scroll-mt-4">
+            <button
+              type="button"
+              onClick={() => toggleGroup(group.title)}
+              aria-expanded={!collapsed}
+              className="flex w-full items-center gap-2 rounded-md px-1 py-2 text-left transition-colors hover:bg-muted/40"
+            >
+              {collapsed ? (
+                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              ) : (
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              )}
+              <h3 className="text-sm font-semibold text-foreground">{group.title}</h3>
+              <span className="tnum text-xs text-muted-foreground">{groupItems.length} 项</span>
+              {hasOverrides && <Badge variant="warning" className="h-4 px-1.5 text-[10px]">含已覆盖项</Badge>}
+            </button>
+            {!collapsed && (
+              <div className="divide-y divide-border border-y border-border">
+                {groupItems.map((item) => (
+                  <ConfigRow
+                    key={item.key}
+                    item={item}
+                    fallbackLabel={item.fallback_key ? byKey.get(item.fallback_key)?.label ?? null : null}
+                    onChanged={load}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         )
       })}
