@@ -162,6 +162,28 @@ def compose_args(*args: str) -> list[str]:
     return ["docker", "compose", "-p", COMPOSE_PROJECT, *args]
 
 
+def pull_images_with_retry(state: dict[str, Any], services: tuple[str, ...]) -> None:
+    """Pull the target images, retrying a few times on transient network
+    failures so a slow or flaky registry connection doesn't abort the whole
+    update. Docker pull resumes partial layers, so a retry is cheap."""
+    attempts = int(os.getenv("FLOWMIND_PULL_RETRIES", "3"))
+    attempts = max(1, min(attempts, 6))
+    base_delay = float(os.getenv("FLOWMIND_PULL_RETRY_DELAY", "3"))
+    last_error = ""
+    for attempt in range(1, attempts + 1):
+        if attempt > 1:
+            add_log(state, f"镜像拉取第 {attempt}/{attempts} 次尝试")
+        try:
+            command(state, compose_args("pull", *services), timeout=1200)
+            return
+        except (RuntimeError, subprocess.TimeoutExpired) as exc:
+            last_error = str(exc)[-500:]
+            if attempt < attempts:
+                add_log(state, f"镜像拉取失败，{base_delay}s 后重试")
+                time.sleep(base_delay * attempt)
+    raise RuntimeError(f"镜像拉取多次失败: {last_error}")
+
+
 def configured_application_services(state: dict[str, Any]) -> tuple[str, ...]:
     configured = set(
         command(state, compose_args("config", "--services"), timeout=60).splitlines()
@@ -250,14 +272,18 @@ def git_fetch_sources() -> tuple[tuple[str, str], ...]:
 
 def fetch_tags(state: dict[str, Any]) -> None:
     errors: list[str] = []
+    # A low speed threshold so a slow-but-alive connection on a flaky network
+    # isn't killed as a false timeout. Values are configurable via env.
+    low_speed_limit = int(os.getenv("FLOWMIND_GIT_LOW_SPEED_LIMIT", "100"))
+    low_speed_time = int(os.getenv("FLOWMIND_GIT_LOW_SPEED_TIME", "30"))
     for name, source in git_fetch_sources():
         add_log(state, f"正在从 {name} 获取 Tags")
         try:
             command(
                 state,
                 git_args(
-                    "-c", "http.lowSpeedLimit=1024",
-                    "-c", "http.lowSpeedTime=15",
+                    "-c", f"http.lowSpeedLimit={low_speed_limit}",
+                    "-c", f"http.lowSpeedTime={low_speed_time}",
                     "fetch", "--tags", source,
                 ),
                 timeout=git_fetch_timeout(),
@@ -411,7 +437,7 @@ def checkout_and_deploy(state: dict[str, Any], target: str) -> None:
         progress=45,
         message="正在拉取版本镜像",
     )
-    command(state, compose_args("pull", *services), timeout=1200)
+    pull_images_with_retry(state, services)
     update_state(
         state,
         status="deploying",

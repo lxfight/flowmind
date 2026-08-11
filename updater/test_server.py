@@ -320,6 +320,46 @@ class HealthCheckTests(unittest.TestCase):
         self.assertEqual(urlopen.call_count, 2)
         add_log.assert_called_once_with(state, "backend 健康检查通过")
 
+    def test_pull_images_retries_on_transient_failures(self) -> None:
+        state = {"logs": []}
+        with (
+            patch.object(server, "command", side_effect=(RuntimeError("dial tcp timeout"), "")) as run,
+            patch.object(server.time, "sleep") as sleep,
+            patch.object(server, "add_log"),
+        ):
+            server.pull_images_with_retry(state, ("backend", "frontend"))
+
+        # First attempt failed, second succeeded.
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(run.call_args_list[0].args[1][:3], ["docker", "compose", "-p"])
+        sleep.assert_called_once()
+
+    def test_pull_images_gives_up_after_all_attempts(self) -> None:
+        state = {"logs": []}
+        with (
+            patch.object(server, "command", side_effect=RuntimeError("registry down")),
+            patch.object(server.time, "sleep"),
+            patch.object(server, "add_log"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "多次失败"):
+                server.pull_images_with_retry(state, ("backend",))
+            self.assertEqual(server.command.call_count, 3)
+
+    def test_fetch_tags_uses_gentle_low_speed_threshold(self) -> None:
+        state = {"logs": []}
+        with (
+            patch.object(server, "git_fetch_sources", return_value=(("GitHub", "origin"),)),
+            patch.object(server, "git_fetch_timeout", return_value=45),
+            patch.object(server, "command", return_value="") as run,
+            patch.object(server, "add_log"),
+        ):
+            server.fetch_tags(state)
+
+        fetch = run.call_args.args[1]
+        self.assertIn("-c", fetch)
+        self.assertIn("http.lowSpeedLimit=100", fetch)
+        self.assertIn("http.lowSpeedTime=30", fetch)
+
 
 if __name__ == "__main__":
     unittest.main()
