@@ -7,6 +7,7 @@
   partial skips when entities vanished.
 """
 import json
+from datetime import date
 
 import pytest
 from conftest import async_session_factory
@@ -21,15 +22,18 @@ from sqlalchemy import select
 
 from app.models.activity import ActivityLog
 from app.models.llm_chat import LLMChatMessage, LLMChatSession
+from app.models.milestone import Milestone
 from app.models.task import Task, TaskComment, TaskStatus
 from app.models.user import User
 from app.schemas import (
+    MilestoneCreate,
+    MilestoneUpdate,
     TaskCommentCreate,
     TaskCreate,
     TaskMove,
     TaskUpdate,
 )
-from app.services import task_service
+from app.services import milestone_service, task_service
 
 
 async def _db_and_admin():
@@ -424,5 +428,109 @@ async def test_undo_partial_skip_when_entity_vanished(client):
         # Batch is still marked undone (no re-undo loop)
         again = client.post(f"/api/llm/sessions/{chat_id}/undo", headers=headers)
         assert again.status_code == 404
+    finally:
+        await session.close()
+
+
+@pytest.mark.asyncio
+async def test_undo_create_milestone_deletes_it(client):
+    headers = admin_login(client)
+    project_id, statuses = create_project(client, headers, name="撤销建里程碑")
+
+    session, user = await _db_and_admin()
+    try:
+        created = await _agent_run(
+            "batch-ms-create",
+            milestone_service.create_milestone(
+                project_id,
+                MilestoneCreate(title="agent 建的里程碑", target_date=date(2026, 10, 1)),
+                user,
+                session,
+            ),
+        )
+        await session.commit()
+        milestone_id = created.id
+        chat_id = await _make_undoable_session(project_id, user.id, "batch-ms-create")
+
+        resp = client.post(f"/api/llm/sessions/{chat_id}/undo", headers=headers)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert len(body["undone"]) == 1
+        assert body["skipped"] == []
+
+        gone = await session.execute(select(Milestone).where(Milestone.id == milestone_id))
+        assert gone.scalar_one_or_none() is None
+    finally:
+        await session.close()
+
+
+@pytest.mark.asyncio
+async def test_undo_update_milestone_restores_old_values(client):
+    headers = admin_login(client)
+    project_id, statuses = create_project(client, headers, name="撤销改里程碑")
+    ms = client.post(
+        f"/api/projects/{project_id}/milestones",
+        headers=headers,
+        json={"title": "旧标题", "target_date": "2026-09-01"},
+    ).json()
+
+    session, user = await _db_and_admin()
+    try:
+        await _agent_run(
+            "batch-ms-update",
+            milestone_service.update_milestone(
+                project_id,
+                ms["id"],
+                MilestoneUpdate(title="新标题", target_date=date(2026, 12, 31)),
+                user,
+                session,
+            ),
+        )
+        await session.commit()
+        chat_id = await _make_undoable_session(project_id, user.id, "batch-ms-update")
+
+        resp = client.post(f"/api/llm/sessions/{chat_id}/undo", headers=headers)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert len(body["undone"]) == 1
+        assert body["skipped"] == []
+
+        restored = await session.execute(select(Milestone).where(Milestone.id == ms["id"]))
+        milestone = restored.scalar_one()
+        assert milestone.title == "旧标题"
+        assert milestone.target_date == date(2026, 9, 1)
+    finally:
+        await session.close()
+
+
+@pytest.mark.asyncio
+async def test_undo_delete_milestone_recreates_it(client):
+    headers = admin_login(client)
+    project_id, statuses = create_project(client, headers, name="撤销删里程碑")
+    ms = client.post(
+        f"/api/projects/{project_id}/milestones",
+        headers=headers,
+        json={"title": "将被删除", "target_date": "2026-08-15"},
+    ).json()
+
+    session, user = await _db_and_admin()
+    try:
+        await _agent_run(
+            "batch-ms-delete",
+            milestone_service.delete_milestone(project_id, ms["id"], user, session),
+        )
+        await session.commit()
+        chat_id = await _make_undoable_session(project_id, user.id, "batch-ms-delete")
+
+        resp = client.post(f"/api/llm/sessions/{chat_id}/undo", headers=headers)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert len(body["undone"]) == 1
+        assert body["skipped"] == []
+
+        restored = await session.execute(select(Milestone).where(Milestone.id == ms["id"]))
+        milestone = restored.scalar_one()
+        assert milestone.title == "将被删除"
+        assert milestone.target_date == date(2026, 8, 15)
     finally:
         await session.close()

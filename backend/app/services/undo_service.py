@@ -23,10 +23,12 @@ from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.realtime import queue_ws_event
 from app.models.activity import ActivityLog
 from app.models.llm_chat import LLMChatMessage
+from app.models.milestone import Milestone
 from app.models.task import Task, TaskComment, TaskStatus
 from app.models.user import User
 
@@ -36,6 +38,16 @@ def _parse_dt(value: str | None) -> datetime | None:
         return None
     try:
         return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _date_from_iso(value: str | None):
+    if not value:
+        return None
+    from datetime import date as _date
+    try:
+        return _date.fromisoformat(value)
     except ValueError:
         return None
 
@@ -231,6 +243,74 @@ async def _compensate(
         )
         await db.flush()
         queue_ws_event(db, "status_created", log.project_id, {"status_id": data["id"]}, actor_id=actor.id)
+        return None
+
+    if action == "create" and target_type == "milestone":
+        milestone = await db.get(Milestone, log.target_id)
+        if milestone is None:
+            return "里程碑已不存在"
+        await db.delete(milestone)
+        queue_ws_event(
+            db, "milestone_deleted", log.project_id, {"milestone_id": log.target_id}, actor_id=actor.id
+        )
+        return None
+
+    if action == "update" and target_type == "milestone":
+        result = await db.execute(
+            select(Milestone)
+            .where(Milestone.id == log.target_id)
+            .options(selectinload(Milestone.tasks))
+        )
+        milestone = result.scalar_one_or_none()
+        if milestone is None:
+            return "里程碑已被删除，无法恢复"
+        for field in ("title", "description", "target_date", "owner_id", "status", "completed_at"):
+            if field in snapshot:
+                value = snapshot[field]
+                if field == "target_date" and value:
+                    value = _date_from_iso(value)
+                if field == "completed_at" and value:
+                    value = _parse_dt(value)
+                setattr(milestone, field, value)
+        task_ids = snapshot.get("task_ids") or []
+        if task_ids:
+            result = await db.execute(select(Task).where(Task.id.in_(task_ids)))
+            milestone.tasks = list(result.scalars().all())
+        else:
+            milestone.tasks = []
+        await db.flush()
+        queue_ws_event(
+            db, "milestone_updated", log.project_id, {"milestone_id": milestone.id}, actor_id=actor.id
+        )
+        return None
+
+    if action == "delete" and target_type == "milestone":
+        data = snapshot
+        if not data.get("id"):
+            return "缺少删除前的快照"
+        if await db.get(Milestone, data["id"]) is not None:
+            return "相同 ID 的里程碑已存在，跳过恢复"
+        milestone = Milestone(
+            id=data["id"],
+            project_id=data["project_id"],
+            title=data["title"],
+            description=data.get("description") or "",
+            target_date=_date_from_iso(data.get("target_date")),
+            owner_id=data.get("owner_id"),
+            status=data.get("status", "open"),
+            created_by=data.get("created_by"),
+            completed_at=_parse_dt(data.get("completed_at")),
+        )
+        db.add(milestone)
+        await db.flush()
+        task_ids = data.get("task_ids") or []
+        if task_ids:
+            result = await db.execute(select(Task).where(Task.id.in_(task_ids)))
+            milestone.tasks = list(result.scalars().all())
+        await db.flush()
+        queue_ws_event(
+            db, "milestone_created", log.project_id, {"milestone_id": milestone.id}, actor_id=actor.id
+        )
         return None
 
     return "不支持撤销的操作类型"

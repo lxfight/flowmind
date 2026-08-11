@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, date, datetime, timedelta
 
 from fastapi import HTTPException
@@ -20,6 +21,7 @@ from app.schemas import (
     MilestoneTimelinePage,
     MilestoneUpdate,
 )
+from app.services import task_service
 from app.services.integration_service import emit_domain_event
 
 
@@ -111,7 +113,11 @@ def _log(
     action: str,
     milestone_id: int,
     summary: str,
+    snapshot: dict | None = None,
 ) -> None:
+    """Write an ActivityLog row, stamping the agent batch id and a pre-change
+    snapshot (as metadata_json) when running inside an agent batch."""
+    batch_id = task_service.current_agent_batch()
     db.add(
         ActivityLog(
             project_id=project_id,
@@ -120,8 +126,28 @@ def _log(
             target_type="milestone",
             target_id=milestone_id,
             summary=summary,
+            metadata_json=json.dumps(snapshot, ensure_ascii=False)
+            if (batch_id and snapshot)
+            else "{}",
+            action_batch_id=batch_id,
         )
     )
+
+
+def _snapshot(milestone: Milestone) -> dict:
+    """Serialize a milestone (and linked task ids) for undo compensation."""
+    return {
+        "id": milestone.id,
+        "project_id": milestone.project_id,
+        "title": milestone.title,
+        "description": milestone.description,
+        "target_date": milestone.target_date.isoformat() if milestone.target_date else None,
+        "owner_id": milestone.owner_id,
+        "status": milestone.status,
+        "created_by": milestone.created_by,
+        "completed_at": milestone.completed_at.isoformat() if milestone.completed_at else None,
+        "task_ids": sorted(task.id for task in milestone.tasks),
+    }
 
 
 async def _tasks_for_project(
@@ -324,6 +350,7 @@ async def create_milestone(
     )
     db.add(milestone)
     await db.flush()
+    await db.refresh(milestone, ["tasks"])
     _log(
         db,
         project_id=project_id,
@@ -357,6 +384,9 @@ async def update_milestone(
     task_ids = payload.pop("task_ids", None)
     if "owner_id" in payload and payload["owner_id"] is not None:
         await ensure_project_assignee(project_id, payload["owner_id"], db)
+    # Capture the pre-change state (including task links) before mutating so
+    # agent undo can restore it exactly.
+    before_snapshot = _snapshot(milestone)
     if task_ids is not None:
         milestone.tasks = await _tasks_for_project(
             project_id, task_ids, db, milestone_id=milestone_id
@@ -381,6 +411,7 @@ async def update_milestone(
         action="update",
         milestone_id=milestone.id,
         summary=f"更新里程碑: {milestone.title}",
+        snapshot=before_snapshot,
     )
     output = _out(await _milestone_or_404(project_id, milestone.id, db))
     event_data = _event_data(output)
@@ -422,6 +453,7 @@ async def delete_milestone(
         action="delete",
         milestone_id=milestone.id,
         summary=f"删除里程碑: {title}",
+        snapshot=_snapshot(milestone),
     )
     await _emit_milestone_event(
         db,
