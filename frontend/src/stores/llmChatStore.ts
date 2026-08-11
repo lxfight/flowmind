@@ -187,7 +187,7 @@ export const useLLMChatStore = create<LLMChatState>((set, get) => ({
   },
 
   selectSession: (sessionId) => {
-    set({ currentSessionId: sessionId, messages: [], error: null })
+    set({ currentSessionId: sessionId, messages: [], loading: true, error: null })
   },
 
   loadMessages: async (sessionId) => {

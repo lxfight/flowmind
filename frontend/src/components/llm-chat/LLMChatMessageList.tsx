@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowDown, Sparkles } from 'lucide-react'
+import { ArrowDown, Loader2, Sparkles } from 'lucide-react'
 import { LLMChatMessage } from './LLMChatMessage'
 import type { ChatMessage, MemberOption } from '../../types'
 
 interface Props {
   messages: ChatMessage[]
   streaming?: boolean
+  /** True while session history is being fetched */
+  loading?: boolean
   /** 项目成员，用于用户消息中的 @mention 高亮 */
   members?: MemberOption[]
   /** 跨项目助手（我的项目页）：换用跨项目示例文案 */
@@ -29,7 +31,7 @@ const CROSS_PROJECT_PROMPTS = [
   '我在所有项目里还有哪些待办任务？',
 ]
 
-export function LLMChatMessageList({ messages, streaming, members, crossProject, onExampleClick, onAnswerQuestion, onUndoBatch }: Props) {
+export function LLMChatMessageList({ messages, streaming, loading, members, crossProject, onExampleClick, onAnswerQuestion, onUndoBatch }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const shouldFollowOutputRef = useRef(true)
@@ -80,6 +82,11 @@ export function LLMChatMessageList({ messages, streaming, members, crossProject,
         className="h-full overflow-y-auto px-4 py-5 scrollbar-thin"
       >
         {conversationMessages.length === 0 ? (
+          loading ? (
+            <div className="flex h-full items-center justify-center">
+              <Loader2 className="h-5 w-5 animate-spin text-primary" aria-label="加载聊天记录中" />
+            </div>
+          ) : (
           <div className="flex h-full flex-col items-center justify-center text-center">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
               <Sparkles className="h-5 w-5" />
@@ -101,6 +108,7 @@ export function LLMChatMessageList({ messages, streaming, members, crossProject,
               ))}
             </div>
           </div>
+          )
         ) : (
           <div className="mx-auto w-full max-w-3xl pb-4">
             {conversationMessages.map((msg, idx) => {

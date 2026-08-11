@@ -42,6 +42,7 @@ export function LLMChatPanel({ projectId, open, onClose, onActions, members }: P
     currentSessionId,
     messages,
     streaming,
+    loading,
     error,
     loadSessions,
     createSession,
@@ -342,6 +343,7 @@ export function LLMChatPanel({ projectId, open, onClose, onActions, members }: P
         <LLMChatMessageList
           messages={messages}
           streaming={streaming}
+          loading={loading}
           members={members}
           crossProject={projectId === null}
           onExampleClick={setDraft}
