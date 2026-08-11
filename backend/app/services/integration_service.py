@@ -34,10 +34,26 @@ EVENT_CATALOG = [
 EVENT_TYPES = {item["type"] for item in EVENT_CATALOG}
 
 
-def _fernet() -> Fernet:
+def _encryption_material() -> str:
+    """Return the secret material used to encrypt webhook credentials.
+
+    Prefer INTEGRATION_ENCRYPTION_KEY; fall back to an explicitly configured
+    JWT_SECRET. A random auto-generated JWT_SECRET is never used: it changes on
+    every restart, which would permanently orphan stored secrets.
+    """
     settings = get_settings()
-    material = settings.integration_encryption_key or settings.jwt_secret
-    digest = hashlib.sha256(material.encode("utf-8")).digest()
+    if settings.integration_encryption_key:
+        return settings.integration_encryption_key
+    if settings.jwt_secret_is_random:
+        raise RuntimeError(
+            "INTEGRATION_ENCRYPTION_KEY 未配置，且 JWT_SECRET 为自动生成的随机值。"
+            "请设置 INTEGRATION_ENCRYPTION_KEY，否则已保存的 Webhook 密钥在重启后将无法解密。"
+        )
+    return settings.jwt_secret
+
+
+def _fernet() -> Fernet:
+    digest = hashlib.sha256(_encryption_material().encode("utf-8")).digest()
     return Fernet(base64.urlsafe_b64encode(digest))
 
 

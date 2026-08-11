@@ -86,6 +86,10 @@ class Settings(BaseSettings):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        # JWT secret may be auto-generated for local dev; integrations must
+        # never derive their encryption material from that random value,
+        # because it changes every restart and permanently orphans secrets.
+        self._jwt_secret_is_random = not self.jwt_secret
         if not self.jwt_secret:
             self.jwt_secret = secrets.token_urlsafe(32)
             if not os.environ.get("JWT_SECRET") and not kwargs.get("jwt_secret"):
@@ -95,6 +99,11 @@ class Settings(BaseSettings):
                     "\n⚠️  JWT_SECRET 未设置，已自动生成随机密钥。生产环境请通过环境变量设置 JWT_SECRET。\n",
                     file=sys.stderr,
                 )
+
+    @property
+    def jwt_secret_is_random(self) -> bool:
+        """True when JWT_SECRET was auto-generated rather than configured."""
+        return self._jwt_secret_is_random
 
 
 @lru_cache

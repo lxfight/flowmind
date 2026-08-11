@@ -338,3 +338,24 @@ async def test_task_and_outbox_roll_back_in_the_same_transaction(client):
         assert await db.scalar(select(func.count(Task.id))) == 0
         assert await db.scalar(select(func.count(DomainEvent.id))) == 0
         assert await db.scalar(select(func.count(ExternalDelivery.id))) == 0
+
+
+@pytest.mark.asyncio
+async def test_fernet_refuses_random_jwt_secret(monkeypatch):
+    """Encryption material must not be derived from an auto-generated JWT_SECRET,
+    because it changes every restart and would orphan stored webhook secrets."""
+    from app.core.config import get_settings
+    from app.services import integration_service
+    from app.services.integration_service import _encryption_material
+
+    # No explicit encryption key; JWT_SECRET was auto-generated at startup.
+    settings = get_settings()
+    monkeypatch.setattr(settings, "integration_encryption_key", "")
+    monkeypatch.setattr(settings, "_jwt_secret_is_random", True)
+
+    monkeypatch.setattr(integration_service, "get_settings", lambda: settings)
+    try:
+        with pytest.raises(RuntimeError):
+            _encryption_material()
+    finally:
+        monkeypatch.undo()
