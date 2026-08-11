@@ -3,9 +3,11 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
   Brain,
+  Check,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  Copy,
   HelpCircle,
   LoaderCircle,
   Undo2,
@@ -61,6 +63,46 @@ function Timestamp({ value }: { value?: string }) {
   if (Number.isNaN(d.getTime())) return null
   const label = d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
   return <span className="mt-1 block text-[10px] text-muted-foreground/70">{label}</span>
+}
+
+/** Code block with a copy-to-clipboard button (per-block copied state). */
+function CodeBlock({ children }: { children: React.ReactNode }) {
+  const [copied, setCopied] = useState(false)
+  const text = extractCodeText(children)
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch { /* clipboard unavailable */ }
+  }
+  return (
+    <div className="group/code relative my-2">
+      <pre className="overflow-x-auto rounded-lg bg-muted p-3 pr-10 scrollbar-thin">
+        {children}
+      </pre>
+      <button
+        type="button"
+        onClick={() => void handleCopy()}
+        aria-label="复制代码"
+        title="复制代码"
+        className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-md border border-border/60 bg-background/80 text-muted-foreground opacity-100 transition-opacity hover:text-foreground sm:opacity-0 sm:group-hover/code:opacity-100"
+      >
+        {copied ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
+      </button>
+    </div>
+  )
+}
+
+/** Flatten ReactMarkdown's <pre><code>…</code></pre> children to plain text. */
+function extractCodeText(node: React.ReactNode): string {
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(extractCodeText).join('')
+  if (node && typeof node === 'object') {
+    const props = (node as { props?: { children?: React.ReactNode } }).props
+    if (props && props.children != null) return extractCodeText(props.children)
+  }
+  return ''
 }
 
 /** Compact history rendering for tool calls/results — no raw JSON. */
@@ -381,6 +423,8 @@ export const LLMChatMessage = memo(function LLMChatMessage({
 }: Props) {
   const isUser = message.role === 'user'
   const isTool = message.role === 'tool'
+  const [collapsed, setCollapsed] = useState(false)
+  const longContent = !message.streaming && message.content.length > 800
 
   if (isTool) return <ToolStatusMessage message={message} />
 
@@ -427,6 +471,9 @@ export const LLMChatMessage = memo(function LLMChatMessage({
 
       {message.content && (
         <div className="llm-markdown">
+          {collapsed ? (
+            <p className="my-1.5 text-muted-foreground line-clamp-3">{message.content.slice(0, 400)}…</p>
+          ) : (
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={{
@@ -449,11 +496,7 @@ export const LLMChatMessage = memo(function LLMChatMessage({
                 )
               },
               pre({ children }) {
-                return (
-                  <pre className="my-2 overflow-x-auto rounded-lg bg-muted p-3 scrollbar-thin">
-                    {children}
-                  </pre>
-                )
+                return <CodeBlock>{children}</CodeBlock>
               },
               p({ children }) {
                 return <p className="my-1.5 first:mt-0 last:mb-0">{children}</p>
@@ -488,6 +531,16 @@ export const LLMChatMessage = memo(function LLMChatMessage({
           >
             {message.content}
           </ReactMarkdown>
+          )}
+          {longContent && (
+            <button
+              type="button"
+              onClick={() => setCollapsed(!collapsed)}
+              className="mt-1 text-xs text-primary hover:underline"
+            >
+              {collapsed ? '展开全文' : '折叠长文'}
+            </button>
+          )}
         </div>
       )}
 
