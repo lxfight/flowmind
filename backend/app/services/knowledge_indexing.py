@@ -19,6 +19,7 @@ from app.models.knowledge import (
     DOC_STATUS_FAILED,
     DOC_STATUS_INDEXED,
     DOC_STATUS_INDEXING,
+    DOC_STATUS_PARSING,
     DocChunk,
     DocChunkEmbedding,
     KnowledgeDoc,
@@ -58,7 +59,10 @@ async def acquire_doc_lock(doc_id: int) -> asyncio.Lock:
 async def _mark_failed(doc_id: int, message: str) -> None:
     async with database.async_session_factory() as session:
         doc = await session.get(KnowledgeDoc, doc_id)
-        if doc is not None:
+        # Only fail a doc that is still pending; a newer edit (status back to
+        # indexing, or already indexed by a later run) must not be overwritten
+        # by a stale task's failure.
+        if doc is not None and doc.status in {DOC_STATUS_INDEXING, DOC_STATUS_PARSING}:
             doc.status = DOC_STATUS_FAILED
             doc.error_message = message[:2000]
             await session.commit()

@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,6 +35,7 @@ from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
 
 router = APIRouter(prefix="/api/projects/{project_id}/knowledge", tags=["knowledge"])
+logger = logging.getLogger(__name__)
 ALLOWED_UPLOAD_EXTENSIONS = {
     "pdf", "docx", "pptx", "xls", "xlsx", "html", "htm", "md", "txt",
     "csv", "json", "xml", "jpg", "jpeg", "png", "gif", "bmp", "tiff",
@@ -76,13 +79,20 @@ async def list_docs(
     )
     docs = result.scalars().all()
 
+    # One aggregate query for all chunk counts instead of one count per doc.
+    chunk_counts = dict(
+        (
+            await db.execute(
+                select(DocChunk.doc_id, func.count(DocChunk.id))
+                .where(DocChunk.doc_id.in_([d.id for d in docs]))
+                .group_by(DocChunk.doc_id)
+            )
+        ).all()
+    )
     output = []
     for d in docs:
-        count_result = await db.execute(
-            select(func.count(DocChunk.id)).where(DocChunk.doc_id == d.id)
-        )
         out = KnowledgeDocOut.model_validate(d)
-        out.chunk_count = count_result.scalar() or 0
+        out.chunk_count = chunk_counts.get(d.id, 0)
         output.append(out)
     return KnowledgeDocListOut(items=output, total=total, page=page, page_size=page_size)
 
@@ -177,6 +187,10 @@ async def update_doc(
         raise HTTPException(status_code=404, detail="文档不存在")
 
     for field, value in data.model_dump(exclude_unset=True).items():
+        # A null content would wipe the document without triggering a
+        # re-index; keep the existing content instead.
+        if field == "content" and value is None:
+            continue
         setattr(doc, field, value)
 
     db.add(ActivityLog(
@@ -201,7 +215,14 @@ async def update_doc(
         background_tasks.add_task(index_document, doc.id)
 
     await db.refresh(doc)
-    return KnowledgeDocOut.model_validate(doc)
+    out = KnowledgeDocOut.model_validate(doc)
+    # Reindex is running, but report the existing chunks so the UI doesn't
+    # flicker to "0 个片段" until the first 3s poll corrects it.
+    count_result = await db.execute(
+        select(func.count(DocChunk.id)).where(DocChunk.doc_id == doc.id)
+    )
+    out.chunk_count = count_result.scalar() or 0
+    return out
 
 
 @router.delete("/{doc_id}")
@@ -379,7 +400,12 @@ async def reindex_doc(
     background_tasks.add_task(index_document, doc.id)
 
     await db.refresh(doc)
-    return KnowledgeDocOut.model_validate(doc)
+    out = KnowledgeDocOut.model_validate(doc)
+    count_result = await db.execute(
+        select(func.count(DocChunk.id)).where(DocChunk.doc_id == doc.id)
+    )
+    out.chunk_count = count_result.scalar() or 0
+    return out
 
 
 @router.post("/query", response_model=KnowledgeAnswer)
@@ -400,5 +426,8 @@ async def query_knowledge(
             top_k=data.top_k,
         )
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"知识库查询失败: {exc}") from exc
+        # Log the detail for operators; don't leak provider/DB internals to
+        # the client through the 502 detail.
+        logger.warning("Knowledge query failed for project %s: %s", project_id, exc)
+        raise HTTPException(status_code=502, detail="知识库查询失败") from exc
     return KnowledgeAnswer(**result)
