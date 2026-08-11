@@ -60,9 +60,11 @@ export function KnowledgeDocDialog({ projectId, docId, canEdit, onClose, onUpdat
   const [chunksLoading, setChunksLoading] = useState(false)
   const CHUNKS_PAGE_SIZE = 20
 
-  const loadDoc = useCallback(async () => {
-    setLoading(true)
-    setError(null)
+  const loadDoc = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoading(true)
+      setError(null)
+    }
     try {
       const res = await api.get(`/projects/${projectId}/knowledge/${docId}`)
       const data = res.data as Doc
@@ -70,9 +72,9 @@ export function KnowledgeDocDialog({ projectId, docId, canEdit, onClose, onUpdat
       setEditTitle(data.title)
       setEditContent(data.content)
     } catch (err: any) {
-      setError(errDetail(err, '加载文档失败'))
+      if (!silent) setError(errDetail(err, '加载文档失败'))
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [projectId, docId])
 
@@ -81,11 +83,12 @@ export function KnowledgeDocDialog({ projectId, docId, canEdit, onClose, onUpdat
     loadDoc()
   }, [loadDoc])
 
-  // Poll while the doc is still being parsed/indexed.
+  // Poll while the doc is still being parsed/indexed. Poll silently so the
+  // dialog doesn't flash a loading spinner over readable content every 3s.
   useEffect(() => {
     if (!doc || (doc.status !== 'indexing' && doc.status !== 'parsing')) return
     const timer = setInterval(() => {
-      loadDoc()
+      loadDoc(true)
     }, 3000)
     return () => clearInterval(timer)
   }, [doc, loadDoc])
