@@ -93,7 +93,14 @@ async def _run_index(doc_id: int) -> None:
             try:
                 embedding_api_key, _, _ = await config_service.get_embedding_credentials()
                 if embedding_api_key:
-                    await rag_service.embed_chunks(stored, session)
+                    total_batches, failed_batches, first_error = await rag_service.embed_chunks(stored, session)
+                    # All batches failed → no vectors at all; treat the doc as
+                    # failed (surfacing the original error) so the admin sees
+                    # it. Partial failures keep successfully embedded chunks
+                    # and stay 'indexed'.
+                    if total_batches > 0 and failed_batches >= total_batches:
+                        detail = f"全部 embedding 批次失败: {first_error}" if first_error else "全部 embedding 批次失败"
+                        raise RuntimeError(detail)
             except Exception:
                 # Roll back only the embeddings; chunks are safe.
                 await session.rollback()

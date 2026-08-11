@@ -275,13 +275,13 @@ class RAGService:
             for i in range(0, len(stored_chunks), batch_size)
         ]
         if not batches:
-            return
+            return 0, 0, None
 
         # No embedding configured: keep plain chunks keyword-searchable and
         # skip embedding entirely (the interactive path has its own guard).
         embedding_api_key, _, embedding_model = await config_service.get_embedding_credentials()
         if not embedding_api_key or not embedding_model:
-            return
+            return 0, 0, None
 
         async def embed_batch(batch: list[DocChunk]):
             vectors = await self.embed_texts([c.content for c in batch])
@@ -293,9 +293,12 @@ class RAGService:
         )
 
         failed = 0
+        first_error: BaseException | None = None
         for result in results:
             if isinstance(result, BaseException):
                 failed += 1
+                if first_error is None:
+                    first_error = result
                 logger.warning("A chunk batch failed to embed and was skipped: %s", result)
                 continue
             for doc_chunk, embedding in result:
@@ -307,6 +310,10 @@ class RAGService:
                 ))
         if failed:
             logger.warning("%d/%d embedding batches failed; keeping plain chunks", failed, len(batches))
+        # (total_batches, failed_batches, first_error): the caller treats total
+        # failure as a failed doc (re-raising the original error) while keeping
+        # partial successes indexed.
+        return len(batches), failed, first_error
 
     async def chunk_document(self, title: str, content: str, doc_id: int, db: AsyncSession):
         """Split document into chunks and store with embeddings."""
