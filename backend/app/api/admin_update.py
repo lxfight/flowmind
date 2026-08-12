@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -23,10 +24,19 @@ from app.services.update_service import (
 router = APIRouter(prefix="/api/admin/update", tags=["admin-update"])
 TERMINAL_STATUSES = {"succeeded", "failed", "rolled_back"}
 
+# 全局锁，防止并发更新/回滚操作
+_update_lock = asyncio.Lock()
+
 
 class UpdateApplyRequest(BaseModel):
     version: str = Field(min_length=1, max_length=64)
     request_id: str | None = Field(default=None, min_length=8, max_length=64)
+
+
+class RollbackRequest(BaseModel):
+    version: str = Field(min_length=1, max_length=64)
+    request_id: str | None = Field(default=None, min_length=8, max_length=64)
+    restore_database: bool = Field(default=False)
 
 
 def _parse_datetime(value: Any) -> datetime | None:
@@ -69,6 +79,17 @@ async def _reconcile_started_request(
     return updater
 
 
+async def _check_concurrent_update(db: AsyncSession) -> SystemUpdateRun | None:
+    """检查是否有正在进行的更新或回滚操作"""
+    result = await db.execute(
+        select(SystemUpdateRun)
+        .where(SystemUpdateRun.status.notin_(TERMINAL_STATUSES))
+        .order_by(SystemUpdateRun.created_at.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
 def _run_payload(run: SystemUpdateRun, actor_name: str | None = None) -> dict[str, Any]:
     return {
         "id": run.id,
@@ -83,6 +104,7 @@ def _run_payload(run: SystemUpdateRun, actor_name: str | None = None) -> dict[st
         "message": run.message,
         "error": run.error,
         "backup_path": run.backup_path,
+        "restore_database": run.restore_database,
         "created_at": run.created_at,
         "updated_at": run.updated_at,
         "finished_at": run.finished_at,
@@ -129,65 +151,79 @@ async def apply_update(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     request_id = data.request_id or uuid.uuid4().hex
-    existing_result = await db.execute(
-        select(SystemUpdateRun).where(SystemUpdateRun.request_id == request_id)
-    )
-    existing = existing_result.scalar_one_or_none()
-    if existing:
-        if existing.target_version != target_version:
-            raise HTTPException(status_code=409, detail="请求 ID 已用于其他版本")
-        updater = await _reconcile_started_request(db, request_id)
-        return {
-            "run": _run_payload(existing),
-            "updater": updater,
-            "idempotent_replay": True,
-        }
 
-    overview = await update_overview()
-    latest = overview.get("latest")
-    if not latest or latest.get("version") != target_version:
-        raise HTTPException(status_code=409, detail="目标版本不是当前可用的最新正式版本")
-    if target_version == APP_VERSION:
-        raise HTTPException(status_code=409, detail="当前已是该版本")
-    if not overview["updater"].get("available"):
-        raise HTTPException(status_code=503, detail="updater 服务不可用")
+    # 使用锁防止并发更新
+    if not _update_lock.locked():
+        async with _update_lock:
+            # 检查是否有正在进行的更新
+            active_run = await _check_concurrent_update(db)
+            if active_run and active_run.request_id != request_id:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"已有更新操作正在进行中（目标版本: {active_run.target_version}），请等待完成后再试"
+                )
 
-    run = SystemUpdateRun(
-        request_id=request_id,
-        actor_id=current_user.id,
-        previous_version=APP_VERSION,
-        target_version=target_version,
-        status="queued",
-        step="queued",
-        progress=0,
-        message="等待 updater 接管更新",
-    )
-    db.add(run)
-    await db.flush()
-    await db.commit()
-    try:
-        updater = await updater_client.request(
-            "POST",
-            "/apply",
-            {"version": target_version, "request_id": request_id},
-        )
-    except (RuntimeError, httpx.HTTPError, ValueError) as exc:
-        updater = await _reconcile_started_request(db, request_id)
-        if updater is not None:
-            return {"run": _run_payload(run), "updater": updater, "reconciled": True}
-        run.status = "failed"
-        run.error = str(exc)[:4000]
-        run.finished_at = datetime.now(UTC)
-        await db.commit()
-        raise HTTPException(status_code=502, detail="updater 未能启动更新") from exc
-    await _sync_run(db, updater)
-    await db.commit()
-    return {"run": _run_payload(run), "updater": updater}
+            existing_result = await db.execute(
+                select(SystemUpdateRun).where(SystemUpdateRun.request_id == request_id)
+            )
+            existing = existing_result.scalar_one_or_none()
+            if existing:
+                if existing.target_version != target_version:
+                    raise HTTPException(status_code=409, detail="请求 ID 已用于其他版本")
+                updater = await _reconcile_started_request(db, request_id)
+                return {
+                    "run": _run_payload(existing),
+                    "updater": updater,
+                    "idempotent_replay": True,
+                }
+
+            overview = await update_overview()
+            latest = overview.get("latest")
+            if not latest or latest.get("version") != target_version:
+                raise HTTPException(status_code=409, detail="目标版本不是当前可用的最新正式版本")
+            if target_version == APP_VERSION:
+                raise HTTPException(status_code=409, detail="当前已是该版本")
+            if not overview["updater"].get("available"):
+                raise HTTPException(status_code=503, detail="updater 服务不可用")
+
+            run = SystemUpdateRun(
+                request_id=request_id,
+                actor_id=current_user.id,
+                previous_version=APP_VERSION,
+                target_version=target_version,
+                status="queued",
+                step="queued",
+                progress=0,
+                message="等待 updater 接管更新",
+            )
+            db.add(run)
+            await db.flush()
+            await db.commit()
+            try:
+                updater = await updater_client.request(
+                    "POST",
+                    "/apply",
+                    {"version": target_version, "request_id": request_id},
+                )
+            except (RuntimeError, httpx.HTTPError, ValueError) as exc:
+                updater = await _reconcile_started_request(db, request_id)
+                if updater is not None:
+                    return {"run": _run_payload(run), "updater": updater, "reconciled": True}
+                run.status = "failed"
+                run.error = str(exc)[:4000]
+                run.finished_at = datetime.now(UTC)
+                await db.commit()
+                raise HTTPException(status_code=502, detail="updater 未能启动更新") from exc
+            await _sync_run(db, updater)
+            await db.commit()
+            return {"run": _run_payload(run), "updater": updater}
+    else:
+        raise HTTPException(status_code=409, detail="另一个更新操作正在启动中，请稍后再试")
 
 
 @router.post("/rollback")
 async def rollback_update(
-    data: UpdateApplyRequest,
+    data: RollbackRequest,
     current_user: User = Depends(get_current_superuser),
     db: AsyncSession = Depends(get_db),
 ):
@@ -197,51 +233,66 @@ async def rollback_update(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    existing_result = await db.execute(
-        select(SystemUpdateRun).where(SystemUpdateRun.request_id == request_id)
-    )
-    existing = existing_result.scalar_one_or_none()
-    if existing:
-        if existing.target_version != target_version:
-            raise HTTPException(status_code=409, detail="请求 ID 已用于其他版本")
-        updater = await _reconcile_started_request(db, request_id)
-        return {
-            "run": _run_payload(existing),
-            "updater": updater,
-            "idempotent_replay": True,
-        }
+    # 使用锁防止并发更新
+    if not _update_lock.locked():
+        async with _update_lock:
+            # 检查是否有正在进行的更新
+            active_run = await _check_concurrent_update(db)
+            if active_run and active_run.request_id != request_id:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"已有更新操作正在进行中（目标版本: {active_run.target_version}），请等待完成后再试"
+                )
 
-    run = SystemUpdateRun(
-        request_id=request_id,
-        actor_id=current_user.id,
-        previous_version=APP_VERSION,
-        target_version=target_version,
-        status="queued",
-        step="queued",
-        progress=0,
-        message="等待 updater 接管回滚",
-    )
-    db.add(run)
-    await db.flush()
-    await db.commit()
-    try:
-        updater = await updater_client.request(
-            "POST",
-            "/rollback",
-            {"version": target_version, "request_id": request_id},
-        )
-    except (RuntimeError, httpx.HTTPError) as exc:
-        updater = await _reconcile_started_request(db, request_id)
-        if updater is not None:
-            return {"run": _run_payload(run), "updater": updater, "reconciled": True}
-        run.status = "failed"
-        run.error = str(exc)[:4000]
-        run.finished_at = datetime.now(UTC)
-        await db.commit()
-        raise HTTPException(status_code=502, detail="updater 未能启动回滚") from exc
-    await _sync_run(db, updater)
-    await db.commit()
-    return {"run": _run_payload(run), "updater": updater}
+            existing_result = await db.execute(
+                select(SystemUpdateRun).where(SystemUpdateRun.request_id == request_id)
+            )
+            existing = existing_result.scalar_one_or_none()
+            if existing:
+                if existing.target_version != target_version:
+                    raise HTTPException(status_code=409, detail="请求 ID 已用于其他版本")
+                updater = await _reconcile_started_request(db, request_id)
+                return {
+                    "run": _run_payload(existing),
+                    "updater": updater,
+                    "idempotent_replay": True,
+                }
+
+            run = SystemUpdateRun(
+                request_id=request_id,
+                actor_id=current_user.id,
+                previous_version=APP_VERSION,
+                target_version=target_version,
+                status="queued",
+                step="queued",
+                progress=0,
+                message="等待 updater 接管回滚",
+                restore_database=data.restore_database,
+            )
+            db.add(run)
+            await db.flush()
+            await db.commit()
+            try:
+                payload = {
+                    "version": target_version,
+                    "request_id": request_id,
+                    "restore_database": data.restore_database,
+                }
+                updater = await updater_client.request("POST", "/rollback", payload)
+            except (RuntimeError, httpx.HTTPError) as exc:
+                updater = await _reconcile_started_request(db, request_id)
+                if updater is not None:
+                    return {"run": _run_payload(run), "updater": updater, "reconciled": True}
+                run.status = "failed"
+                run.error = str(exc)[:4000]
+                run.finished_at = datetime.now(UTC)
+                await db.commit()
+                raise HTTPException(status_code=502, detail="updater 未能启动回滚") from exc
+            await _sync_run(db, updater)
+            await db.commit()
+            return {"run": _run_payload(run), "updater": updater}
+    else:
+        raise HTTPException(status_code=409, detail="另一个更新操作正在启动中，请稍后再试")
 
 
 @router.get("/history")
