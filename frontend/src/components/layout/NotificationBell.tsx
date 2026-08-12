@@ -15,12 +15,18 @@ import {
 } from './notificationDisplay'
 import { cn } from '../../utils/cn'
 
+const BELL_PAGE_SIZE = 30
+
 export function NotificationBell() {
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const { unreadCount, setUnreadCount } = useUnreadCount()
   const [notifications, setNotifications] = useState<AppNotification[]>([])
   const [loading, setLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [hasMore, setHasMore] = useState(false)
+  const pageRef = useRef(1)
+  const scrollRef = useRef<HTMLDivElement>(null)
   const rootRef = useRef<HTMLDivElement>(null)
 
   // Close on outside click
@@ -37,9 +43,11 @@ export function NotificationBell() {
 
   const loadList = useCallback(async () => {
     setLoading(true)
+    pageRef.current = 1
     try {
-      const data = await fetchNotifications(1, 50)
+      const data = await fetchNotifications(1, BELL_PAGE_SIZE)
       setNotifications(data.items)
+      setHasMore(data.items.length < data.total)
       setUnreadCount(data.unread_count)
     } catch {
       // ignore
@@ -47,6 +55,32 @@ export function NotificationBell() {
       setLoading(false)
     }
   }, [setUnreadCount])
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || loading || !hasMore) return
+    setLoadingMore(true)
+    const next = pageRef.current + 1
+    try {
+      const data = await fetchNotifications(next, BELL_PAGE_SIZE)
+      setNotifications((prev) => {
+        const seen = new Set(prev.map((n) => n.id))
+        return [...prev, ...data.items.filter((n) => !seen.has(n.id))]
+      })
+      setHasMore(data.items.length < data.total)
+      pageRef.current = next
+    } catch {
+      // ignore; the next scroll attempt will retry
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [hasMore, loading, loadingMore])
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 24) {
+      void loadMore()
+    }
+  }
 
   const toggle = () => {
     const next = !open
@@ -112,7 +146,7 @@ export function NotificationBell() {
             )}
           </div>
 
-          <div className="max-h-96 overflow-y-auto">
+          <div ref={scrollRef} onScroll={handleScroll} className="max-h-96 overflow-y-auto">
             {loading ? (
               <div className="flex items-center justify-center px-4 py-8 text-sm text-muted-foreground">
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -126,54 +160,65 @@ export function NotificationBell() {
                 暂无通知
               </div>
             ) : (
-              notifications.map((n) => {
-                const Icon = NOTIFICATION_TYPE_ICONS[n.type] ?? Info
-                const color = NOTIFICATION_TYPE_COLORS[n.type] ?? 'text-muted-foreground bg-muted'
-                return (
-                  <button
-                    key={n.id}
-                    type="button"
-                    onClick={() => handleClickItem(n)}
-                    className={cn(
-                      'group flex w-full items-start gap-3 border-b border-border/50 px-4 py-3 text-left transition-colors hover:bg-accent',
-                      !n.is_read && 'bg-primary/5'
-                    )}
-                  >
-                    <span
+              <>
+                {notifications.map((n) => {
+                  const Icon = NOTIFICATION_TYPE_ICONS[n.type] ?? Info
+                  const color = NOTIFICATION_TYPE_COLORS[n.type] ?? 'text-muted-foreground bg-muted'
+                  return (
+                    <button
+                      key={n.id}
+                      type="button"
+                      onClick={() => handleClickItem(n)}
                       className={cn(
-                        'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px]',
-                        color
+                        'group flex w-full items-start gap-3 border-b border-border/50 px-4 py-3 text-left transition-colors hover:bg-accent',
+                        !n.is_read && 'bg-primary/5'
                       )}
                     >
-                      <Icon className="h-4 w-4" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-2">
-                        <span
-                          className={cn(
-                            'truncate text-sm',
-                            n.is_read ? 'text-foreground/80' : 'font-medium text-foreground'
-                          )}
-                        >
-                          {n.title}
-                        </span>
-                        {!n.is_read && (
-                          <span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" />
+                      <span
+                        className={cn(
+                          'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px]',
+                          color
                         )}
+                      >
+                        <Icon className="h-4 w-4" />
                       </span>
-                      {n.body && (
-                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                          {n.body}
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-2">
+                          <span
+                            className={cn(
+                              'truncate text-sm',
+                              n.is_read ? 'text-foreground/80' : 'font-medium text-foreground'
+                            )}
+                          >
+                            {n.title}
+                          </span>
+                          {!n.is_read && (
+                            <span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" />
+                          )}
                         </span>
-                      )}
-                      <span className="mt-1 block text-xs text-muted-foreground/70">
-                        {formatNotificationTime(n.created_at)}
+                        {n.body && (
+                          <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                            {n.body}
+                          </span>
+                        )}
+                        <span className="mt-1 block text-xs text-muted-foreground/70">
+                          {formatNotificationTime(n.created_at)}
+                        </span>
                       </span>
-                    </span>
-                    <ArrowUpRight className="mt-2 h-3.5 w-3.5 flex-none text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
-                  </button>
-                )
-              })
+                      <ArrowUpRight className="mt-2 h-3.5 w-3.5 flex-none text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
+                    </button>
+                  )
+                })}
+                {hasMore && (
+                  <div className="flex items-center justify-center px-4 py-3">
+                    {loadingMore ? (
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    ) : (
+                      <span className="text-xs text-muted-foreground">继续滚动加载更多</span>
+                    )}
+                  </div>
+                )}
+              </>
             )}
           </div>
 
