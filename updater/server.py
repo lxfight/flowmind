@@ -140,16 +140,24 @@ def command(
     merged_env = os.environ.copy()
     if env:
         merged_env.update(env)
-    process = subprocess.run(
-        args,
-        cwd=PROJECT_DIR,
-        env=merged_env,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        timeout=timeout,
-        check=False,
-    )
+    try:
+        process = subprocess.run(
+            args,
+            cwd=PROJECT_DIR,
+            env=merged_env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        output = (exc.stdout or b"") if isinstance(exc.stdout, bytes) else str(exc.stdout or "")
+        tail = str(output).strip()[-2000:]
+        raise RuntimeError(
+            f"命令超时（超过 {timeout}s）: {shlex.join(args)[:120]}"
+            + (f"\n{tail}" if tail else "")
+        ) from exc
     output = process.stdout.strip()
     for line in output.splitlines()[-20:]:
         add_log(state, line)
@@ -187,7 +195,7 @@ def pull_image_via_mirror(state: dict[str, Any], image: str) -> bool:
         source = f"{mirror}/{image.split('/', 1)[-1]}"
         add_log(state, f"尝试从镜像仓库 {mirror} 拉取 {source}")
         try:
-            command(state, ["docker", "pull", source], timeout=1200)
+            command(state, ["docker", "pull", source], timeout=pull_timeout())
             command(state, ["docker", "tag", source, image], timeout=60)
             add_log(state, f"已通过镜像仓库 {mirror} 获取 {image}")
             return True
@@ -196,12 +204,26 @@ def pull_image_via_mirror(state: dict[str, Any], image: str) -> bool:
     return False
 
 
+def pull_timeout() -> int:
+    """Read the per-attempt image-pull timeout (seconds), bounded 300..7200."""
+    try:
+        value = int(os.getenv("FLOWMIND_PULL_TIMEOUT", "1800"))
+    except ValueError:
+        value = 1800
+    return max(300, min(value, 7200))
+
+
 def pull_images_with_retry(state: dict[str, Any], services: tuple[str, ...]) -> None:
     """Pull the target images, retrying a few times on transient network
     failures so a slow or flaky registry connection doesn't abort the whole
     update. Docker pull resumes partial layers, so a retry is cheap. If the
     primary registry stays unreachable, configured image-registry mirrors are
-    tried and the result re-tagged to the primary name."""
+    tried and the result re-tagged to the primary name.
+
+    ``FLOWMIND_PULL_TIMEOUT`` (seconds) caps each attempt; on a slow uplink
+    you may need to raise it above the default so a large image set can
+    finish before the attempt is killed.
+    """
     attempts = int(os.getenv("FLOWMIND_PULL_RETRIES", "3"))
     attempts = max(1, min(attempts, 6))
     base_delay = float(os.getenv("FLOWMIND_PULL_RETRY_DELAY", "3"))
@@ -210,7 +232,7 @@ def pull_images_with_retry(state: dict[str, Any], services: tuple[str, ...]) -> 
         if attempt > 1:
             add_log(state, f"镜像拉取第 {attempt}/{attempts} 次尝试")
         try:
-            command(state, compose_args("pull", *services), timeout=1200)
+            command(state, compose_args("pull", *services), timeout=pull_timeout())
             return
         except (RuntimeError, subprocess.TimeoutExpired) as exc:
             last_error = str(exc)[-500:]
@@ -506,21 +528,33 @@ def checkout_and_deploy(state: dict[str, Any], target: str) -> None:
         progress=70,
         message="正在重建应用服务并执行数据库迁移",
     )
-    command(
-        state,
-        compose_args(
-            "up",
-            "-d",
-            "--no-build",
-            "--no-deps",
-            "--remove-orphans",
-            "--wait",
-            "--wait-timeout",
-            "180",
-            *runtime_services,
-        ),
-        timeout=600,
-    )
+    # Bring services up one at a time so a single service failing (e.g. a
+    # host networking/iptables issue) is reported clearly and the others
+    # still deploy, instead of aborting the whole stack mid-way.
+    failed: list[str] = []
+    for service in runtime_services:
+        try:
+            command(
+                state,
+                compose_args(
+                    "up",
+                    "-d",
+                    "--no-build",
+                    "--no-deps",
+                    service,
+                ),
+                timeout=300,
+            )
+        except RuntimeError as exc:
+            failed.append(f"{service}: {str(exc)[-300:]}")
+    if failed:
+        detail = "; ".join(failed)
+        if "iptables" in detail or "network" in detail.lower():
+            raise RuntimeError(
+                "部署失败：Docker 网络初始化错误（常见于宿主机缺少 iptables 或防火墙组件）。"
+                f"请检查宿主机网络环境后重试。详情: {detail[-1000:]}"
+            )
+        raise RuntimeError(f"部署部分失败: {detail}")
     update_state(
         state,
         status="verifying",
@@ -548,21 +582,29 @@ def rollback_deployment(
     set_dotenv_version(previous_version)
     services = configured_application_services(state)
     runtime_services = tuple(service for service in services if service != "updater")
-    command(
-        state,
-        compose_args(
-            "up",
-            "-d",
-            "--no-build",
-            "--no-deps",
-            "--remove-orphans",
-            "--wait",
-            "--wait-timeout",
-            "180",
-            *runtime_services,
-        ),
-        timeout=600,
-    )
+    # Bring services back one at a time so a single service failing (e.g. a
+    # host networking issue) doesn't take down the whole rollback; previously
+    # running containers are left untouched.
+    failed: list[str] = []
+    for service in runtime_services:
+        try:
+            command(
+                state,
+                compose_args(
+                    "up", "-d", "--no-build", "--no-deps", service
+                ),
+                timeout=300,
+            )
+        except RuntimeError as exc:
+            failed.append(f"{service}: {str(exc)[-300:]}")
+    if failed:
+        detail = "; ".join(failed)
+        if "iptables" in detail or "network" in detail.lower():
+            raise RuntimeError(
+                "回滚部分失败：Docker 网络初始化错误（常见于宿主机缺少 iptables 或防火墙组件）。"
+                f"请检查宿主机网络环境后重试。详情: {detail[-1000:]}"
+            )
+        raise RuntimeError(f"回滚部分失败: {detail}")
     wait_for_url(
         state,
         BACKEND_HEALTH_URL,
