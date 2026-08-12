@@ -13,15 +13,17 @@ from langchain_openai import ChatOpenAI
 from langgraph.errors import GraphRecursionError
 from langgraph.prebuilt import ToolNode, create_react_agent
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import selectinload
 
+from app.api.permissions import ensure_project_admin
 from app.core.config import get_settings
+from app.core.notify import create_notification
 from app.models.activity import ActivityLog
 from app.models.knowledge import DocChunk, KnowledgeDoc
 from app.models.milestone import Milestone
 from app.models.project import Project, ProjectMember
-from app.models.task import Task, TaskAttachment, TaskStatus
+from app.models.task import Task, TaskAttachment, TaskStatus, task_assignees
 from app.models.user import User
 from app.schemas import (
     MilestoneCreate,
@@ -1005,6 +1007,131 @@ async def list_activities(
 
 
 @tool
+async def add_member(
+    user_id: int,
+    role: str = "member",
+    project_id: int | None = None,
+    config: RunnableConfig = None,
+) -> str:
+    """将用户加入项目并指定角色（owner/admin/member/viewer）。需项目管理员权限。"""
+    db, user, ctx_pid, project_ids, names = _get_ctx(config)
+    target, err = _resolve_target_project(config, project_id)
+    if target is None:
+        if err == "ASK":
+            return "目标项目不明确，已向用户提问要在哪个项目中添加成员，请立即结束本轮回复。"
+        return _format_result(False, message=err)
+    if role not in ("owner", "admin", "member", "viewer"):
+        return _format_result(False, message="role 必须是 owner、admin、member 或 viewer。")
+    try:
+        current_member = await ensure_project_admin(target, user, db)
+        if role == "admin" and current_member and current_member.role != "owner":
+            return _format_result(False, message="只有项目所有者才能添加管理员。")
+        target_user = (await db.execute(
+            select(User).where(User.id == user_id, User.is_active.is_(True), User.is_approved.is_(True))
+        )).scalar_one_or_none()
+        if not target_user:
+            return _format_result(False, message="只能添加已启用并审批通过的用户。")
+        existing = (await db.execute(
+            select(ProjectMember).where(ProjectMember.project_id == target, ProjectMember.user_id == user_id)
+        )).scalar_one_or_none()
+        if existing:
+            return _format_result(False, message="用户已是项目成员。")
+        async with _locked_mutation(config):
+            idem_key = ("add_member", target, user_id, role)
+            cached = _idem_lookup(config, idem_key)
+            if cached is not None:
+                return cached
+            db.add(ProjectMember(project_id=target, user_id=user_id, role=role))
+            await db.flush()
+            db.add(ActivityLog(
+                project_id=target, user_id=user.id, action="create",
+                target_type="member", target_id=user_id,
+                summary=f"添加项目成员: {target_user.display_name or target_user.username}",
+            ))
+            if user_id != user.id:
+                project = (await db.execute(select(Project).where(Project.id == target))).scalar_one_or_none()
+                project_name = project.name if project else f"#{target}"
+                role_labels = {"owner": "所有者", "admin": "管理员", "member": "成员", "viewer": "查看者"}
+                await create_notification(
+                    db, user_id=user_id, type="member_added",
+                    title=f"{user.display_name or user.username} 邀请你加入项目「{project_name}」",
+                    body=f"你的角色：{role_labels.get(role, role)}",
+                    link=f"/project/{target}/board",
+                )
+            result = _format_result(
+                True,
+                message=f"已添加 {target_user.display_name or target_user.username} 为项目成员（{role}）。",
+                action={"type": "add_member", "user_id": user_id, "project_id": target, "role": role},
+            )
+            return _idem_store(config, idem_key, result)
+    except Exception as e:
+        return _format_result(False, message=str(e))
+
+
+@tool
+async def remove_member(
+    user_id: int,
+    confirmed: bool = False,
+    project_id: int | None = None,
+    config: RunnableConfig = None,
+) -> str:
+    """将用户移出项目；破坏性操作，必须先确认再传 confirmed=true。需项目管理员权限。"""
+    db, user, ctx_pid, project_ids, names = _get_ctx(config)
+    target, err = _resolve_target_project(config, project_id)
+    if target is None:
+        if err == "ASK":
+            return "目标项目不明确，已向用户提问要在哪个项目中移除成员，请立即结束本轮回复。"
+        return _format_result(False, message=err)
+    try:
+        current_member = await ensure_project_admin(target, user, db)
+        member = (await db.execute(
+            select(ProjectMember).where(ProjectMember.project_id == target, ProjectMember.user_id == user_id)
+        )).scalar_one_or_none()
+        if not member:
+            return _format_result(False, message="该用户不是项目成员。")
+        if member.role == "owner":
+            return _format_result(False, message="不能移除项目所有者。")
+        if member.role == "admin" and not (user.is_superuser or (current_member and current_member.role == "owner")):
+            return _format_result(False, message="只有项目所有者才能移除管理员。")
+        if not confirmed:
+            return _format_result(
+                False,
+                message=(
+                    "此操作将把该用户移出项目并取消其对项目内任务的指派。"
+                    "请先获得用户明确同意，然后使用 confirmed=true 重新调用本工具。"
+                ),
+            )
+        async with _locked_mutation(config):
+            idem_key = ("remove_member", target, user_id)
+            cached = _idem_lookup(config, idem_key)
+            if cached is not None:
+                return cached
+            await db.refresh(member, ["user"])
+            removed_name = member.user.display_name or member.user.username if member.user else str(user_id)
+            db.add(ActivityLog(
+                project_id=target, user_id=user.id, action="delete",
+                target_type="member", target_id=user_id, summary=f"移除项目成员: {removed_name}",
+            ))
+            await db.execute(
+                delete(task_assignees).where(
+                    task_assignees.c.user_id == user_id,
+                    task_assignees.c.task_id.in_(
+                        select(Task.id).where(Task.project_id == target)
+                    ),
+                )
+            )
+            await db.delete(member)
+            result = _format_result(
+                True,
+                message=f"已移除成员 {removed_name}。",
+                action={"type": "remove_member", "user_id": user_id, "project_id": target},
+            )
+            return _idem_store(config, idem_key, result)
+    except Exception as e:
+        return _format_result(False, message=str(e))
+
+
+@tool
 async def move_task(task_id: int, status_id: int, config: RunnableConfig = None) -> str:
     """将任务移动到指定状态列。status_id 必须通过 get_project_info 获取。"""
     db, user, ctx_pid, project_ids, _names = _get_ctx(config)
@@ -1565,7 +1692,7 @@ TOOL_GROUPS: list[tuple[str, list]] = [
     ("查询", [get_project_info, list_tasks, search_tasks, get_task, list_attachments, list_activities, get_members]),
     ("操作", [create_task, create_tasks, update_task, move_task, delete_task,
               add_comment, add_subtask, add_subtasks, update_subtask]),
-    ("管理", [create_status, update_status, delete_status]),
+    ("管理", [create_status, update_status, delete_status, add_member, remove_member]),
     ("里程碑", [list_milestones, get_milestone, create_milestone,
                 update_milestone, delete_milestone]),
     ("知识库", [search_knowledge, list_knowledge_docs, read_knowledge_doc, get_doc_content]),
@@ -1615,8 +1742,8 @@ _SHARED_RULES = (
     "- 能合理推断的直接执行，并在回复中说明所做的假设。\n"
     "- 调用 ask_user 后立即结束本轮回复：不要再调用其他工具，也不要自行假设或编造答案。\n\n"
     "破坏性操作确认规则：\n"
-    "- delete_task、delete_status 和 delete_milestone 是破坏性操作。首次调用不要传 confirmed；"
-    "工具会返回待确认信息。\n"
+    "- delete_task、delete_status、delete_milestone 和 remove_member 是破坏性操作。"
+    "首次调用不要传 confirmed；工具会返回待确认信息。\n"
     "- 随后必须向用户说明将删除的状态列及其影响并获得明确同意（可直接在回复中询问），"
     "用户同意后再以 confirmed=true 调用对应删除工具完成删除。\n\n"
     "工作方式：先调用查询工具确认事实，再执行操作。\n"
