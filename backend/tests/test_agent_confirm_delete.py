@@ -8,13 +8,13 @@ import json
 
 import pytest
 from conftest import async_session_factory
-from helpers import admin_login, create_project
+from helpers import admin_login, create_project, create_task
 from sqlalchemy import select
 
-from app.models.task import TaskStatus
+from app.models.task import Task, TaskStatus
 from app.models.user import User
 from app.services import agent_service
-from app.services.agent_service import delete_status
+from app.services.agent_service import delete_status, delete_task
 
 
 async def _tool_config(project_id: int):
@@ -87,3 +87,46 @@ def test_system_prompt_has_destructive_confirm_rule():
     )
     assert "破坏性操作确认规则" in prompt
     assert "confirmed=true" in prompt
+
+
+@pytest.mark.asyncio
+async def test_delete_task_unconfirmed_does_not_delete(client):
+    headers = admin_login(client)
+    project_id, statuses = create_project(client, headers, name="确认删任务")
+    task = create_task(client, headers, project_id, statuses[0]["id"], "待删任务")
+    config, session = await _tool_config(project_id)
+    try:
+        raw = await delete_task.ainvoke({"task_id": task["id"]}, config=config)
+        payload = json.loads(raw)
+        assert payload["ok"] is False
+        assert "confirmed=true" in payload["message"]
+        # Nothing deleted, no action recorded
+        assert await session.get(Task, task["id"]) is not None
+        assert "action" not in payload
+    finally:
+        await session.close()
+
+
+@pytest.mark.asyncio
+async def test_delete_task_confirmed_deletes(client):
+    headers = admin_login(client)
+    project_id, statuses = create_project(client, headers, name="确认删任务")
+    task = create_task(client, headers, project_id, statuses[0]["id"], "确认删除")
+    # Add a comment so cascade deletion is exercised.
+    client.post(
+        f"/api/projects/{project_id}/tasks/{task['id']}/comments",
+        headers=headers,
+        json={"content": "将被级联删除"},
+    )
+    config, session = await _tool_config(project_id)
+    try:
+        raw = await delete_task.ainvoke(
+            {"task_id": task["id"], "confirmed": True}, config=config
+        )
+        payload = json.loads(raw)
+        assert payload["ok"] is True
+        assert payload["action"]["type"] == "delete_task"
+        await session.commit()
+        assert await session.get(Task, task["id"]) is None
+    finally:
+        await session.close()

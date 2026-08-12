@@ -632,6 +632,52 @@ async def delete_milestone(
         return _format_result(False, message=str(e))
 
 
+@tool
+async def delete_task(
+    task_id: int,
+    confirmed: bool = False,
+    config: RunnableConfig = None,
+) -> str:
+    """删除任务及其评论、子任务与附件；破坏性操作，必须先确认再传 confirmed=true。"""
+    db, user, ctx_pid, project_ids, _names = _get_ctx(config)
+    idem_key = ("delete_task", task_id)
+    if confirmed:
+        cached = _idem_lookup(config, idem_key)
+        if cached is not None:
+            return cached
+    pid = ctx_pid if ctx_pid is not None else await _find_task_project(db, task_id, project_ids)
+    if pid is None:
+        return _format_result(False, message=f"未找到任务 id={task_id}（不属于你参与的项目）。")
+    try:
+        if not confirmed:
+            t = await task_service.get_task(pid, task_id, user, db)
+            return _format_result(
+                False,
+                message=(
+                    f"此操作将永久删除任务「{t.title}」及其全部评论、子任务和附件，"
+                    "无法恢复。请先获得用户明确同意，然后使用 confirmed=true 重新调用本工具。"
+                ),
+            )
+        async with _locked_mutation(config):
+            cached = _idem_lookup(config, idem_key)
+            if cached is not None:
+                return cached
+            t = await task_service.get_task(pid, task_id, user, db)
+            await task_service.delete_task(pid, task_id, user, db)
+            result = _format_result(
+                True,
+                message=f"已删除任务 [{task_id}] {t.title}。",
+                action={
+                    "type": "delete_task",
+                    "task_id": task_id,
+                    "title": t.title,
+                },
+            )
+            return _idem_store(config, idem_key, result)
+    except Exception as e:
+        return _format_result(False, message=str(e))
+
+
 MAX_BATCH_ITEMS = 50
 
 
@@ -1449,8 +1495,8 @@ async def _bounded_tool_call(request, execute):
 # automatically, so there is nothing else to keep in sync.
 TOOL_GROUPS: list[tuple[str, list]] = [
     ("查询", [get_project_info, list_tasks, search_tasks, get_task, get_members]),
-    ("操作", [create_task, create_tasks, update_task, move_task, add_comment,
-              add_subtask, add_subtasks, update_subtask]),
+    ("操作", [create_task, create_tasks, update_task, move_task, delete_task,
+              add_comment, add_subtask, add_subtasks, update_subtask]),
     ("管理", [create_status, update_status, delete_status]),
     ("里程碑", [list_milestones, get_milestone, create_milestone,
                 update_milestone, delete_milestone]),
@@ -1501,7 +1547,7 @@ _SHARED_RULES = (
     "- 能合理推断的直接执行，并在回复中说明所做的假设。\n"
     "- 调用 ask_user 后立即结束本轮回复：不要再调用其他工具，也不要自行假设或编造答案。\n\n"
     "破坏性操作确认规则：\n"
-    "- delete_status 和 delete_milestone 是破坏性操作。首次调用不要传 confirmed；"
+    "- delete_task、delete_status 和 delete_milestone 是破坏性操作。首次调用不要传 confirmed；"
     "工具会返回待确认信息。\n"
     "- 随后必须向用户说明将删除的状态列及其影响并获得明确同意（可直接在回复中询问），"
     "用户同意后再以 confirmed=true 调用对应删除工具完成删除。\n\n"
