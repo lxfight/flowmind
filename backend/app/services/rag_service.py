@@ -1,9 +1,10 @@
 import asyncio
 import contextlib
 import logging
+import re
 
 from openai import AsyncOpenAI
-from sqlalchemy import select, text
+from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -14,6 +15,11 @@ settings = get_settings()
 logger = logging.getLogger(__name__)
 
 _is_sqlite = "sqlite" in settings.database_url
+
+
+def escape_like(term: str) -> str:
+    """Escape LIKE wildcards so query tokens are matched literally."""
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def _is_retryable_embedding_error(exc: BaseException) -> bool:
@@ -335,7 +341,9 @@ class RAGService:
     ) -> list[dict]:
         """Keyword retrieval over all indexed chunks of one or more projects.
 
-        Scores every chunk with ``keyword_score`` and returns the top
+        First narrows to chunks that contain at least one query token (SQL
+        LIKE) so a large knowledge base doesn't ship every chunk into Python,
+        then scores the candidates with ``keyword_score`` and returns the top
         candidates with score > 0, best first. No match means an empty
         list ("no relevant knowledge") — it deliberately does NOT fall
         back to the first N chunks.
@@ -345,11 +353,32 @@ class RAGService:
             if isinstance(project_id, list)
             else KnowledgeDoc.project_id == project_id
         )
+        # Coarse SQL pre-filter: keep only chunks mentioning any query token.
+        # This bounds the rows pulled into Python (keyword_score does the
+        # precise n-gram ranking). A token short enough to be a common
+        # substring can still pull many rows, so also cap the candidate set.
+        # Coarse SQL pre-filter: keep only chunks mentioning any query n-gram.
+        # This bounds the rows pulled into Python (keyword_score does the
+        # precise n-gram ranking). Using character bigrams (CJK-friendly)
+        # mirrors the scorer's coverage so recall stays close to the full
+        # scan, while the LIMIT caps pathological cases (a very common gram).
+        grams = set(_char_ngrams(query, 2)) | set(_char_ngrams(query, 3))
+        grams = {g for g in grams if g}
+        if not grams:
+            return []
+        # Bound the OR list so a long query doesn't blow up the SQL.
+        grams = list(grams)[:16]
+        where = [project_filter, KnowledgeDoc.status == DOC_STATUS_INDEXED]
+        gram_filter = or_(
+            *(DocChunk.content.ilike(f"%{escape_like(g)}%", escape="\\") for g in grams)
+        )
+        where.append(gram_filter)
         result = await db.execute(
             select(DocChunk.id, DocChunk.content, KnowledgeDoc.title, KnowledgeDoc.project_id)
             .join(KnowledgeDoc)
-            .where(project_filter)
-            .where(KnowledgeDoc.status == DOC_STATUS_INDEXED)
+            .where(*where)
+            .order_by(DocChunk.id.desc())
+            .limit(max(candidate_limit * 10, 200))
         )
         rows = result.all()
 
@@ -586,7 +615,6 @@ class RAGService:
         The signature stays backward compatible: sizes fall back to
         ``settings.chunk_size`` / ``settings.chunk_overlap`` when omitted.
         """
-        import re
 
         size = chunk_size if chunk_size is not None else settings.chunk_size
         size = max(1, size)
