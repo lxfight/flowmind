@@ -45,6 +45,8 @@ const ACTION_LABELS: Record<string, string> = {
   create_milestone: '创建里程碑',
   update_milestone: '更新里程碑',
   delete_milestone: '删除里程碑',
+  add_member: '添加成员',
+  remove_member: '移除成员',
 }
 
 function ActionCard({ action }: { action: { type: string; title?: string; detail?: string } }) {

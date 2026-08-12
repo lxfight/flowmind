@@ -337,6 +337,8 @@ export interface ActionSummary {
     | 'create_milestone'
     | 'update_milestone'
     | 'delete_milestone'
+    | 'add_member'
+    | 'remove_member'
   task_id?: number
   status_id?: number
   parent_task_id?: number
