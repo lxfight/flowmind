@@ -62,6 +62,7 @@ export interface UpdateRun {
   message: string
   error: string | null
   backup_path: string | null
+  restore_database: boolean
   created_at: string
   updated_at: string
   finished_at: string | null
