@@ -36,6 +36,31 @@ const MENU_MAX_HEIGHT = 320
  * menu flips upward when there isn't enough room below the trigger and is
  * clamped to the viewport.
  */
+/**
+ * Find the nearest ancestor whose transform/filter/perspective would make a
+ * position:fixed descendant position relative to it instead of the viewport
+ * (a containing block). We must compensate for that offset so the portal menu
+ * still lands next to the trigger. Returns null when the viewport is the
+ * containing block.
+ */
+function containingBlockOffset(el: HTMLElement): { top: number; left: number } | null {
+  let node: HTMLElement | null = el.parentElement
+  while (node) {
+    const style = window.getComputedStyle(node)
+    if (
+      style.transform !== 'none'
+      || style.perspective !== 'none'
+      || style.filter !== 'none'
+      || style.willChange === 'transform'
+    ) {
+      const rect = node.getBoundingClientRect()
+      return { top: rect.top, left: rect.left }
+    }
+    node = node.parentElement
+  }
+  return null
+}
+
 export function DropdownMenu({ trigger, children, align = 'start' }: DropdownMenuProps) {
   const [open, setOpen] = useState(false)
   const [position, setPosition] = useState<MenuPosition | null>(null)
@@ -65,15 +90,28 @@ export function DropdownMenu({ trigger, children, align = 'start' }: DropdownMen
       ? triggerRect.right - menuWidth
       : triggerRect.left
     left = Math.max(MENU_VIEWPORT_GAP, Math.min(left, viewportWidth - menuWidth - MENU_VIEWPORT_GAP))
-    setPosition({ top, left, maxHeight: Math.min(maxHeight, MENU_MAX_HEIGHT) })
+    // If an ancestor has a transform/filter/perspective, position:fixed is
+    // relative to THAT ancestor, not the viewport. Compensate so the menu
+    // still appears right next to the trigger (e.g. inside a motion/framer
+    // or dnd-kit transformed card).
+    const block = containingBlockOffset(trigger)
+    const finalTop = block ? top - block.top : top
+    const finalLeft = block ? left - block.left : left
+    setPosition({ top: finalTop, left: finalLeft, maxHeight: Math.min(maxHeight, MENU_MAX_HEIGHT) })
   }, [align])
 
   useEffect(() => {
     if (!open) return
-    measure()
+    // Measure on the next animation frame so any in-flight transform/animation
+    // on the trigger's ancestors has settled — otherwise a framer-motion card
+    // mid-animation would push the menu to a stale position.
+    const raf = requestAnimationFrame(measure)
     const onResize = () => measure()
     window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('resize', onResize)
+    }
   }, [open, measure])
 
   useEffect(() => {
