@@ -599,6 +599,7 @@ export default function KanbanBoard() {
                       }}
                       onTaskClick={openTaskDetail}
                       onAssignTask={handleAssignTask}
+                      onAssigneeClick={handleAssigneeFilter}
                     />
                   ))}
                 </div>

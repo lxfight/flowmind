@@ -22,9 +22,11 @@ interface Props {
   onAddTask: () => void
   onTaskClick: (taskId: number) => void
   onAssignTask?: (taskId: number, userIds: number[]) => void
+  /** Clicking an assignee on a card filters the board to that member. */
+  onAssigneeClick?: (userId: number) => void
 }
 
-export function KanbanColumn({ status, tasks, members, milestones, readOnly = false, columnWidth, onColumnResizeStart, onAddTask, onTaskClick, onAssignTask }: Props) {
+export function KanbanColumn({ status, tasks, members, milestones, readOnly = false, columnWidth, onColumnResizeStart, onAddTask, onTaskClick, onAssignTask, onAssigneeClick }: Props) {
   const { setNodeRef, isOver } = useDroppable({
     id: `status-${status.id}`,
     disabled: readOnly,
@@ -87,6 +89,7 @@ export function KanbanColumn({ status, tasks, members, milestones, readOnly = fa
                   completed={status.is_done || task.is_completed}
                   onClick={() => onTaskClick(task.id)}
                   onAssign={onAssignTask ? (userIds) => onAssignTask(task.id, userIds) : undefined}
+                  onAssigneeClick={onAssigneeClick}
                 />
               </motion.div>
             ))}

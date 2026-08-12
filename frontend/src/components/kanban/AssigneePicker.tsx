@@ -18,6 +18,8 @@ interface AssigneePickerProps {
   size?: 'sm' | 'md'
   disabled?: boolean
   placeholder?: string
+  /** When provided, the picker shows a shortcut to filter the board to a member. */
+  onViewTasks?: (userId: number) => void
 }
 
 export function AssigneePicker({
@@ -28,6 +30,7 @@ export function AssigneePicker({
   size = 'md',
   disabled = false,
   placeholder = '未指派',
+  onViewTasks,
 }: AssigneePickerProps) {
   const [submitting, setSubmitting] = useState(false)
   const selected = members.filter((m) => value.includes(m.user_id))
@@ -102,6 +105,25 @@ export function AssigneePicker({
       onPointerDown={(e) => e.stopPropagation()}
     >
       <DropdownMenu trigger={trigger} align={align}>
+        {onViewTasks && selected.length > 0 && (
+          <>
+            {selected.slice(0, 3).map((member) => (
+              <DropdownMenuItem
+                key={member.user_id}
+                onClick={() => onViewTasks(member.user_id)}
+              >
+                <Avatar
+                  name={member.display_name || member.username}
+                  src={member.avatar_url}
+                  size="sm"
+                  className="mr-2"
+                />
+                <span className="flex-1 truncate text-left">查看 {member.display_name || member.username} 的任务</span>
+              </DropdownMenuItem>
+            ))}
+            <DropdownMenuSeparator />
+          </>
+        )}
         {/* "未指派" + separator stay pinned; the member list scrolls within the menu. */}
         <DropdownMenuItem onClick={handleClear}>
           <div className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-muted-foreground mr-2">

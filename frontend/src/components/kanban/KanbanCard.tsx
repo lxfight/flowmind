@@ -19,6 +19,8 @@ interface Props {
   completed?: boolean
   onClick?: () => void
   onAssign?: (userIds: number[]) => void
+  /** When provided, clicking an assignee filters the board to their tasks. */
+  onAssigneeClick?: (userId: number) => void
 }
 
 const priorityConfig = {
@@ -29,7 +31,7 @@ const priorityConfig = {
   4: { label: '紧急', variant: 'danger' as const },
 }
 
-export function KanbanCard({ task, members, milestones, isDragOverlay, readOnly = false, completed = false, onClick, onAssign }: Props) {
+export function KanbanCard({ task, members, milestones, isDragOverlay, readOnly = false, completed = false, onClick, onAssign, onAssigneeClick }: Props) {
   const {
     attributes,
     listeners,
@@ -163,18 +165,51 @@ export function KanbanCard({ task, members, milestones, isDragOverlay, readOnly 
               value={task.assignees.map((a) => a.id)}
               onChange={onAssign}
               size="sm"
+              onViewTasks={onAssigneeClick}
             />
           ) : task.assignees.length > 0 ? (
             <div className="flex items-center gap-1.5 min-w-0">
               <div className="flex -space-x-1.5">
-                {task.assignees.slice(0, 3).map((a) => (
-                  <Avatar key={a.id} name={a.display_name} src={a.avatar_url} size="sm" className="ring-1 ring-background" />
-                ))}
+                {task.assignees.slice(0, 3).map((a) => {
+                  const avatar = (
+                    <Avatar key={a.id} name={a.display_name} src={a.avatar_url} size="sm" className="ring-1 ring-background" />
+                  )
+                  return onAssigneeClick ? (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onAssigneeClick(a.id)
+                      }}
+                      title={`查看 ${a.display_name} 的任务`}
+                      aria-label={`查看 ${a.display_name} 的任务`}
+                      className="rounded-full transition-transform hover:scale-110 hover:ring-2 hover:ring-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    >
+                      {avatar}
+                    </button>
+                  ) : avatar
+                })}
               </div>
-              <span className="text-xs text-muted-foreground truncate max-w-[80px]">
-                {task.assignees[0].display_name}
-                {task.assignees.length > 1 && ` +${task.assignees.length - 1}`}
-              </span>
+              {onAssigneeClick ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onAssigneeClick(task.assignees[0].id)
+                  }}
+                  title={`查看 ${task.assignees[0].display_name} 的任务`}
+                  className="text-xs text-primary truncate max-w-[80px] hover:underline"
+                >
+                  {task.assignees[0].display_name}
+                  {task.assignees.length > 1 && ` +${task.assignees.length - 1}`}
+                </button>
+              ) : (
+                <span className="text-xs text-muted-foreground truncate max-w-[80px]">
+                  {task.assignees[0].display_name}
+                  {task.assignees.length > 1 && ` +${task.assignees.length - 1}`}
+                </span>
+              )}
             </div>
           ) : null}
 
