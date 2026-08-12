@@ -43,8 +43,8 @@ async def main():
                 statuses = [r.json()]
             status_id = statuses[0]["id"]
 
-            ws_url = f"ws://127.0.0.1:8765/ws/projects/{project_id}?token={token}"
-            async with websockets.connect(ws_url) as ws:
+            ws_url = f"ws://127.0.0.1:8765/ws/projects/{project_id}"
+            async with websockets.connect(ws_url, subprotocols=[f"flowmind.auth.{token}"]) as ws:
                 r = await client.post(
                     f"/api/projects/{project_id}/tasks",
                     json={"title": "ws event task", "status_id": status_id},
@@ -89,7 +89,10 @@ async def main():
 
             # bad token rejected
             try:
-                async with websockets.connect(f"ws://127.0.0.1:8765/ws/projects/{project_id}?token=bad") as ws:
+                async with websockets.connect(
+                    f"ws://127.0.0.1:8765/ws/projects/{project_id}",
+                    subprotocols=["flowmind.auth.bad"],
+                ) as ws:
                     await asyncio.wait_for(ws.recv(), timeout=3)
                     print("FAIL: bad token connection not closed")
                     sys.exit(1)

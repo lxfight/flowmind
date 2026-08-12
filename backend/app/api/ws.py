@@ -20,10 +20,12 @@ async def project_ws(websocket: WebSocket, project_id: int):
     auth, and project membership is enforced before accepting.
     """
     token = ""
+    auth_subprotocol = ""
     for subprotocol in websocket.headers.get("sec-websocket-protocol", "").split(","):
         candidate = subprotocol.strip()
         if candidate.startswith("flowmind.auth."):
             token = candidate[len("flowmind.auth."):]
+            auth_subprotocol = candidate
             break
     try:
         payload = decode_access_token(token)
@@ -44,7 +46,7 @@ async def project_ws(websocket: WebSocket, project_id: int):
             await websocket.close(code=4403)
             return
 
-    await manager.connect(project_id, websocket)
+    await manager.connect(project_id, websocket, subprotocol=auth_subprotocol or None)
     try:
         while True:
             # Client messages are ignored; receiving keeps the socket alive.

@@ -107,7 +107,7 @@ class ReleaseService:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._releases: list[dict[str, Any]] = []
-        self._cached_at = 0.0
+        self._cached_at: float | None = None
         self._checked_at: str | None = None
         self._etag: str | None = None
         self._error: str | None = None
@@ -191,7 +191,7 @@ class ReleaseService:
         now = time.monotonic()
         if (
             not force
-            and self._checked_at is not None
+            and self._cached_at is not None
             and now - self._cached_at < settings.update_check_ttl_seconds
         ):
             return self._result(limit)
@@ -200,7 +200,7 @@ class ReleaseService:
             now = time.monotonic()
             if (
                 not force
-                and self._checked_at is not None
+                and self._cached_at is not None
                 and now - self._cached_at < settings.update_check_ttl_seconds
             ):
                 return self._result(limit)

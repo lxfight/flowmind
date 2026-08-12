@@ -73,7 +73,7 @@ class _FakeWebSocket:
         self.sent: list[dict] = []
         self.fail = fail
 
-    async def accept(self):
+    async def accept(self, subprotocol: str | None = None):
         self.accepted = True
 
     async def send_json(self, event: dict):

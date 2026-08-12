@@ -17,8 +17,13 @@ class ConnectionManager:
     def __init__(self) -> None:
         self._connections: dict[int, set[WebSocket]] = defaultdict(set)
 
-    async def connect(self, project_id: int, websocket: WebSocket) -> None:
-        await websocket.accept()
+    async def connect(
+        self,
+        project_id: int,
+        websocket: WebSocket,
+        subprotocol: str | None = None,
+    ) -> None:
+        await websocket.accept(subprotocol=subprotocol)
         self._connections[project_id].add(websocket)
 
     def disconnect(self, project_id: int, websocket: WebSocket) -> None:
