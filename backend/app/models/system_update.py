@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -20,6 +20,7 @@ class SystemUpdateRun(Base):
     message: Mapped[str] = mapped_column(Text, default="", nullable=False)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     backup_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    restore_database: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
