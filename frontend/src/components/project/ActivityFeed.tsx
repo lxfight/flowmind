@@ -186,10 +186,12 @@ export function ActivityFeed({ projectId }: Props) {
               api.get<ActivityPageResponse>(`/projects/${projectId}/activities`, {
                 params: { page, page_size: PAGE_SIZE },
                 signal: controller.signal,
-              })
+              }).catch(() => null) // a single failed page must not drop everything
             )),
           )
-          responses.forEach((response) => all.push(...response.data.items))
+          responses.forEach((response) => {
+            if (response) all.push(...response.data.items)
+          })
           setLoadedCount(Math.min(all.length, expectedTotal))
         }
 

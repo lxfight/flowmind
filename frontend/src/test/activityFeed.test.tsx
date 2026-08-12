@@ -86,4 +86,23 @@ describe('ActivityFeed', () => {
     expect(screen.getAllByTestId('activity-event').length).toBeLessThanOrEqual(8)
     expect(screen.getByText('动态 1000')).toBeInTheDocument()
   })
+
+  it('keeps the successfully loaded pages when one middle page fails', async () => {
+    vi.mocked(api.get)
+      .mockResolvedValueOnce({ data: { items: [newest], total: 201 } })
+      .mockRejectedValueOnce(new Error('page 2 timeout')) // middle page fails
+      .mockResolvedValueOnce({ data: { items: [oldest], total: 201 } })
+
+    render(<ActivityFeed projectId={7} />)
+
+    // Both first and third pages load; the failed second page is skipped.
+    await waitFor(() => expect(vi.mocked(api.get).mock.calls.length).toBeGreaterThanOrEqual(3))
+    await waitFor(() => {
+      expect(screen.getByLabelText('第 2 条，共 2 条动态')).toBeInTheDocument()
+    })
+    // The timeline still renders both surviving events (no full-page error).
+    expect(screen.queryByText('加载项目动态失败')).not.toBeInTheDocument()
+    expect(screen.getByText('创建了项目')).toBeInTheDocument()
+    expect(screen.getByText('更新了最新任务')).toBeInTheDocument()
+  })
 })
