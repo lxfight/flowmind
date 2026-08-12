@@ -19,7 +19,7 @@ from app.core.config import get_settings
 from app.models.knowledge import DocChunk, KnowledgeDoc
 from app.models.milestone import Milestone
 from app.models.project import Project, ProjectMember
-from app.models.task import Task, TaskStatus
+from app.models.task import Task, TaskAttachment, TaskStatus
 from app.models.user import User
 from app.schemas import (
     MilestoneCreate,
@@ -937,6 +937,32 @@ async def update_task(
 
 
 @tool
+async def list_attachments(task_id: int, config: RunnableConfig = None) -> str:
+    """列出任务的附件（文件名、类型、大小、上传时间）。"""
+    db, user, ctx_pid, project_ids, _names = _get_ctx(config)
+    pid = ctx_pid if ctx_pid is not None else await _find_task_project(db, task_id, project_ids)
+    if pid is None:
+        return _format_result(False, message=f"未找到任务 id={task_id}（不属于你参与的项目）。")
+    try:
+        await task_service.get_task(pid, task_id, user, db)  # permission + existence check
+        result = await db.execute(
+            select(TaskAttachment)
+            .where(TaskAttachment.task_id == task_id)
+            .order_by(TaskAttachment.created_at)
+        )
+        attachments = result.scalars().all()
+        if not attachments:
+            return f"任务 [{task_id}] 暂无附件。"
+        lines = []
+        for a in attachments:
+            size = f"{a.size / 1024:.0f} KB" if a.size >= 1024 else f"{a.size} B"
+            lines.append(f"- [{a.id}] {a.filename} ({a.content_type}, {size}, {a.created_at:%Y-%m-%d %H:%M})")
+        return f"任务 [{task_id}] 的附件：\n" + "\n".join(lines)
+    except Exception as e:
+        return _format_result(False, message=str(e))
+
+
+@tool
 async def move_task(task_id: int, status_id: int, config: RunnableConfig = None) -> str:
     """将任务移动到指定状态列。status_id 必须通过 get_project_info 获取。"""
     db, user, ctx_pid, project_ids, _names = _get_ctx(config)
@@ -1494,7 +1520,7 @@ async def _bounded_tool_call(request, execute):
 # group below — the JSON schema AND the system-prompt listing both update
 # automatically, so there is nothing else to keep in sync.
 TOOL_GROUPS: list[tuple[str, list]] = [
-    ("查询", [get_project_info, list_tasks, search_tasks, get_task, get_members]),
+    ("查询", [get_project_info, list_tasks, search_tasks, get_task, list_attachments, get_members]),
     ("操作", [create_task, create_tasks, update_task, move_task, delete_task,
               add_comment, add_subtask, add_subtasks, update_subtask]),
     ("管理", [create_status, update_status, delete_status]),
