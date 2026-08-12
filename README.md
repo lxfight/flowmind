@@ -5,13 +5,13 @@
   <p>面向真实团队协作的智能项目管理平台。AI 不只是回答问题，它理解项目身份、读取知识、管理任务与里程碑，并留下可追溯的执行过程。</p>
   <p>
     <a href="https://github.com/lxfight/flowmind/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/lxfight/flowmind/ci.yml?branch=main&style=flat-square&label=CI" alt="CI" /></a>
-    <a href="https://github.com/lxfight/flowmind/releases"><img src="https://img.shields.io/badge/release-v0.4.0-7C5CFC?style=flat-square" alt="Release v0.4.0" /></a>
+    <a href="https://github.com/lxfight/flowmind/releases"><img src="https://img.shields.io/badge/release-v0.5.0-7C5CFC?style=flat-square" alt="Release v0.5.0" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-171717?style=flat-square" alt="MIT License" /></a>
   </p>
   <p>
     <a href="https://lxfight.github.io/flowmind/">产品文档</a> ·
     <a href="#快速开始">快速开始</a> ·
-    <a href="#v040">版本变化</a> ·
+    <a href="#v050">版本变化</a> ·
     <a href="docs-site/architecture/index.md">架构说明</a>
   </p>
 </div>
@@ -83,9 +83,9 @@ PDF、DOCX、PPTX、Markdown 等文档自动解析索引。向量语义与关键
 | 外部集成 | 项目级 Webhook、Transactional Outbox、HMAC 签名、SSRF 防护、重试与投递历史 |
 | 系统运维 | LLM 与 Embedding 独立配置、密钥脱敏、在线升级、备份检查与中断恢复 |
 
-## v0.4.0
+## v0.5.0
 
-这一版本让项目内部关系和外部自动化形成连续的交付信号链。
+最新版本优化了代码质量和依赖管理。
 
 - **任务编号与引用**：任务卡片和详情稳定展示 ID；描述与评论可通过 `#` 引用同项目任务，并查看双向关系。
 - **完整里程碑时间线**：不再按视图分类截断，全部状态统一展示在真实日期时间线上。
