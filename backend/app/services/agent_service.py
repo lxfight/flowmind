@@ -14,8 +14,10 @@ from langgraph.errors import GraphRecursionError
 from langgraph.prebuilt import ToolNode, create_react_agent
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
+from app.models.activity import ActivityLog
 from app.models.knowledge import DocChunk, KnowledgeDoc
 from app.models.milestone import Milestone
 from app.models.project import Project, ProjectMember
@@ -963,6 +965,43 @@ async def list_attachments(task_id: int, config: RunnableConfig = None) -> str:
 
 
 @tool
+async def list_activities(
+    config: RunnableConfig,
+    project_id: int | None = None,
+    limit: int = 20,
+) -> str:
+    """列出项目最近的动态（任务、评论、里程碑等操作）。跨项目会话中不传 project_id 时列出所有项目的动态。"""
+    db, user, ctx_pid, project_ids, names = _get_ctx(config)
+    targets = [project_id] if project_id is not None else ([ctx_pid] if ctx_pid is not None else project_ids)
+    for target in targets:
+        if target not in project_ids:
+            return _format_result(False, message=f"项目 id={target} 不在你可访问的项目范围内。")
+    limit = max(1, min(limit, 50))
+    try:
+        result = await db.execute(
+            select(ActivityLog)
+            .options(selectinload(ActivityLog.user))
+            .where(ActivityLog.project_id.in_(targets))
+            .order_by(ActivityLog.created_at.desc())
+            .limit(limit)
+        )
+        logs = result.scalars().all()
+        if not logs:
+            return "项目暂无动态记录。"
+        labeled = len(targets) > 1
+        lines = []
+        for log in logs:
+            actor = log.user.display_name or log.user.username if log.user else f"用户{log.user_id}"
+            prefix = f"{_proj_label(names, log.project_id)} " if labeled else ""
+            lines.append(
+                f"- {prefix}{log.created_at:%m-%d %H:%M} {actor}：{log.summary or f'{log.action} {log.target_type}'}"
+            )
+        return "\n".join(lines)
+    except Exception as e:
+        return _format_result(False, message=str(e))
+
+
+@tool
 async def move_task(task_id: int, status_id: int, config: RunnableConfig = None) -> str:
     """将任务移动到指定状态列。status_id 必须通过 get_project_info 获取。"""
     db, user, ctx_pid, project_ids, _names = _get_ctx(config)
@@ -1520,7 +1559,7 @@ async def _bounded_tool_call(request, execute):
 # group below — the JSON schema AND the system-prompt listing both update
 # automatically, so there is nothing else to keep in sync.
 TOOL_GROUPS: list[tuple[str, list]] = [
-    ("查询", [get_project_info, list_tasks, search_tasks, get_task, list_attachments, get_members]),
+    ("查询", [get_project_info, list_tasks, search_tasks, get_task, list_attachments, list_activities, get_members]),
     ("操作", [create_task, create_tasks, update_task, move_task, delete_task,
               add_comment, add_subtask, add_subtasks, update_subtask]),
     ("管理", [create_status, update_status, delete_status]),
