@@ -35,7 +35,7 @@ from app.schemas import (
     TaskStatusUpdate,
     TaskUpdate,
 )
-from app.services import milestone_service, task_service
+from app.services import milestone_service, task_reference_service, task_service
 from app.services.config_service import config_service
 from app.services.rag_service import rag_service
 
@@ -970,6 +970,38 @@ async def list_attachments(task_id: int, config: RunnableConfig = None) -> str:
 
 
 @tool
+async def get_task_references(task_id: int, config: RunnableConfig = None) -> str:
+    """查看任务的关联关系：该任务引用了哪些任务，以及被哪些任务/评论引用。
+
+    在任务描述或评论中输入 #任务id 会自动建立引用；修改描述同样会更新引用。
+    """
+    db, user, ctx_pid, project_ids, names = _get_ctx(config)
+    pid = ctx_pid if ctx_pid is not None else await _find_task_project(db, task_id, project_ids)
+    if pid is None:
+        return _format_result(False, message=f"未找到任务 id={task_id}（不属于你参与的项目）。")
+    try:
+        refs = await task_reference_service.get_references(pid, task_id, user, db)
+        prefix = f"{_proj_label(names, pid)} " if ctx_pid is None else ""
+        lines = [f"{prefix}任务 [{task_id}] 的关联关系："]
+        if refs.outgoing:
+            lines.append("引用了：")
+            for r in refs.outgoing:
+                lines.append(f"  - [{r.task.id}] {r.task.title}（来自{r.task.status_name}）")
+        else:
+            lines.append("引用了：无")
+        if refs.incoming:
+            lines.append("被引用：")
+            for r in refs.incoming:
+                src = "评论" if r.source_type == "comment" else "描述"
+                lines.append(f"  - [{r.task.id}] {r.task.title}（{src}）")
+        else:
+            lines.append("被引用：无")
+        return "\n".join(lines)
+    except Exception as e:
+        return _format_result(False, message=str(e))
+
+
+@tool
 async def list_activities(
     config: RunnableConfig,
     project_id: int | None = None,
@@ -1689,7 +1721,8 @@ async def _bounded_tool_call(request, execute):
 # group below — the JSON schema AND the system-prompt listing both update
 # automatically, so there is nothing else to keep in sync.
 TOOL_GROUPS: list[tuple[str, list]] = [
-    ("查询", [get_project_info, list_tasks, search_tasks, get_task, list_attachments, list_activities, get_members]),
+    ("查询", [get_project_info, list_tasks, search_tasks, get_task, get_task_references,
+              list_attachments, list_activities, get_members]),
     ("操作", [create_task, create_tasks, update_task, move_task, delete_task,
               add_comment, add_subtask, add_subtasks, update_subtask]),
     ("管理", [create_status, update_status, delete_status, add_member, remove_member]),
