@@ -204,18 +204,31 @@ export default function SystemUpdatePage() {
   const handleRollback = async () => {
     const version = overview?.updater.previous_version
     if (!version || starting) return
+
+    // 第一步：确认是否回滚
     if (!(await confirmAction({
       title: `回滚到 FlowMind ${version}`,
-      description: '应用服务将回退到上一版本，数据库结构不会自动降级。',
-      confirmLabel: '开始回滚',
+      description: '应用服务将回退到上一版本。您可以选择是否同时恢复数据库。',
+      confirmLabel: '下一步',
       tone: 'warning',
       icon: 'reset',
     }))) return
+
+    // 第二步：询问是否恢复数据库
+    const restoreDb = await confirmAction({
+      title: '是否恢复数据库？',
+      description: '恢复数据库将使用更新前的备份覆盖当前数据。⚠️ 警告：更新后产生的所有数据将丢失！如果不确定，建议选择"否"。',
+      confirmLabel: '是，恢复数据库',
+      cancelLabel: '否，仅回滚应用',
+      tone: 'danger',
+      icon: 'warning',
+    })
+
     setStarting(true)
     try {
-      await rollbackUpdate(version, requestId())
+      await rollbackUpdate(version, requestId(), restoreDb)
       await loadStatus(true)
-      toast.success('回滚任务已启动')
+      toast.success(restoreDb ? '回滚任务已启动（含数据库恢复）' : '回滚任务已启动（仅应用）')
     } catch (err) {
       toast.error(errDetail(err, '回滚任务启动失败'))
     } finally {
@@ -347,13 +360,29 @@ export default function SystemUpdatePage() {
 
             <section>
               <div className="mb-5 flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-sm font-semibold text-foreground">部署状态</h2>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-sm font-semibold text-foreground">部署状态</h2>
+                    <Badge variant={statusBadgeVariant(overview?.updater.status)}>
+                      {STATUS_LABELS[overview?.updater.status || 'unavailable'] || overview?.updater.status}
+                    </Badge>
+                  </div>
                   <p className="mt-0.5 text-xs text-muted-foreground">{overview?.updater.message}</p>
+                  {active && overview?.updater.progress !== undefined && (
+                    <div className="mt-3">
+                      <div className="mb-1.5 flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">进度</span>
+                        <span className="font-medium text-foreground">{overview.updater.progress}%</span>
+                      </div>
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                        <div
+                          className="h-full bg-primary transition-all duration-300 ease-out"
+                          style={{ width: `${overview.updater.progress}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <Badge variant={statusBadgeVariant(overview?.updater.status)}>
-                  {STATUS_LABELS[overview?.updater.status || 'unavailable'] || overview?.updater.status}
-                </Badge>
               </div>
 
               <div className="overflow-x-auto pb-2">
