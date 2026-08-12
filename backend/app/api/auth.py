@@ -22,13 +22,33 @@ from app.schemas import PasswordChange, Token, UserCreate, UserOut, UserProfileU
 settings = get_settings()
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-# Simple in-memory rate limiter for login
+# Simple in-memory rate limiter for login/register.
+# Single-process deployments (the default) share this dict; the cleanup
+# keeps it bounded so failed attempts can't grow memory forever.
 _login_attempts: dict[str, list[float]] = {}
+_last_cleanup = time.monotonic()
+_CLEANUP_INTERVAL = 300  # seconds between opportunistic dict sweeps
+
+
+def _sweep_expired(now: float) -> None:
+    """Drop entries whose window has fully elapsed; called opportunistically
+    so the dict never grows without bound."""
+    global _last_cleanup
+    if now - _last_cleanup < _CLEANUP_INTERVAL:
+        return
+    _last_cleanup = now
+    stale = [
+        key for key, attempts in _login_attempts.items()
+        if not attempts or now - attempts[-1] >= settings.rate_limit_window
+    ]
+    for key in stale:
+        _login_attempts.pop(key, None)
 
 
 def _check_rate_limit(key: str) -> bool:
     """Return True if rate limited."""
     now = time.time()
+    _sweep_expired(now)
     attempts = _login_attempts.get(key, [])
     attempts = [t for t in attempts if now - t < settings.rate_limit_window]
     _login_attempts[key] = attempts
@@ -44,7 +64,16 @@ def _record_attempt(key: str):
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
-async def register(data: UserCreate, db: AsyncSession = Depends(get_db)):
+async def register(request: Request, data: UserCreate, db: AsyncSession = Depends(get_db)):
+    # Rate limit registration by IP so an attacker can't flood the approval
+    # queue (or bloat the users table) with automated signups.
+    client_ip = request.client.host if request.client else "unknown"
+    if _check_rate_limit(f"register:{client_ip}"):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="注册过于频繁，请稍后再试",
+        )
+
     # Check existing user
     result = await db.execute(
         select(User).where((User.username == data.username) | (User.email == data.email))
@@ -65,6 +94,7 @@ async def register(data: UserCreate, db: AsyncSession = Depends(get_db)):
     db.add(user)
     await db.flush()
     await db.refresh(user)
+    _record_attempt(f"register:{client_ip}")
     return {"message": "注册申请已提交，请等待管理员审批", "user_id": user.id}
 
 

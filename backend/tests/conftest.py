@@ -55,6 +55,12 @@ app.dependency_overrides[get_db] = override_get_db
 
 @pytest_asyncio.fixture
 async def client():
+    # Reset in-memory auth rate limiting between tests so registration/login
+    # tests don't trip each other's limits (same testclient IP).
+    from app.api import auth as auth_module
+
+    auth_module._login_attempts.clear()
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
