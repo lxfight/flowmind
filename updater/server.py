@@ -456,7 +456,8 @@ def database_size(state: dict[str, Any]) -> int:
         raise RuntimeError("unable to determine database size before backup") from exc
 
 
-def backup_database(state: dict[str, Any], request_id: str) -> Path:
+def backup_database(state: dict[str, Any], request_id: str) -> tuple[Path, str]:
+    """Backup database and return (backup_path, alembic_version)."""
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     required_bytes = MIN_FREE_BYTES + database_size(state)
     free_bytes = shutil.disk_usage(BACKUP_DIR).free
@@ -465,6 +466,11 @@ def backup_database(state: dict[str, Any], request_id: str) -> Path:
             "insufficient backup volume space: "
             f"need at least {required_bytes} bytes, have {free_bytes} bytes"
         )
+
+    # Get current alembic version before backup
+    alembic_version = get_alembic_version(state)
+    add_log(state, f"当前数据库版本: {alembic_version or 'unknown'}")
+
     backup_path = BACKUP_DIR / f"flowmind-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{request_id[:8]}.sql"
     add_log(state, f"数据库备份: {backup_path}")
     with backup_path.open("wb") as output:
@@ -484,7 +490,108 @@ def backup_database(state: dict[str, Any], request_id: str) -> Path:
     if backup_path.stat().st_size == 0:
         backup_path.unlink(missing_ok=True)
         raise RuntimeError("database backup is empty")
-    return backup_path
+
+    # Save metadata alongside backup
+    metadata_path = backup_path.with_suffix(".json")
+    atomic_json(metadata_path, {
+        "request_id": request_id,
+        "alembic_version": alembic_version,
+        "timestamp": utc_now(),
+        "backup_file": backup_path.name,
+    })
+
+    return backup_path, alembic_version
+
+
+def wait_for_url(
+    state: dict[str, Any],
+    url: str,
+    name: str,
+    timeout: int = 120,
+    expected_version: str | None = None,
+) -> None:
+    deadline = time.monotonic() + timeout
+    last_error = ""
+    while time.monotonic() < deadline:
+
+
+def get_alembic_version(state: dict[str, Any]) -> str | None:
+    """Get current alembic revision from database."""
+    try:
+        output = command(
+            state,
+            compose_args(
+                "exec", "-T", "postgres", "psql", "-U", "flowmind", "-d", "flowmind",
+                "-At", "-c", "SELECT version_num FROM alembic_version LIMIT 1"
+            ),
+            timeout=30,
+        ).strip()
+        return output.splitlines()[-1] if output else None
+    except RuntimeError:
+        return None
+
+
+def run_database_migrations(state: dict[str, Any]) -> None:
+    """Run alembic migrations on the backend service."""
+    add_log(state, "执行 Alembic 数据库迁移")
+    try:
+        command(
+            state,
+            compose_args("exec", "-T", "backend", "alembic", "upgrade", "head"),
+            timeout=180,
+        )
+        add_log(state, "数据库迁移完成")
+    except RuntimeError as exc:
+        raise RuntimeError(f"数据库迁移失败: {str(exc)[-1000:]}") from exc
+
+
+def restore_database_backup(state: dict[str, Any], backup_path: Path) -> None:
+    """Restore database from backup file."""
+    if not backup_path.exists():
+        raise RuntimeError(f"备份文件不存在: {backup_path}")
+
+    add_log(state, f"从备份恢复数据库: {backup_path}")
+
+    # Drop and recreate database
+    try:
+        command(
+            state,
+            compose_args(
+                "exec", "-T", "postgres", "psql", "-U", "flowmind", "-d", "postgres",
+                "-c", "DROP DATABASE IF EXISTS flowmind"
+            ),
+            timeout=60,
+        )
+        command(
+            state,
+            compose_args(
+                "exec", "-T", "postgres", "psql", "-U", "flowmind", "-d", "postgres",
+                "-c", "CREATE DATABASE flowmind"
+            ),
+            timeout=60,
+        )
+    except RuntimeError as exc:
+        raise RuntimeError(f"重建数据库失败: {str(exc)[-1000:]}") from exc
+
+    # Restore from backup
+    with backup_path.open("rb") as backup_file:
+        process = subprocess.run(
+            compose_args(
+                "exec", "-T", "postgres", "psql", "-U", "flowmind", "-d", "flowmind"
+            ),
+            cwd=PROJECT_DIR,
+            stdin=backup_file,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=300,
+            check=False,
+        )
+
+    if process.returncode != 0:
+        stderr = process.stderr.decode(errors='replace')[-2000:]
+        raise RuntimeError(f"数据库恢复失败: {stderr}")
+
+    add_log(state, "数据库恢复成功")
 
 
 def wait_for_url(
@@ -537,7 +644,7 @@ def checkout_and_deploy(state: dict[str, Any], target: str) -> None:
         status="deploying",
         step="recreating_services",
         progress=70,
-        message="正在重建应用服务并执行数据库迁移",
+        message="正在重建应用服务",
     )
     # Bring services up one at a time so a single service failing (e.g. a
     # host networking/iptables issue) is reported clearly and the others
@@ -568,6 +675,14 @@ def checkout_and_deploy(state: dict[str, Any], target: str) -> None:
         raise RuntimeError(f"部署部分失败: {detail}")
     update_state(
         state,
+        status="deploying",
+        step="running_migrations",
+        progress=80,
+        message="正在执行数据库迁移",
+    )
+    run_database_migrations(state)
+    update_state(
+        state,
         status="verifying",
         step="health_check",
         progress=88,
@@ -580,7 +695,7 @@ def checkout_and_deploy(state: dict[str, Any], target: str) -> None:
 
 
 def rollback_deployment(
-    state: dict[str, Any], previous_sha: str, previous_version: str
+    state: dict[str, Any], previous_sha: str, previous_version: str, restore_db: bool = False
 ) -> None:
     update_state(
         state,
@@ -589,6 +704,25 @@ def rollback_deployment(
         progress=92,
         message="更新失败，正在恢复上一版本镜像",
     )
+
+    # Restore database if requested
+    if restore_db and state.get("backup_path"):
+        backup_path = Path(state["backup_path"])
+        if backup_path.exists():
+            update_state(
+                state,
+                status="rolling_back",
+                step="restoring_database",
+                progress=70,
+                message="正在恢复数据库备份",
+            )
+            try:
+                restore_database_backup(state, backup_path)
+            except RuntimeError as exc:
+                add_log(state, f"数据库恢复失败（继续回滚镜像）: {str(exc)[-500:]}")
+        else:
+            add_log(state, f"备份文件不存在，跳过数据库恢复: {backup_path}")
+
     command(state, git_args("checkout", "--detach", previous_sha), timeout=120)
     set_dotenv_version(previous_version)
     services = configured_application_services(state)
@@ -668,6 +802,7 @@ def run_operation(
     target: str,
     request_id: str,
     lock_handle: Any | None = None,
+    restore_db: bool = False,
 ) -> None:
     target = normalize_version(target)
     if lock_handle is None:
@@ -707,10 +842,11 @@ def run_operation(
             progress=25,
             message="正在备份 PostgreSQL 数据库",
         )
-        backup_path = backup_database(state, request_id)
+        backup_path, alembic_version = backup_database(state, request_id)
         update_state(
             state,
             backup_path=str(backup_path),
+            alembic_version=alembic_version,
             deployment_started=True,
         )
         deployment_started = True
@@ -723,6 +859,7 @@ def run_operation(
                 "git_sha": command(state, git_args("rev-parse", "HEAD"), timeout=30).strip(),
                 "deployed_at": utc_now(),
                 "backup_path": str(backup_path),
+                "alembic_version": alembic_version,
             },
         )
         update_state(
@@ -747,7 +884,7 @@ def run_operation(
         rolled_back = False
         if deployment_started and previous_sha:
             try:
-                rollback_deployment(state, previous_sha, previous_version)
+                rollback_deployment(state, previous_sha, previous_version, restore_db)
                 rolled_back = True
             except Exception as rollback_exc:
                 error = f"{error}; rollback failed: {rollback_exc}"[:4000]
@@ -767,7 +904,7 @@ def run_operation(
         release_operation_lock(lock_handle)
 
 
-def start_operation(operation: str, target: str, request_id: str) -> dict[str, Any]:
+def start_operation(operation: str, target: str, request_id: str, restore_db: bool = False) -> dict[str, Any]:
     target = normalize_version(target)
     with operation_lock:
         current = load_state()
@@ -797,11 +934,12 @@ def start_operation(operation: str, target: str, request_id: str) -> dict[str, A
                 "step": "queued",
                 "message": "更新任务已进入队列",
                 "started_at": utc_now(),
+                "restore_database": restore_db,
             }
             save_state(queued)
             thread = threading.Thread(
                 target=run_operation,
-                args=(operation, target, request_id, lock_handle),
+                args=(operation, target, request_id, lock_handle, restore_db),
                 daemon=True,
             )
             thread.start()
@@ -915,7 +1053,8 @@ class Handler(BaseHTTPRequestHandler):
             if not re.fullmatch(r"[A-Za-z0-9_-]{8,64}", request_id):
                 raise ValueError("invalid request id")
             operation = "update" if self.path == "/apply" else "rollback"
-            state = start_operation(operation, str(payload["version"]), request_id)
+            restore_db = bool(payload.get("restore_database", False))
+            state = start_operation(operation, str(payload["version"]), request_id, restore_db)
             self.respond(202, state)
         except (KeyError, TypeError, ValueError) as exc:
             self.respond(422, {"detail": str(exc)})
