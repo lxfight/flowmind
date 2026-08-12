@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
@@ -88,6 +88,7 @@ export default function NotificationsPage() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [markingAll, setMarkingAll] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const pageRef = useRef(1)
 
   const load = useCallback(async (page: number, append: boolean) => {
     if (append) setLoadingMore(true)
@@ -98,6 +99,7 @@ export default function NotificationsPage() {
       setNotifications((prev) => (append ? [...prev, ...data.items] : data.items))
       setTotal(data.total)
       setUnreadCount(data.unread_count)
+      pageRef.current = page
     } catch {
       setLoadError('通知加载失败，请检查网络后重试')
     } finally {
@@ -118,6 +120,8 @@ export default function NotificationsPage() {
   }, [filter, notifications])
 
   const groups = useMemo(() => groupNotifications(filtered), [filtered])
+  // Server still has more pages AND the current filter view could still grow
+  // (there may be more matching items in the unloaded pages).
   const hasMore = notifications.length < total
   const visibleReadCount = notifications.filter((notification) => notification.is_read).length
 
@@ -327,18 +331,20 @@ export default function NotificationsPage() {
         </div>
       )}
 
-      {!loading && !loadError && hasMore && (
+      {!loading && !loadError && hasMore && filtered.length > 0 && (
         <div className="mt-10 flex justify-center border-t border-border pt-6">
           <Button
             variant="outline"
             size="sm"
-            onClick={() => load(Math.floor(notifications.length / PAGE_SIZE) + 1, true)}
+            onClick={() => load(pageRef.current + 1, true)}
             loading={loadingMore}
             className="gap-1.5"
           >
             <ArrowDown className="h-4 w-4" />
             加载更多
-            <span className="tnum text-muted-foreground">{notifications.length}/{total}</span>
+            <span className="tnum text-muted-foreground">
+              {filtered.length}/{total}
+            </span>
           </Button>
         </div>
       )}
