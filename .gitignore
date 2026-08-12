@@ -42,6 +42,10 @@ logs/
 # Alembic
 alembic/versions/*.pyc
 
+# Caches
+.pytest_cache/
+.ruff_cache/
+
 # Docker
 docker-data/
 
