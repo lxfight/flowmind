@@ -41,7 +41,6 @@ export const useProjectStore = create<ProjectState>((set) => ({
     } catch (err) {
       // Leave the previous list in place; the shell still renders and pages
       // show their own empty states.
-      console.error('加载项目列表失败', err)
       set({ loading: false, loaded: true })
     }
   },
