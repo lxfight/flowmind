@@ -412,6 +412,49 @@ class HealthCheckTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "多次失败"):
                 server.pull_images_with_retry(state, ("backend",))
 
+    def test_pull_mirror_keeps_full_ghcr_prefix_source(self) -> None:
+        """A mirror that already includes /ghcr.io must keep the registry path
+        (source = mirror/lxfight/flowmind-backend), not double the owner."""
+        state = {"logs": []}
+        with (
+            patch.object(server, "image_registry_mirrors", return_value=("https://ghproxy.example/https://ghcr.io",)),
+            patch.object(
+                server,
+                "configured_service_image",
+                return_value="ghcr.io/lxfight/flowmind-backend:1.2.0",
+            ),
+            patch.object(server, "command", return_value="") as run,
+            patch.object(server, "add_log"),
+        ):
+            assert server.pull_image_via_mirror(state, "ghcr.io/lxfight/flowmind-backend:1.2.0")
+
+        pull = run.call_args_list[0].args[1]
+        self.assertEqual(
+            pull,
+            ["docker", "pull", "https://ghproxy.example/https://ghcr.io/lxfight/flowmind-backend:1.2.0"],
+        )
+        tag = run.call_args_list[1].args[1]
+        self.assertEqual(
+            tag,
+            ["docker", "tag", "https://ghproxy.example/https://ghcr.io/lxfight/flowmind-backend:1.2.0", "ghcr.io/lxfight/flowmind-backend:1.2.0"],
+        )
+
+    def test_pull_mirror_without_ghcr_prefix_uses_owner_path(self) -> None:
+        """A plain registry proxy mirrors <mirror>/<owner>/<image>."""
+        state = {"logs": []}
+        with (
+            patch.object(server, "image_registry_mirrors", return_value=("https://docker.m.daocloud.io",)),
+            patch.object(server, "command", return_value="") as run,
+            patch.object(server, "add_log"),
+        ):
+            assert server.pull_image_via_mirror(state, "ghcr.io/lxfight/flowmind-backend:1.2.0")
+
+        pull = run.call_args_list[0].args[1]
+        self.assertEqual(
+            pull,
+            ["docker", "pull", "https://docker.m.daocloud.io/lxfight/flowmind-backend:1.2.0"],
+        )
+
     def test_preflight_stashes_tracked_changes_when_allowed(self) -> None:
         state = {"logs": []}
         with (

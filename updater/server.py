@@ -188,11 +188,22 @@ def image_registry_mirrors(value: str | None = None) -> tuple[str, ...]:
 def pull_image_via_mirror(state: dict[str, Any], image: str) -> bool:
     """Try to obtain ``image`` (e.g. ghcr.io/lxfight/flowmind-backend:1.2.3) from
     the configured registry mirrors. Returns True on success after re-tagging
-    the image back to the primary name so compose resolves it unchanged."""
+    the image back to the primary name so compose resolves it unchanged.
+
+    A mirror is a Docker Registry API proxy such as ``https://docker.m.daocloud.io``:
+    it serves ``<mirror>/lxfight/flowmind-backend:tag`` directly. Legacy
+    GitHub-file proxies (``https://ghproxy.com``) are NOT registry proxies and
+    will not work for image pulls — the error is surfaced so a bad config is
+    obvious. A mirror that already includes the registry prefix
+    (``https://ghproxy.com/https://ghcr.io``) is kept as-is.
+    """
     if ":" not in image:
         image = f"{image}:{current_version()}"
     for mirror in image_registry_mirrors():
-        source = f"{mirror}/{image.split('/', 1)[-1]}"
+        if mirror.rstrip("/").endswith(f"://ghcr.io") or "/ghcr.io" in mirror:
+            source = f"{mirror.rstrip('/')}/{image.split('ghcr.io/', 1)[-1]}"
+        else:
+            source = f"{mirror}/{image.split('/', 1)[-1]}"
         add_log(state, f"尝试从镜像仓库 {mirror} 拉取 {source}")
         try:
             command(state, ["docker", "pull", source], timeout=pull_timeout())
