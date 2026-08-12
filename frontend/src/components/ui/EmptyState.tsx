@@ -11,16 +11,16 @@ export interface EmptyStateProps {
 
 export function EmptyState({ icon: Icon, title, description, action, className }: EmptyStateProps) {
   return (
-    <section className={cn('relative flex min-h-52 flex-col items-center justify-center overflow-hidden border-y border-dashed border-border px-6 py-10 text-center', className)}>
-      <span className="pointer-events-none absolute left-1/2 top-0 h-10 w-px bg-border" aria-hidden="true" />
+    <section className={cn('relative flex min-h-64 flex-col items-center justify-center overflow-hidden border-y border-dashed border-border bg-gradient-to-b from-transparent to-muted/20 px-6 py-12 text-center', className)}>
+      <span className="pointer-events-none absolute left-1/2 top-0 h-12 w-px bg-gradient-to-b from-border to-transparent" aria-hidden="true" />
       {Icon && (
-        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-[8px] bg-muted text-muted-foreground">
-          <Icon className="h-5 w-5" />
+        <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-muted to-muted/50 text-muted-foreground shadow-sm ring-1 ring-border/50">
+          <Icon className="h-6 w-6" />
         </div>
       )}
-      <h3 className="text-base font-semibold text-foreground">{title}</h3>
-      {description && <p className="mt-1.5 max-w-sm text-sm leading-6 text-muted-foreground">{description}</p>}
-      {action && <div className="mt-5">{action}</div>}
+      <h3 className="text-lg font-semibold text-foreground">{title}</h3>
+      {description && <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">{description}</p>}
+      {action && <div className="mt-6">{action}</div>}
     </section>
   )
 }
