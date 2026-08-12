@@ -176,7 +176,7 @@ class OperationAdmissionTests(unittest.TestCase):
         save_state.assert_called_once_with(queued)
         make_thread.assert_called_once_with(
             target=server.run_operation,
-            args=("update", "1.1.0", "request-123", lock_handle),
+            args=("update", "1.1.0", "request-123", lock_handle, False),
             daemon=True,
         )
         thread.start.assert_called_once_with()

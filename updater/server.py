@@ -503,18 +503,6 @@ def backup_database(state: dict[str, Any], request_id: str) -> tuple[Path, str]:
     return backup_path, alembic_version
 
 
-def wait_for_url(
-    state: dict[str, Any],
-    url: str,
-    name: str,
-    timeout: int = 120,
-    expected_version: str | None = None,
-) -> None:
-    deadline = time.monotonic() + timeout
-    last_error = ""
-    while time.monotonic() < deadline:
-
-
 def get_alembic_version(state: dict[str, Any]) -> str | None:
     """Get current alembic revision from database."""
     try:
@@ -825,6 +813,7 @@ def run_operation(
         "message": "正在执行更新前检查",
         "started_at": utc_now(),
         "logs": [],
+        "restore_database": restore_db,
     }
     save_state(state)
     deployment_started = False
@@ -850,6 +839,27 @@ def run_operation(
             deployment_started=True,
         )
         deployment_started = True
+        if operation == "rollback" and restore_db:
+            previous_backup = read_json(DEPLOYMENT_PATH, {}).get("backup_path")
+            if previous_backup:
+                previous_backup_path = Path(previous_backup)
+                if previous_backup_path.exists():
+                    update_state(
+                        state,
+                        status="rolling_back",
+                        step="restoring_database",
+                        progress=30,
+                        message="正在恢复更新前的数据库备份",
+                    )
+                    # Fail loudly instead of continuing: a partial restore
+                    # leaves the database dropped/half-loaded, and the
+                    # exception path restores the safety backup taken above
+                    # to undo the whole rollback cleanly.
+                    restore_database_backup(state, previous_backup_path)
+                else:
+                    add_log(state, f"更新前的备份文件不存在，跳过数据库恢复: {previous_backup}")
+            else:
+                add_log(state, "未找到更新前的数据库备份，跳过数据库恢复")
         checkout_and_deploy(state, target)
         atomic_json(
             DEPLOYMENT_PATH,
