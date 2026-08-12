@@ -11,10 +11,12 @@ export interface ProjectSocketEvent {
 /**
  * Subscribe to real-time project events over WebSocket.
  *
- * Connects with the stored JWT (query param — browsers cannot set headers
- * on WebSocket handshakes), auto-reconnects with exponential backoff, and
- * degrades gracefully: if the socket never connects, callers simply keep
- * working with manual refreshes.
+ * Connects with the stored JWT passed via the Sec-WebSocket-Protocol
+ * subprotocol header (browsers cannot set Authorization headers on
+ * WebSocket handshakes, and a query param would leak the token into proxy
+ * logs / Referer). Auto-reconnects with exponential backoff, and degrades
+ * gracefully: if the socket never connects, callers simply keep working
+ * with manual refreshes.
  */
 export function useProjectSocket(
   projectId: number | undefined,
@@ -36,8 +38,12 @@ export function useProjectSocket(
     const connect = () => {
       if (stopped) return
       const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
+      // The JWT rides in the subprotocol slot (prefixed so the server can
+      // distinguish it from a literal protocol request) and never touches a
+      // URL, keeping it out of access logs.
       ws = new WebSocket(
-        `${proto}://${window.location.host}/ws/projects/${projectId}?token=${encodeURIComponent(token)}`,
+        `${proto}://${window.location.host}/ws/projects/${projectId}`,
+        [`flowmind.auth.${token}`],
       )
       ws.onopen = () => {
         attempt = 0

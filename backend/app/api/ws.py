@@ -11,13 +11,20 @@ router = APIRouter(tags=["realtime"])
 
 
 @router.websocket("/ws/projects/{project_id}")
-async def project_ws(websocket: WebSocket, project_id: int, token: str = ""):
+async def project_ws(websocket: WebSocket, project_id: int):
     """Real-time project event stream.
 
-    Browsers cannot send Authorization headers on WebSocket handshakes, so
-    the JWT is passed as a ``token`` query parameter and validated exactly
-    like HTTP auth, plus project membership is enforced before accepting.
+    The JWT is carried in the ``Sec-WebSocket-Protocol`` subprotocol header
+    (prefixed ``flowmind.auth.``) instead of a query parameter, so it never
+    appears in access logs or Referer. It is validated exactly like HTTP
+    auth, and project membership is enforced before accepting.
     """
+    token = ""
+    for subprotocol in websocket.headers.get("sec-websocket-protocol", "").split(","):
+        candidate = subprotocol.strip()
+        if candidate.startswith("flowmind.auth."):
+            token = candidate[len("flowmind.auth."):]
+            break
     try:
         payload = decode_access_token(token)
         user_id = int(payload.get("sub"))

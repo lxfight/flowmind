@@ -17,12 +17,16 @@ def _token(headers: dict[str, str]) -> str:
     return headers["Authorization"].removeprefix("Bearer ")
 
 
+def _subprotocol(token: str) -> list[str]:
+    return [f"flowmind.auth.{token}"]
+
+
 @pytest.mark.asyncio
 async def test_ws_rejects_bad_token(client):
     headers = admin_login(client)
     project_id, _ = create_project(client, headers)
     with pytest.raises(WebSocketDisconnect) as exc, client.websocket_connect(
-        f"/ws/projects/{project_id}?token=not-a-token"
+        f"/ws/projects/{project_id}", subprotocols=_subprotocol("not-a-token")
     ):
         pass
     assert exc.value.code == 4401
@@ -43,7 +47,7 @@ async def test_ws_rejects_non_member(client):
     _, outsider_headers = register_and_approve(client, headers, "wsoutsider")
     project_id, _ = create_project(client, headers)
     with pytest.raises(WebSocketDisconnect) as exc, client.websocket_connect(
-        f"/ws/projects/{project_id}?token={_token(outsider_headers)}"
+        f"/ws/projects/{project_id}", subprotocols=_subprotocol(_token(outsider_headers))
     ):
         pass
     assert exc.value.code == 4403
@@ -57,7 +61,7 @@ async def test_ws_accepts_project_member(client):
     add_member(client, headers, project_id, member_id, role="viewer")
 
     with client.websocket_connect(
-        f"/ws/projects/{project_id}?token={_token(member_headers)}"
+        f"/ws/projects/{project_id}", subprotocols=_subprotocol(_token(member_headers))
     ) as ws:
         # Connection accepted; the server only reads, so just close cleanly.
         ws.close()
