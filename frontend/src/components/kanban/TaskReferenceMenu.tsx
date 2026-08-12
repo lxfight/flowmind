@@ -8,9 +8,10 @@ interface Props {
   onChoose: (task: TaskReferenceTask) => void
   onActiveIndexChange?: (index: number) => void
   className?: string
+  style?: React.CSSProperties
 }
 
-export function TaskReferenceMenu({ tasks, activeIndex, onChoose, onActiveIndexChange, className }: Props) {
+export function TaskReferenceMenu({ tasks, activeIndex, onChoose, onActiveIndexChange, className, style }: Props) {
   if (tasks.length === 0) return null
   return (
     <div
@@ -20,6 +21,7 @@ export function TaskReferenceMenu({ tasks, activeIndex, onChoose, onActiveIndexC
         'absolute z-30 w-80 max-w-[calc(100vw-3rem)] overflow-hidden rounded-[8px] border border-border bg-popover shadow-lg',
         className,
       )}
+      style={style}
     >
       {tasks.map((task, index) => (
         <button

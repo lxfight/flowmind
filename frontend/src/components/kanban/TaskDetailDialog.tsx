@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import {
   Calendar,
@@ -200,6 +201,30 @@ export function TaskDetailDialog({
     onChange: setNewComment,
     inputRef: commentInputRef,
   })
+  // Position for the comment @mention / #task-reference menus, computed in an
+  // effect (not during render) so we don't touch refs mid-render. Reset to
+  // null when neither menu is open. Both menus are portal-rendered so the
+  // comment box's overflow-hidden container can't clip them.
+  const [commentMenuPos, setCommentMenuPos] = useState<{ top: number; left: number; width: number } | null>(null)
+  const commentMenuOpen = commentTaskReference.open || mentionCandidates.length > 0
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => {
+      if (!commentMenuOpen) {
+        setCommentMenuPos(null)
+        return
+      }
+      const rect = commentInputRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const width = commentTaskReference.open ? 320 : 224
+      const menuHeight = commentTaskReference.open ? 280 : Math.min(mentionCandidates.length * 40 + 16, 240)
+      setCommentMenuPos({
+        top: rect.top - 8 - menuHeight,
+        left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
+        width,
+      })
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [commentMenuOpen, commentTaskReference.open, mentionCandidates.length])
   const commentThreads = useMemo(() => {
     const comments = task?.comments || []
     const byId = new Map(comments.map((comment) => [comment.id, comment]))
@@ -1393,38 +1418,48 @@ export function TaskDetailDialog({
                   </button>
                 </div>
               )}
-              {commentTaskReference.open ? (
-                <TaskReferenceMenu
-                  tasks={commentTaskReference.candidates}
-                  activeIndex={commentTaskReference.activeIndex}
-                  onChoose={commentTaskReference.choose}
-                  onActiveIndexChange={commentTaskReference.setActiveIndex}
-                  className="bottom-full left-0 mb-1"
-                />
-              ) : mentionCandidates.length > 0 && (
-                <div
-                  role="listbox"
-                  aria-label="提及成员"
-                  className="absolute bottom-full left-0 z-10 mb-1 w-56 overflow-hidden rounded-lg border border-border bg-popover shadow-md"
-                >
-                  {mentionCandidates.map((m) => (
-                    <button
-                      key={m.user_id}
-                      type="button"
-                      role="option"
-                      aria-selected={false}
-                      onMouseDown={(e) => {
-                        e.preventDefault()
-                        insertMention(m.username)
-                      }}
-                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
+              {commentMenuOpen && commentMenuPos ? (
+                // Portal both the #task-reference and @mention menus to body
+                // with fixed positioning so the comment box's overflow-hidden
+                // container can't clip them.
+                createPortal(
+                  commentTaskReference.open ? (
+                    <TaskReferenceMenu
+                      tasks={commentTaskReference.candidates}
+                      activeIndex={commentTaskReference.activeIndex}
+                      onChoose={commentTaskReference.choose}
+                      onActiveIndexChange={commentTaskReference.setActiveIndex}
+                      className="fixed z-[60]"
+                      style={{ top: commentMenuPos.top, left: commentMenuPos.left, width: commentMenuPos.width, maxHeight: 280 }}
+                    />
+                  ) : (
+                    <div
+                      role="listbox"
+                      aria-label="提及成员"
+                      className="fixed z-[60] overflow-hidden rounded-lg border border-border bg-popover shadow-md"
+                      style={{ top: commentMenuPos.top, left: commentMenuPos.left, width: commentMenuPos.width, maxHeight: 240 }}
                     >
-                      <span className="font-medium text-foreground">{m.display_name}</span>
-                      <span className="truncate text-xs text-muted-foreground">@{m.username}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
+                      {mentionCandidates.map((m) => (
+                        <button
+                          key={m.user_id}
+                          type="button"
+                          role="option"
+                          aria-selected={false}
+                          onMouseDown={(e) => {
+                            e.preventDefault()
+                            insertMention(m.username)
+                          }}
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
+                        >
+                          <span className="font-medium text-foreground">{m.display_name}</span>
+                          <span className="truncate text-xs text-muted-foreground">@{m.username}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ),
+                  document.body,
+                )
+              ) : null}
               <Input
                 ref={commentInputRef}
                 value={newComment}
