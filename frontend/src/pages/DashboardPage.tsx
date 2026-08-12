@@ -97,14 +97,14 @@ export default function DashboardPage() {
           ].map((metric, index) => {
             const Icon = metric.icon
             return (
-              <div key={metric.label} className="flex items-end justify-between gap-4 border-b border-border px-4 py-5 last:border-b-0 sm:[&:nth-child(odd)]:border-r sm:[&:nth-last-child(-n+2)]:border-b-0 lg:border-b-0 lg:border-r lg:last:border-r-0">
+              <div key={metric.label} className="flex items-end justify-between gap-4 border-b border-border bg-gradient-to-br from-transparent to-muted/20 px-4 py-5 transition-colors hover:from-muted/10 hover:to-muted/30 last:border-b-0 sm:[&:nth-child(odd)]:border-r sm:[&:nth-last-child(-n+2)]:border-b-0 lg:border-b-0 lg:border-r lg:last:border-r-0">
                 <div>
-                  <p className="text-[10px] font-semibold text-muted-foreground">{metric.label}</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{metric.label}</p>
                   <p className="tnum mt-2 text-3xl font-semibold leading-none text-foreground">
-                    {String(metric.value).padStart(2, '0')}<span className="text-base text-muted-foreground">{metric.suffix}</span>
+                    {String(metric.value).padStart(2, '0')}<span className="text-base font-normal text-muted-foreground">{metric.suffix}</span>
                   </p>
                 </div>
-                <Icon className={cn('h-4 w-4', index === 3 && overview.overdue > 0 ? 'text-danger' : 'text-muted-foreground')} />
+                <Icon className={cn('h-5 w-5', index === 3 && overview.overdue > 0 ? 'text-danger' : 'text-muted-foreground')} />
               </div>
             )
           })}
@@ -143,15 +143,15 @@ export default function DashboardPage() {
                 className="block group"
                 onClick={() => setCurrentProject(p)}
               >
-                <Card hover className="relative h-full overflow-hidden" style={{ '--project-accent': p.color } as React.CSSProperties}>
-                  <span className="absolute inset-y-0 left-0 w-1" style={{ backgroundColor: p.color }} aria-hidden="true" />
+                <Card hover className="relative h-full overflow-hidden transition-all duration-300 hover:shadow-lg hover:shadow-primary/5" style={{ '--project-accent': p.color } as React.CSSProperties}>
+                  <span className="absolute inset-y-0 left-0 w-1 transition-all duration-300 group-hover:w-1.5" style={{ backgroundColor: p.color }} aria-hidden="true" />
                   <CardContent className="p-5 pl-6">
                     <div className="mb-5 flex items-start justify-between gap-4">
                       <div className="min-w-0">
-                        <span className="tnum text-[10px] font-semibold text-muted-foreground">PROJECT {String(projectIndex + 1).padStart(2, '0')}</span>
-                        <h3 className="mt-1 truncate text-lg font-semibold text-foreground transition-colors group-hover:text-[var(--project-accent)]">{p.name}</h3>
+                        <span className="tnum text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">PROJECT {String(projectIndex + 1).padStart(2, '0')}</span>
+                        <h3 className="mt-1.5 truncate text-lg font-semibold text-foreground transition-colors group-hover:text-[var(--project-accent)]">{p.name}</h3>
                       </div>
-                      <span className="flex h-8 w-8 flex-none items-center justify-center rounded-[8px] bg-muted text-muted-foreground transition-all duration-300 group-hover:translate-x-0.5 group-hover:text-foreground">
+                      <span className="flex h-9 w-9 flex-none items-center justify-center rounded-lg bg-muted text-muted-foreground transition-all duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:bg-[var(--project-accent)] group-hover:text-white group-hover:shadow-md">
                         <ArrowUpRight className="h-4 w-4" />
                       </span>
                     </div>
@@ -171,7 +171,7 @@ export default function DashboardPage() {
                               <span className="tnum">{progress}%</span>
                             </div>
                             <div
-                              className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
+                              className="h-2 w-full overflow-hidden rounded-full bg-muted"
                               role="progressbar"
                               aria-label="项目完成进度"
                               aria-valuemin={0}
@@ -179,7 +179,7 @@ export default function DashboardPage() {
                               aria-valuenow={progress}
                             >
                               <div
-                                className="h-full rounded-full bg-success transition-all duration-500"
+                                className="h-full rounded-full bg-gradient-to-r from-success to-success/80 transition-all duration-500 shadow-sm"
                                 style={{ width: `${progress}%` }}
                               />
                             </div>
@@ -239,7 +239,7 @@ export default function DashboardPage() {
           type="button"
           onClick={() => setShowChat(true)}
           aria-label="打开跨项目助手"
-          className="fixed bottom-6 right-6 z-30 flex h-11 w-11 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-md transition-transform duration-200 hover:scale-105"
+          className="fixed bottom-6 right-6 z-30 flex h-12 w-12 items-center justify-center rounded-full border border-border bg-gradient-to-br from-background to-muted/30 text-foreground shadow-lg backdrop-blur-sm transition-all duration-300 hover:scale-105 hover:shadow-xl hover:shadow-primary/10 hover:border-primary/30"
         >
           <MessageSquare className="h-5 w-5" />
         </button>

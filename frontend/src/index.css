@@ -78,12 +78,16 @@
     font-family: 'Inter', -apple-system, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
     font-style: normal;
-    background-image: radial-gradient(900px 420px at 0% 0%, rgb(232 73 15 / 0.035), transparent 65%);
+    background-image:
+      radial-gradient(900px 420px at 0% 0%, rgb(232 73 15 / 0.035), transparent 65%),
+      radial-gradient(600px 300px at 100% 100%, rgb(244 96 40 / 0.025), transparent 55%);
     background-repeat: no-repeat;
   }
 
   .dark body {
-    background-image: radial-gradient(900px 420px at 0% 0%, rgb(244 96 40 / 0.05), transparent 65%);
+    background-image:
+      radial-gradient(900px 420px at 0% 0%, rgb(244 96 40 / 0.05), transparent 65%),
+      radial-gradient(600px 300px at 100% 100%, rgb(232 73 15 / 0.03), transparent 55%);
   }
 
   /* Never italicize CJK text */
@@ -163,10 +167,10 @@
   }
 
   .glass {
-    @apply bg-[#faf6f0]/70 dark:bg-black/40 backdrop-blur-xl border-b border-border;
+    @apply bg-[#faf6f0]/80 dark:bg-black/50 backdrop-blur-xl border-b border-border shadow-sm;
   }
   .glass-strong {
-    @apply bg-[#faf6f0]/85 dark:bg-neutral-900/70 backdrop-blur-xl border border-border;
+    @apply bg-[#faf6f0]/90 dark:bg-neutral-900/80 backdrop-blur-xl border border-border shadow-lg;
   }
 
   .focus-ring {
