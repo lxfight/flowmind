@@ -302,3 +302,46 @@ async def test_cascade_subtask_status_on_parent_put(client):
     ).json()
     assert sub["status_id"] == done_status["id"]
     assert sub["is_completed"] is True
+
+
+@pytest.mark.asyncio
+async def test_concurrent_creates_get_distinct_orders(client):
+    """Concurrent creates in the same column must not collide on order.
+
+    Serialization relies on Postgres advisory locks; SQLite has no advisory
+    locks, so the assertion only applies on Postgres.
+    """
+    import os
+
+    if "sqlite" in os.environ.get("DATABASE_URL", ""):
+        import pytest as _pytest
+        _pytest.skip("advisory lock serialization is Postgres-only")
+
+    import asyncio
+
+    headers = admin_login(client)
+    project_id, statuses = create_project(client, headers)
+    status_id = statuses[0]["id"]
+
+    async def create_one(index):
+        response = await asyncio.to_thread(
+            client.post,
+            f"/api/projects/{project_id}/tasks",
+            headers=headers,
+            json={"title": f"并发任务 {index}", "status_id": status_id},
+        )
+        assert response.status_code == 201, response.text
+        return response.json()["order"]
+
+    orders = await asyncio.gather(*(create_one(i) for i in range(5)))
+    assert len(orders) == len(set(orders)), f"duplicate orders: {orders}"
+
+    # And a list reflects the creation order via the order field.
+    response = client.get(
+        f"/api/projects/{project_id}/tasks",
+        headers=headers,
+        params={"status_id": status_id},
+    )
+    assert response.status_code == 200
+    titles = [item["title"] for item in response.json()["items"]]
+    assert titles == [f"并发任务 {i}" for i in range(5)]

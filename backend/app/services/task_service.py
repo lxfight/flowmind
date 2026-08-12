@@ -5,7 +5,7 @@ import json
 from datetime import UTC, datetime
 
 from fastapi import HTTPException
-from sqlalchemy import func, inspect, or_, select
+from sqlalchemy import func, inspect, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -17,6 +17,7 @@ from app.api.permissions import (
     ensure_status_in_project,
     ensure_task_in_project,
 )
+from app.core.config import get_settings
 from app.core.notify import create_notification
 from app.core.paths import get_upload_dir
 from app.models.activity import ActivityLog
@@ -397,6 +398,14 @@ async def create_task(
         else []
     )
 
+    # Serialize new-task ordering against concurrent creates in the same
+    # column. Postgres uses an advisory transaction lock keyed by the column
+    # (SQLite serializes writes itself, so it needs no extra locking).
+    if "postgresql" in get_settings().database_url:
+        # Collapse (project, status, parent) into a 64-bit advisory key.
+        key = (project_id & 0xFFFF) << 48 | (data.status_id & 0xFFFF) << 32 | (data.parent_task_id or 0) & 0xFFFFFFFF
+        await db.execute(text("SELECT pg_advisory_xact_lock(:k)").bindparams(k=key))
+
     result = await db.execute(
         select(func.max(Task.order)).where(
             Task.status_id == data.status_id,
@@ -635,6 +644,10 @@ async def move_task(
     if task.parent_task_id is None:
         await _cascade_subtask_status(db, task.id, status.id, status.is_done)
 
+    # Lock the whole target column before re-indexing orders so concurrent
+    # moves (drag + websocket refresh) serialize instead of overwriting each
+    # other's order sequence. Postgres honors FOR UPDATE; SQLite serializes
+    # writes at the DB level, so this is safe on both.
     result = await db.execute(
         select(Task)
         .where(
@@ -643,6 +656,7 @@ async def move_task(
             Task.parent_task_id == task.parent_task_id,
         )
         .order_by(Task.order, Task.id)
+        .with_for_update()
     )
     all_tasks = result.scalars().all()
     for i, t in enumerate(all_tasks):
@@ -895,6 +909,9 @@ async def add_subtask(
 ) -> TaskOut:
     await ensure_project_editor(project_id, user, db)
     parent = await ensure_task_in_project(project_id, parent_task_id, db)
+    if "postgresql" in get_settings().database_url:
+        key = (project_id & 0xFFFF) << 48 | (parent_task_id & 0xFFFFFFFF)
+        await db.execute(text("SELECT pg_advisory_xact_lock(:k)").bindparams(k=key))
     result = await db.execute(
         select(func.max(Task.order)).where(Task.parent_task_id == parent_task_id)
     )
