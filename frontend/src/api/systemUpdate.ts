@@ -83,8 +83,8 @@ export async function applyUpdate(version: string, requestId: string): Promise<v
   await api.post('/admin/update/apply', { version, request_id: requestId })
 }
 
-export async function rollbackUpdate(version: string, requestId: string): Promise<void> {
-  await api.post('/admin/update/rollback', { version, request_id: requestId })
+export async function rollbackUpdate(version: string, requestId: string, restoreDatabase = false): Promise<void> {
+  await api.post('/admin/update/rollback', { version, request_id: requestId, restore_database: restoreDatabase })
 }
 
 export async function fetchUpdateHistory(): Promise<UpdateRun[]> {
