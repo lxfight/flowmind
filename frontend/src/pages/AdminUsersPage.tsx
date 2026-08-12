@@ -35,6 +35,7 @@ export default function AdminUsersPage() {
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [actionId, setActionId] = useState<number | null>(null)
+  const [stats, setStats] = useState({ pending: 0, active: 0, disabled: 0 })
 
   const loadUsers = useCallback(async (p = 1) => {
     setLoading(true)
@@ -43,6 +44,13 @@ export default function AdminUsersPage() {
       setUsers(res.data.items)
       setTotal(res.data.total)
       setPage(res.data.page)
+      // Global counts come from the backend so the overview is accurate
+      // across all pages, not just the current one.
+      setStats({
+        pending: res.data.pending_count ?? 0,
+        active: res.data.active_count ?? 0,
+        disabled: res.data.disabled_count ?? 0,
+      })
     } catch {
       toast.error('加载用户列表失败')
     }
@@ -139,6 +147,10 @@ export default function AdminUsersPage() {
     )
   }
 
+  const pendingCount = stats.pending
+  const activeCount = stats.active
+  const disabledCount = stats.disabled
+  // Users visible on the current page (drive the per-status blocks below).
   const pendingUsers = users.filter(u => !u.is_approved && u.is_active)
   const activeUsers = users.filter(u => u.is_approved && u.is_active)
   const disabledUsers = users.filter(u => !u.is_active)
@@ -149,9 +161,9 @@ export default function AdminUsersPage() {
 
         <section className="mb-8 grid border-y border-border sm:grid-cols-3" aria-label="用户概览">
           {[
-            { label: '待审批', value: pendingUsers.length, icon: Clock3, tone: pendingUsers.length > 0 ? 'text-warning' : 'text-muted-foreground' },
-            { label: '活跃用户', value: activeUsers.length, icon: UserCheck, tone: 'text-success' },
-            { label: '已禁用', value: disabledUsers.length, icon: UserX, tone: disabledUsers.length > 0 ? 'text-danger' : 'text-muted-foreground' },
+            { label: '待审批', value: pendingCount, icon: Clock3, tone: pendingCount > 0 ? 'text-warning' : 'text-muted-foreground' },
+            { label: '活跃用户', value: activeCount, icon: UserCheck, tone: 'text-success' },
+            { label: '已禁用', value: disabledCount, icon: UserX, tone: disabledCount > 0 ? 'text-danger' : 'text-muted-foreground' },
           ].map((metric) => {
             const Icon = metric.icon
             return (

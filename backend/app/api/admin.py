@@ -27,11 +27,32 @@ async def list_users(
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
+    # Global counts (across all users, not just this page) so the overview
+    # cards are accurate regardless of pagination.
+    status_result = await db.execute(
+        select(
+            User.is_approved,
+            User.is_active,
+            func.count(User.id),
+        ).group_by(User.is_approved, User.is_active)
+    )
+    pending_count = active_count = disabled_count = 0
+    for is_approved, is_active, count in status_result.all():
+        if not is_active:
+            disabled_count += count
+        elif not is_approved:
+            pending_count += count
+        else:
+            active_count += count
+
     return UserListOut(
         items=[UserOut.model_validate(u) for u in result.scalars().all()],
         total=total,
         page=page,
         page_size=page_size,
+        pending_count=pending_count,
+        active_count=active_count,
+        disabled_count=disabled_count,
     )
 
 

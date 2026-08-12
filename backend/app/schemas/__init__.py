@@ -331,6 +331,10 @@ class TaskListOut(PageOut):
 
 class UserListOut(PageOut):
     items: list[UserOut]
+    # Global counts across all users (not just the current page).
+    pending_count: int = 0
+    active_count: int = 0
+    disabled_count: int = 0
 
 
 class TaskMove(BaseModel):
