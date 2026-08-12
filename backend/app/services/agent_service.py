@@ -306,8 +306,10 @@ async def get_project_info(config: RunnableConfig, project_id: int | None = None
 
 @tool
 async def list_tasks(config: RunnableConfig, status_id: int | None = None, assignee_id: int | None = None,
+                     due_overdue: bool | None = None, due_soon: bool | None = None,
                      project_id: int | None = None) -> str:
-    """列出项目任务。跨项目会话中不传 project_id 时列出所有项目的任务。"""
+    """列出项目任务；due_overdue=true 只看已逾期，due_soon=true 只看24小时内到期。
+    跨项目会话中不传 project_id 时列出所有项目的任务。"""
     db, user, ctx_pid, project_ids, names = _get_ctx(config)
     targets = [project_id] if project_id is not None else ([ctx_pid] if ctx_pid is not None else project_ids)
     for t in targets:
@@ -318,7 +320,8 @@ async def list_tasks(config: RunnableConfig, status_id: int | None = None, assig
         labeled = len(targets) > 1
         for pid in targets:
             result = await task_service.list_tasks(
-                pid, user, db, status_id=status_id, assignee_id=assignee_id, page=1, page_size=100
+                pid, user, db, status_id=status_id, assignee_id=assignee_id,
+                due_overdue=due_overdue, due_soon=due_soon, page=1, page_size=100,
             )
             tasks = result.items
             lines = []

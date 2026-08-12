@@ -345,3 +345,46 @@ async def test_concurrent_creates_get_distinct_orders(client):
     assert response.status_code == 200
     titles = [item["title"] for item in response.json()["items"]]
     assert titles == [f"并发任务 {i}" for i in range(5)]
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_due_overdue_and_soon_filters(client):
+    from datetime import UTC, datetime, timedelta
+
+    from conftest import async_session_factory
+    from sqlalchemy import select
+
+    from app.models.user import User
+    from app.services.task_service import list_tasks
+
+    headers = admin_login(client)
+    project_id, statuses = create_project(client, headers, name="截止筛选")
+    status_id = statuses[0]["id"]
+    now = datetime.now(UTC)
+
+    # Create three tasks, then set their due dates directly.
+    overdue_task = create_task(client, headers, project_id, status_id, "已逾期")
+    soon_task = create_task(client, headers, project_id, status_id, "今天到期")
+    later_task = create_task(client, headers, project_id, status_id, "下月到期")
+
+    async with async_session_factory() as session:
+        from app.models.task import Task
+        for task_id, due in [
+            (overdue_task["id"], now - timedelta(days=2)),
+            (soon_task["id"], now + timedelta(hours=6)),
+            (later_task["id"], now + timedelta(days=30)),
+        ]:
+            row = (await session.execute(select(Task).where(Task.id == task_id))).scalar_one()
+            row.due_date = due
+        await session.commit()
+
+        user = (await session.execute(select(User).where(User.username == "admin"))).scalar_one()
+
+        overdue = await list_tasks(project_id, user, session, due_overdue=True)
+        assert [t.id for t in overdue.items] == [overdue_task["id"]]
+
+        soon = await list_tasks(project_id, user, session, due_soon=True)
+        assert [t.id for t in soon.items] == [soon_task["id"]]
+
+        both = await list_tasks(project_id, user, session, due_overdue=True, due_soon=True)
+        assert {t.id for t in both.items} == {overdue_task["id"], soon_task["id"]}

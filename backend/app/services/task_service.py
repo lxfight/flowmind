@@ -2,7 +2,7 @@ import asyncio
 import contextlib
 import contextvars
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy import func, inspect, or_, select, text
@@ -304,6 +304,8 @@ async def list_tasks(
     status_id: int | None = None,
     assignee_id: int | None = None,
     search: str | None = None,
+    due_overdue: bool | None = None,
+    due_soon: bool | None = None,
     page: int = 1,
     page_size: int = 20,
 ) -> TaskListOut:
@@ -321,6 +323,22 @@ async def list_tasks(
         filters.append(
             Task.title.ilike(pattern, escape="\\") | Task.description.ilike(pattern, escape="\\")
         )
+    now = datetime.now(UTC)
+    if due_overdue and due_soon:
+        # "临近到期" = 逾期 或 24小时内到期
+        filters.append(Task.due_date.isnot(None))
+        filters.append(Task.is_completed.is_(False))
+        filters.append(or_(Task.due_date < now, Task.due_date <= now + timedelta(hours=24)))
+    else:
+        if due_overdue:
+            filters.append(Task.due_date.isnot(None))
+            filters.append(Task.due_date < now)
+            filters.append(Task.is_completed.is_(False))
+        if due_soon:
+            filters.append(Task.due_date.isnot(None))
+            filters.append(Task.due_date >= now)
+            filters.append(Task.due_date <= now + timedelta(hours=24))
+            filters.append(Task.is_completed.is_(False))
 
     count_result = await db.execute(
         select(func.count(Task.id)).where(*filters)
