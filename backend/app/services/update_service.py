@@ -65,6 +65,22 @@ def normalize_version(value: str) -> str:
     return f"{match.group(1)}.{match.group(2)}.{match.group(3)}{suffix}"
 
 
+def _compare_prerelease(left: str, right: str) -> int:
+    """SemVer prerelease comparison: dot-separated identifiers, numeric
+    identifiers compared numerically, alphanumeric lexically. Returns -1/0/1."""
+    def key(ident: str):
+        return (0, int(ident)) if ident.isdigit() else (1, ident)
+
+    left_parts = [key(p) for p in left.split(".")]
+    right_parts = [key(p) for p in right.split(".")]
+    for left_part, right_part in zip(left_parts, right_parts, strict=False):
+        if left_part != right_part:
+            return -1 if left_part < right_part else 1
+    if len(left_parts) == len(right_parts):
+        return 0
+    return -1 if len(left_parts) < len(right_parts) else 1
+
+
 def version_is_newer(candidate: str, current: str) -> bool:
     candidate_match = _SEMVER.fullmatch(candidate)
     current_match = _SEMVER.fullmatch(current)
@@ -76,11 +92,15 @@ def version_is_newer(candidate: str, current: str) -> bool:
         return candidate_core > current_core
     candidate_pre = candidate_match.group(4)
     current_pre = current_match.group(4)
-    if current_pre and not candidate_pre:
-        return True
-    if candidate_pre and not current_pre:
+    if not current_pre and not candidate_pre:
         return False
-    return bool(candidate_pre and current_pre and candidate_pre > current_pre)
+    if not current_pre:
+        # candidate has a prerelease, current is a release: prerelease is lower
+        return False
+    if not candidate_pre:
+        # candidate is a release, current has a prerelease: higher
+        return True
+    return _compare_prerelease(candidate_pre, current_pre) > 0
 
 
 class ReleaseService:

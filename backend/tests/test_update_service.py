@@ -79,6 +79,16 @@ def test_normalize_version_rejects_invalid_values(raw: str):
         ("1.0.0", "1.0.0-rc.1", True),
         ("1.0.0-rc.1", "1.0.0", False),
         ("0.1.0", "0.1.0", False),
+        # Numeric prerelease identifiers compare numerically (rc.10 > rc.9)
+        ("1.0.0-rc.10", "1.0.0-rc.9", True),
+        ("1.0.0-rc.9", "1.0.0-rc.10", False),
+        ("1.0.0-rc.2", "1.0.0-rc.10", False),
+        # A longer prerelease is higher when the shared prefix ties (rc.1 < rc.1.1)
+        ("1.0.0-rc.1.1", "1.0.0-rc.1", True),
+        # Different prerelease cores still decide by core version first
+        ("1.1.0-rc.1", "1.0.0-rc.99", True),
+        # Alphanumeric identifiers compare lexically
+        ("1.0.0-alpha.2", "1.0.0-alpha.10", False),
     ],
 )
 def test_version_is_newer(candidate: str, current: str, expected: bool):
